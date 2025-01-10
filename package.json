@@ -1,6 +1,7 @@
 {
   "name": "weight-balance-calculator",
   "version": "0.1.0",
+  "homepage": "/weight-balance",
   "private": true,
   "type": "module",
   "dependencies": {

@@ -1,4 +1,3 @@
-import type { FC } from 'react';
 import {
     ScatterChart,
     Scatter,
@@ -8,10 +7,11 @@ import {
     CartesianGrid,
     Tooltip,
     Legend,
-    ReferenceLine,
     ResponsiveContainer,
-    Label
+    Label,
 } from 'recharts';
+
+import { Plane, PlaneLanding } from 'lucide-react';
 
 interface EnvelopePoint {
     cg: number;
@@ -29,6 +29,57 @@ interface CGEnvelopeVisualizationProps {
         aftCG: number;
     };
 }
+
+const CustomScatterTakeoff = (props: any) => {
+    const { cx, cy } = props;
+    return (
+        <Plane
+            x={cx - 12}  // Offset to center the icon
+            y={cy - 12}
+            size={24}
+            className="text-green-500 rotate-45"  // Rotate for takeoff angle
+        />
+    );
+};
+
+const CustomScatterLanding = (props: any) => {
+    const { cx, cy } = props;
+    return (
+        <PlaneLanding
+            x={cx - 12}
+            y={cy - 12}
+            size={24}
+            className="text-yellow-500 -rotate-45"  // Rotate for landing angle
+        />
+    );
+};
+
+const CustomLegend = ({ payload }: any) => {
+    return (
+        <div className="flex gap-4 justify-center mb-8"> {/* Added margin bottom */}
+            {payload.map((entry: any, index: number) => (
+                <div key={`item-${index}`} className="flex items-center gap-2">
+                    {entry.value === 'Envelope' ? (
+                        <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: entry.color }}
+                        />
+                    ) : (
+                        <div className="flex items-center text-black"> {/* Force black color for text */}
+                            {entry.value === 'Takeoff' ? (
+                                <Plane size={16} className="text-orange-500 rotate-45" />
+                            ) : (
+                                <PlaneLanding size={16} className="text-green-500 -rotate-45" />
+                            )}
+                            <span className="ml-2">{entry.value}</span>
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+};
+
 const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                                                                              envelopePoints,
                                                                              takeoffPoint,
@@ -108,9 +159,9 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                     <Scatter
                         name="Envelope"
                         data={boundaryData}
-                        line={{ stroke: '#8884d8' }}
+                        line={{ stroke: '#8884d8', type: 'linear' }}
                         fill="#8884d8"
-                        lineJointType="monotoneX"
+                        lineJointType="linear"
                     />
 
                     {/* Flight path line */}
@@ -125,28 +176,24 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                         />
                     )}
 
-                    {/* Takeoff point */}
                     {takeoffPoint && (
                         <Scatter
                             name="Takeoff"
                             data={takeoffData}
-                            fill="#ff0000"
-                            shape="triangle"
+                            shape={<CustomScatterTakeoff />}
                         />
                     )}
 
-                    {/* Landing point */}
                     {landingPoint && (
                         <Scatter
                             name="Landing"
                             data={landingData}
-                            fill="#00ff00"
-                            shape="square"
+                            shape={<CustomScatterLanding />}
                         />
                     )}
 
                     <Tooltip content={<CustomTooltip />} />
-                    <Legend />
+                    <CustomLegend />
                 </ScatterChart>
             </ResponsiveContainer>
         </div>
