@@ -1,46 +1,112 @@
-# Getting Started with Create React App
+# Aircraft Weight and Balance Calculator
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A web-based tool for calculating aircraft weight and balance, designed for General Aviation aircraft. This application helps pilots ensure their aircraft loading meets safety requirements by calculating center of gravity (CG) and total weight, while providing visual feedback through CG envelope visualization.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Aircraft Selection**: Supports multiple aircraft types including:
+    - Cessna 172S
+    - Diamond DA40D
+    - Diamond DA40NG
+    - Piper PA-28-161
 
-### `npm start`
+- **Weight Input**:
+    - Pilot and front passenger weight
+    - Rear passenger weight
+    - Baggage weight
+    - Fuel quantity (with unit conversion between liters and kg)
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+- **Real-time Calculations**:
+    - Total weight calculation
+    - Center of gravity (CG) computation
+    - Automatic validation against aircraft limits
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+- **Visual Feedback**:
+    - Interactive CG envelope visualization
+    - Current loading point display
+    - Weight and balance status indicators
 
-### `npm test`
+- **Aircraft Information**:
+    - Display of key aircraft performance data
+    - Maximum weights and limitations
+    - Speed references
+    - Aircraft-specific limitations
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Getting Started
 
-### `npm run build`
+### Prerequisites
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- Node.js (v14 or higher)
+- npm (v6 or higher)
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Installation
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd weight-balance-calculator
+```
 
-### `npm run eject`
+2. Install dependencies:
+```bash
+npm install
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+3. Start the development server:
+```bash
+npm start
+```
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+The application will be available at `http://localhost:3000`
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## Technologies Used
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+- React
+- TypeScript
+- Tailwind CSS
+- Recharts for visualization
+- shadcn/ui components
 
-## Learn More
+## Project Structure
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+```
+src/
+├── components/
+│   ├── WeightBalanceCalculator.tsx
+│   ├── CGEnvelopeVisualization.tsx
+│   ├── AircraftInfoBox.tsx
+│   └── ui/
+│       ├── Button.tsx
+│       ├── Card.tsx
+│       ├── Input.tsx
+│       └── ...
+├── data/
+│   └── aircraftData.ts
+└── App.tsx
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Usage
+
+1. Select an aircraft type from the dropdown menu
+2. Enter weights for pilot, passengers, and baggage
+3. Input fuel quantity (in liters or kg)
+4. Click "Calculate" to see results
+5. Check the CG envelope visualization to ensure the loading point is within limits
+6. Review aircraft performance data in the info box below
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Aircraft data sourced from official aircraft manuals and documentation
+- Built with support from the general aviation community
+
+## Safety Notice
+
+This tool is for reference only. Always verify weight and balance calculations against official aircraft documentation before flight.

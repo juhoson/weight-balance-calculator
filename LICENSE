@@ -1,0 +1,68 @@
+MIT License
+
+Copyright (c) 2025 Aircraft Weight and Balance Calculator
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+AVIATION SAFETY DISCLAIMER AND TERMS OF USE:
+
+1. Reference Tool Only:
+   This software is designed solely as a preliminary reference tool for weight
+   and balance calculations. It is NOT a replacement for official aircraft
+   documentation or proper flight planning procedures.
+
+2. Pilot Responsibility:
+   - Every pilot must verify all weight and balance calculations using their
+     specific aircraft's Pilot Operating Handbook (POH) before each flight.
+   - Aircraft configurations, modifications, and equipment changes can affect
+     weight and balance calculations. Users must account for their specific
+     aircraft's current configuration.
+   - The pilot-in-command (PIC) is ultimately responsible for ensuring the
+     aircraft is operated within its approved weight and balance envelope.
+
+3. Aircraft Specificity:
+   - The data provided in this tool is based on generic aircraft models and
+     may not reflect the exact characteristics of any specific aircraft.
+   - Individual aircraft may have different empty weights, moment arms, and
+     limitations based on modifications, equipment installations, or repairs.
+
+4. Verification Requirement:
+   - All calculations must be verified against the aircraft's specific POH
+     and weight and balance documentation.
+   - This tool should never be used as the sole source for weight and
+     balance calculations.
+
+5. Currency of Information:
+   - Aircraft performance data and limitations may change over time through
+     service bulletins, airworthiness directives, or manufacturer updates.
+   - Users must ensure they are using current documentation for their specific
+     aircraft.
+
+6. Training and Competency:
+   - Users of this software should have proper training in weight and balance
+     calculations and understand the implications of loading on aircraft
+     performance.
+   - This tool is not a substitute for proper flight planning training and
+     experience.
+
+The authors and copyright holders make no representations about the suitability
+of this software for any purpose. It is provided "AS IS" without express or
+implied warranty. The authors and copyright holders shall not be liable for any
+damages suffered as a result of using, modifying or distributing this software
+or its derivatives.

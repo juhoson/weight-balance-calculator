@@ -9,6 +9,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 import {aircraftData, calculateCG, calculateMoment, isWithinEnvelope} from '../data/aircraftData';
 import {FormItem, FormLabel, FormMessage} from "./ui/Form";
 import AircraftInfoBox from "./AircraftInfoBox";
+import SafetyDisclaimer from "./SafetyDisclaimer";
 
 interface CalculatorInputs {
     pilotFrontWeight: number;
@@ -48,9 +49,9 @@ const WeightBalanceCalculator: React.FC = () => {
         // Convert current amount to new unit
         if (inputs.fuelUnit !== unit) {
             if (unit === 'kg' && inputs.fuelUnit === 'liters') {
-                newFuelAmount = inputs.fuelAmount * 0.72; // Convert liters to kg (approximate aviation fuel density)
+                newFuelAmount = inputs.fuelAmount * aircraft.stations.fuel.weightPerLiter; // Convert liters to kg
             } else if (unit === 'liters' && inputs.fuelUnit === 'kg') {
-                newFuelAmount = inputs.fuelAmount / 0.72; // Convert kg to liters
+                newFuelAmount = inputs.fuelAmount / aircraft.stations.fuel.weightPerLiter; // Convert kg to liters
             }
         }
 
@@ -74,7 +75,7 @@ const WeightBalanceCalculator: React.FC = () => {
         // Calculate fuel weight based on input unit
         const fuelWeight = inputs.fuelUnit === 'kg'
             ? inputs.fuelAmount
-            : inputs.fuelAmount * 0.72; // Convert liters to kg if needed
+            : inputs.fuelAmount * aircraft.stations.fuel.weightPerLiter; // Convert liters to kg if needed
 
         // Calculate individual moments
         const moments = {
@@ -107,11 +108,12 @@ const WeightBalanceCalculator: React.FC = () => {
         if (inputs.fuelUnit === 'liters') {
             return aircraft.stations.fuel.maxLiters;
         }
-        return aircraft.stations.fuel.maxLiters * 0.72; // Convert max liters to kg
+        return aircraft.stations.fuel.maxLiters * aircraft.stations.fuel.weightPerLiter; // Convert max liters to kg
     };
 
     return (
         <>
+        <SafetyDisclaimer />
         <Card>
             <CardHeader>
                 <CardTitle>Aircraft Weight & Balance Calculator</CardTitle>
