@@ -11,6 +11,7 @@ export interface AircraftData {
         fuel: {
             arm: number;
             maxLiters: number;
+            standardLiters: number;
             weightPerLiter: number;
         };
     };
@@ -47,7 +48,8 @@ export const aircraftData: Record<string, AircraftData> = {
             fuel: {
                 arm: 1.17,
                 weightPerLiter: 0.72,
-                maxLiters: 200
+                maxLiters: 200,
+                standardLiters: 132
             }
         },
         envelope: {
@@ -87,7 +89,8 @@ export const aircraftData: Record<string, AircraftData> = {
             fuel: {
                 arm: 2.63,
                 weightPerLiter: 0.8,
-                maxLiters: 148
+                maxLiters: 148,
+                standardLiters: 106
             }
         },
         envelope: {
@@ -127,7 +130,8 @@ export const aircraftData: Record<string, AircraftData> = {
             fuel: {
                 arm: 2.63,
                 weightPerLiter: 0.8,
-                maxLiters: 148
+                maxLiters: 148,
+                standardLiters: 106
             }
         },
         envelope: {
@@ -167,7 +171,8 @@ export const aircraftData: Record<string, AircraftData> = {
             fuel: {
                 arm: 2.41,
                 weightPerLiter: 0.72,
-                maxLiters: 182
+                maxLiters: 182,
+                standardLiters: 128
             }
         },
         envelope: {
