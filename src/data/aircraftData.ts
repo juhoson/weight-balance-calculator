@@ -31,8 +31,10 @@ export interface AircraftData {
         stallSpeedLanding: number;
         bestClimbSpeed: number;
         approachSpeedNormal: number;
+        fuelConsumption: number
     };
 }
+
 
 export const aircraftData: Record<string, AircraftData> = {
     'C172S (SE-MIA)': {
@@ -73,7 +75,8 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedClean: 48,
             stallSpeedLanding: 40,
             bestClimbSpeed: 74,
-            approachSpeedNormal: 65
+            approachSpeedNormal: 65,
+            fuelConsumption: 38
         }
     },
     'DA40D (SE-MBC)': {
@@ -114,7 +117,8 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedClean: 52,
             stallSpeedLanding: 49,
             bestClimbSpeed: 66,
-            approachSpeedNormal: 67
+            approachSpeedNormal: 67,
+            fuelConsumption: 22
         }
     },
     'DA40NG (SE-MIO)': {
@@ -155,7 +159,8 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedClean: 64,
             stallSpeedLanding: 59,
             bestClimbSpeed: 72,
-            approachSpeedNormal: 77
+            approachSpeedNormal: 77,
+            fuelConsumption: 25
         }
     },
     'PA28-161 (SE-KMI)': {
@@ -196,7 +201,8 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedClean: 50,
             stallSpeedLanding: 44,
             bestClimbSpeed: 79,
-            approachSpeedNormal: 63
+            approachSpeedNormal: 63,
+            fuelConsumption: 38
         }
     }
 };
@@ -210,15 +216,33 @@ export const calculateCG = (totalWeight: number, totalMoment: number): number =>
     return totalMoment / totalWeight;
 };
 
+// Function to check if a point is inside a polygon (using ray casting algorithm)
+const isPointInPolygon = (point: { cg: number; weight: number }, polygon: Array<{ cg: number; weight: number }>) => {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].cg, yi = polygon[i].weight;
+        const xj = polygon[j].cg, yj = polygon[j].weight;
+
+        const intersect = ((yi > point.weight) !== (yj > point.weight))
+            && (point.cg < (xj - xi) * (point.weight - yi) / (yj - yi) + xi);
+
+        if (intersect) inside = !inside;
+    }
+    return inside;
+};
+
 export const isWithinEnvelope = (
-    aircraft: AircraftData,
-    totalWeight: number,
+    aircraft: typeof aircraftData[keyof typeof aircraftData],
+    weight: number,
     cg: number
 ): boolean => {
-    return (
-        totalWeight <= aircraft.mtow &&
-        totalWeight >= aircraft.envelope.limits.minWeight &&
-        cg >= aircraft.envelope.limits.forwardCG &&
-        cg <= aircraft.envelope.limits.aftCG
-    );
+    // Basic limit checks
+    if (weight > aircraft.mtow) return false;
+    if (weight < aircraft.envelope.limits.minWeight) return false;
+    if (cg < aircraft.envelope.limits.forwardCG) return false;
+    if (cg > aircraft.envelope.limits.aftCG) return false;
+
+    // Check if point is inside the envelope polygon
+    const point = { cg, weight };
+    return isPointInPolygon(point, aircraft.envelope.points);
 };

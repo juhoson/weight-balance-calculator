@@ -4,7 +4,7 @@ import {
     Scatter,
     XAxis,
     YAxis,
-    ZAxis,
+    Line,
     CartesianGrid,
     Tooltip,
     Legend,
@@ -18,9 +18,10 @@ interface EnvelopePoint {
     weight: number;
 }
 
-interface CGEnvelopeProps {
+interface CGEnvelopeVisualizationProps {
     envelopePoints: EnvelopePoint[];
-    currentPoint?: EnvelopePoint;
+    takeoffPoint?: EnvelopePoint;
+    landingPoint?: EnvelopePoint;
     limits: {
         maxWeight: number;
         minWeight: number;
@@ -28,29 +29,65 @@ interface CGEnvelopeProps {
         aftCG: number;
     };
 }
-
-const CGEnvelopeVisualization: FC<CGEnvelopeProps> = ({
-                                                                envelopePoints,
-                                                                currentPoint,
-                                                                limits
-                                                            }) => {
+const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
+                                                                             envelopePoints,
+                                                                             takeoffPoint,
+                                                                             landingPoint,
+                                                                             limits,
+                                                                         }) => {
     const boundaryData = envelopePoints.map(point => ({
         cg: point.cg,
         weight: point.weight,
+        dataType: 'boundary'
     }));
 
-    const currentData = currentPoint ? [{
-        cg: currentPoint.cg,
-        weight: currentPoint.weight,
-        z: 1
+    // Add data type to differentiate points in tooltip
+    const takeoffData = takeoffPoint ? [{
+        ...takeoffPoint,
+        dataType: 'takeoff'
     }] : [];
+
+    const landingData = landingPoint ? [{
+        ...landingPoint,
+        dataType: 'landing'
+    }] : [];
+
+    // Create flight path line if both points exist
+    const flightPathData = takeoffPoint && landingPoint ? [
+        { cg: takeoffPoint.cg, weight: takeoffPoint.weight },
+        { cg: landingPoint.cg, weight: landingPoint.weight }
+    ] : [];
+
+    const CustomTooltip = ({ active, payload }: any) => {
+        if (active && payload && payload.length > 0) {
+            const data = payload[0].payload;
+
+            // Different content based on data type
+            if (data.dataType === 'takeoff') {
+                return (
+                    <div className="bg-white p-2 border border-gray-200 rounded shadow">
+                        <p className="font-semibold">Takeoff</p>
+                        <p>CG: {data.cg.toFixed(2)} m</p>
+                        <p>Weight: {data.weight.toFixed(1)} kg</p>
+                    </div>
+                );
+            } else if (data.dataType === 'landing') {
+                return (
+                    <div className="bg-white p-2 border border-gray-200 rounded shadow">
+                        <p className="font-semibold">Landing</p>
+                        <p>CG: {data.cg.toFixed(2)} m</p>
+                        <p>Weight: {data.weight.toFixed(1)} kg</p>
+                    </div>
+                );
+            }
+        }
+        return null;
+    };
 
     return (
         <div className="w-full h-96 p-4">
             <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart
-                    margin={{ top: 20, right: 20, bottom: 60, left: 60 }}
-                >
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 60 }}>
                     <CartesianGrid />
                     <XAxis
                         type="number"
@@ -66,8 +103,8 @@ const CGEnvelopeVisualization: FC<CGEnvelopeProps> = ({
                     >
                         <Label value="Weight (kg)" angle={-90} position="left" offset={20} />
                     </YAxis>
-                    <ZAxis range={[100]} />
 
+                    {/* Envelope boundary */}
                     <Scatter
                         name="Envelope"
                         data={boundaryData}
@@ -76,56 +113,44 @@ const CGEnvelopeVisualization: FC<CGEnvelopeProps> = ({
                         lineJointType="monotoneX"
                     />
 
-                    {currentPoint && (
-                        <Scatter
-                            name="Current Position"
-                            data={currentData}
-                            fill="#ff0000"
-                            shape="circle"
+                    {/* Flight path line */}
+                    {flightPathData.length > 0 && (
+                        <Line
+                            data={flightPathData}
+                            type="linear"
+                            dataKey="weight"
+                            stroke="#ff7300"
+                            strokeWidth={2}
+                            dot={false}
                         />
                     )}
 
-                    <ReferenceLine
-                        x={limits.forwardCG}
-                        stroke="red"
-                        strokeDasharray="3 3"
-                    >
-                        <Label value="Forward CG Limit" angle={90} position="insideBottom" />
-                    </ReferenceLine>
+                    {/* Takeoff point */}
+                    {takeoffPoint && (
+                        <Scatter
+                            name="Takeoff"
+                            data={takeoffData}
+                            fill="#ff0000"
+                            shape="triangle"
+                        />
+                    )}
 
-                    <ReferenceLine
-                        x={limits.aftCG}
-                        stroke="red"
-                        strokeDasharray="3 3"
-                    >
-                        <Label value="Aft CG Limit" angle={90} position="insideBottom" />
-                    </ReferenceLine>
+                    {/* Landing point */}
+                    {landingPoint && (
+                        <Scatter
+                            name="Landing"
+                            data={landingData}
+                            fill="#00ff00"
+                            shape="square"
+                        />
+                    )}
 
-                    <ReferenceLine
-                        y={limits.maxWeight}
-                        stroke="red"
-                        strokeDasharray="3 3"
-                    >
-                        <Label value="Max Weight" position="insideRight" />
-                    </ReferenceLine>
-
-                    <Tooltip
-                        content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                                return (
-                                    <div className="bg-white p-2 border border-gray-200 rounded shadow">
-                                        <p>CG: {payload[0].payload.cg.toFixed(2)} m</p>
-                                        <p>Weight: {payload[0].payload.weight.toFixed(1)} kg</p>
-                                    </div>
-                                );
-                            }
-                            return null;
-                        }}
-                    />
+                    <Tooltip content={<CustomTooltip />} />
                     <Legend />
                 </ScatterChart>
             </ResponsiveContainer>
         </div>
     );
 };
+
 export default CGEnvelopeVisualization;
