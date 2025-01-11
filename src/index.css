@@ -41,3 +41,37 @@ input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+@media print {
+  /* Hide non-essential elements */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ensure the page has white background */
+  body {
+    background: white;
+  }
+
+  /* Ensure full width content */
+  .print-container {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Force show background images if they're part of the content */
+  .print-force-background {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Ensure text is black for better printing */
+  .print-text-black {
+    color: black !important;
+  }
+
+  /* Add page breaks where needed */
+  .print-break-after {
+    break-after: page;
+  }
+}
