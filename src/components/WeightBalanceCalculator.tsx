@@ -1,5 +1,5 @@
 import * as React from 'react';
-import CGEnvelopeVisualization from "./CDEnvelopeVisualization";
+import CGEnvelopeVisualization from "./CGEnvelopeVisualization";
 import { Button } from './ui/Button';
 import { NumberInput } from './ui/NumberInput';
 import { Alert, AlertDescription } from './ui/Alert';

@@ -75,3 +75,20 @@ input::-webkit-inner-spin-button {
     break-after: page;
   }
 }
+
+.transition-opacity {
+  transition-property: opacity;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Ensure background images are preloaded */
+@media (prefers-reduced-motion: no-preference) {
+  .bg-preload {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    z-index: -1;
+  }
+}
