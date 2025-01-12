@@ -2,7 +2,7 @@ import * as React from 'react';
 import CGEnvelopeVisualization from "./CGEnvelopeVisualization";
 import { Button } from './ui/Button';
 import { NumberInput } from './ui/NumberInput';
-import { Alert, AlertDescription } from './ui/Alert';
+import {Alert, AlertDescription, AlertTitle} from './ui/Alert';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/Select';
 
@@ -23,15 +23,8 @@ interface CalculatorInputs {
     baggageWeight: number;
     fuelAmount: number;
     fuelUnit: 'liters' | 'kg';
-}
-
-interface CalculatorInputs {
-    pilotFrontWeight: number;
-    passengerRearWeight: number;
-    baggageWeight: number;
-    fuelAmount: number;
-    fuelUnit: 'liters' | 'kg';
-    flightTime: number; // in minutes
+    flightTime: number;
+    powerSetting: '55%' | '65%' | '75%';  // Add this
 }
 
 interface CalculationResults {
@@ -47,11 +40,16 @@ interface CalculationResults {
         isWithinLimits: boolean;
         moments: Record<string, number>;
         fuelRemaining: number;
+        hasMinimumReserve: boolean;
     };
 }
 
 const DEFAULT_AIRCRAFT = 'C172S (SE-MIA)';
 const DEFAULT_PILOT_WEIGHT = 85;
+
+const MemoizedAircraftBackground = React.memo(AircraftBackground, (prevProps, nextProps) => {
+    return prevProps.selectedAircraft === nextProps.selectedAircraft;
+});
 
 const WeightBalanceCalculator: React.FC = () => {
     const [disclaimerAccepted, setDisclaimerAccepted] = React.useState(() => {
@@ -66,7 +64,8 @@ const WeightBalanceCalculator: React.FC = () => {
             baggageWeight: 0,
             fuelAmount: standardFuel,
             fuelUnit: 'liters',
-            flightTime: 60 // Default 1 hour
+            flightTime: 60,  // 1 hour default
+            powerSetting: '75%'  // Default power setting
         };
     });
 
@@ -111,6 +110,19 @@ const WeightBalanceCalculator: React.FC = () => {
             ...prev,
             [field]: parseFloat(value) || 0
         }));
+    };
+    const calculateTripFuel = () => {
+        if (!selectedAircraft) return 0;
+
+        const aircraft = aircraftData[selectedAircraft];
+        const consumptionData = aircraft.performance.fuelConsumption.find(
+            setting => setting.powerSetting === inputs.powerSetting
+        );
+
+        if (!consumptionData) return 0;
+
+        // Calculate fuel used during flight (not including taxi)
+        return (consumptionData.litersPerHour * inputs.flightTime) / 60;
     };
 
     const handleFuelUnitChange = (unit: 'liters' | 'kg') => {
@@ -160,27 +172,23 @@ const WeightBalanceCalculator: React.FC = () => {
         return 'bg-green-500';
     };
 
-    // Calculate fuel consumption for the flight
-    const calculateFuelConsumption = (aircraft: typeof aircraftData[keyof typeof aircraftData], minutes: number) => {
-        // Calculate consumption based on aircraft's fuel consumption rate
-        const hourlyConsumption = aircraft.performance.fuelConsumption; // Liters per hour at cruise
-        return (hourlyConsumption * minutes) / 60;
-    };
-
     const calculateWeightAndBalance = React.useCallback(() => {
         if (!selectedAircraft) return;
 
         const aircraft = aircraftData[selectedAircraft];
 
-        // Calculate fuel weights
-        const takeoffFuelWeight = inputs.fuelUnit === 'kg'
+        // Calculate trip fuel
+        const tripFuel = calculateTripFuel();
+        // Add taxi fuel
+        const totalFuelConsumed = tripFuel + aircraft.performance.taxiFuel.liters;
+
+        // Convert fuel to weight for calculations
+        const startingFuelWeight = inputs.fuelUnit === 'kg'
             ? inputs.fuelAmount
             : inputs.fuelAmount * aircraft.stations.fuel.weightPerLiter;
 
-        const fuelConsumed = calculateFuelConsumption(aircraft, inputs.flightTime);
-        const landingFuelWeight = Math.max(0, inputs.fuelUnit === 'kg'
-            ? inputs.fuelAmount - (fuelConsumed * aircraft.stations.fuel.weightPerLiter)
-            : (inputs.fuelAmount - fuelConsumed) * aircraft.stations.fuel.weightPerLiter);
+        const landingFuelWeight = Math.max(0, startingFuelWeight -
+            (totalFuelConsumed * aircraft.stations.fuel.weightPerLiter));
 
         // Calculate moments and CG for takeoff
         const takeoffMoments = {
@@ -188,7 +196,7 @@ const WeightBalanceCalculator: React.FC = () => {
             pilotFront: calculateMoment(inputs.pilotFrontWeight, aircraft.stations.pilotFront.arm),
             passengerRear: calculateMoment(inputs.passengerRearWeight, aircraft.stations.passengerRear.arm),
             baggage: calculateMoment(inputs.baggageWeight, aircraft.stations.baggage.arm),
-            fuel: calculateMoment(takeoffFuelWeight, aircraft.stations.fuel.arm)
+            fuel: calculateMoment(startingFuelWeight, aircraft.stations.fuel.arm)
         };
 
         // Calculate moments and CG for landing
@@ -201,15 +209,19 @@ const WeightBalanceCalculator: React.FC = () => {
             inputs.pilotFrontWeight +
             inputs.passengerRearWeight +
             inputs.baggageWeight +
-            takeoffFuelWeight;
+            startingFuelWeight;
 
-        const landingWeight = takeoffWeight - (takeoffFuelWeight - landingFuelWeight);
+        const landingWeight = takeoffWeight - (startingFuelWeight - landingFuelWeight);
 
         const takeoffTotalMoment = Object.values(takeoffMoments).reduce((sum, moment) => sum + moment, 0);
         const landingTotalMoment = Object.values(landingMoments).reduce((sum, moment) => sum + moment, 0);
 
         const takeoffCG = calculateCG(takeoffWeight, takeoffTotalMoment);
         const landingCG = calculateCG(landingWeight, landingTotalMoment);
+
+        const landingFuelLiters = landingFuelWeight / aircraft.stations.fuel.weightPerLiter;
+        const hasMinimumReserve = landingFuelLiters >= aircraft.performance.reserveFuel.recommendedLiters;
+
 
         setResults({
             takeoff: {
@@ -223,10 +235,11 @@ const WeightBalanceCalculator: React.FC = () => {
                 cg: landingCG,
                 isWithinLimits: isWithinEnvelope(aircraft, landingWeight, landingCG),
                 moments: landingMoments,
-                fuelRemaining: inputs.fuelUnit === 'kg' ? landingFuelWeight : landingFuelWeight / aircraft.stations.fuel.weightPerLiter
+                fuelRemaining: landingFuelLiters,
+                hasMinimumReserve
             }
         });
-    }, [selectedAircraft, inputs]);
+    }, [selectedAircraft, calculateTripFuel, inputs.fuelUnit, inputs.fuelAmount, inputs.pilotFrontWeight, inputs.passengerRearWeight, inputs.baggageWeight]);
 
     const getMaxFuel = (aircraft: typeof aircraftData[keyof typeof aircraftData]) => {
         if (inputs.fuelUnit === 'liters') {
@@ -243,261 +256,330 @@ const WeightBalanceCalculator: React.FC = () => {
 
     return (
         <>
-        <DisclaimerModal
-            open={!disclaimerAccepted}
-            onAccept={handleDisclaimerAccept}
-        />
+            <DisclaimerModal
+                open={!disclaimerAccepted}
+                onAccept={handleDisclaimerAccept}
+            />
             <span className={"print:hidden"}>
-                <SafetyDisclaimer />
+                <SafetyDisclaimer/>
             </span>
-            <Card className="relative overflow-hidden">
-                <AircraftBackground selectedAircraft={selectedAircraft}/>
-                <div className="relative z-10">
-                    <CardHeader>
-                        <CardTitle>Aircraft Weight & Balance Calculator</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-4 print:hidden">
-                            <FormItem>
-                                <FormLabel>Aircraft Type</FormLabel>
-                                <Select
-                                    defaultValue={DEFAULT_AIRCRAFT}
-                                    onValueChange={handleAircraftSelection}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Aircraft Type"/>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {Object.entries(aircraftData).map(([key]) => (
-                                            <SelectItem key={key} value={key}>
-                                                {key}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </FormItem>
+            <div className="relative">
+                <Card className="relative overflow-hidden bg-card text-card-foreground">
+                    <MemoizedAircraftBackground selectedAircraft={selectedAircraft}/>
+                    <div className="relative z-10">
+                        <CardHeader>
+                            <CardTitle>Aircraft Weight & Balance Calculator</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <form onSubmit={handleSubmit} className="space-y-4 print:hidden">
+                                <FormItem>
+                                    <FormLabel>Aircraft Type</FormLabel>
+                                    <Select
+                                        defaultValue={DEFAULT_AIRCRAFT}
+                                        onValueChange={handleAircraftSelection}
+                                    >
+                                        <SelectTrigger className="bg-background border-input">
+                                            <SelectValue placeholder="Select Aircraft Type"/>
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-popover text-popover-foreground">
+                                            {Object.entries(aircraftData).map(([key]) => (
+                                                <SelectItem key={key} value={key}>
+                                                    {key}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
 
-                            <FormItem>
-                                <FormLabel>
-                                    Pilot & Front Passenger Weight
-                                    <span
-                                        className="text-sm text-gray-500 ml-2">(Standard: {DEFAULT_PILOT_WEIGHT} kg)</span>
-                                </FormLabel>
-                                <NumberInput
-                                    value={inputs.pilotFrontWeight}
-                                    min={0}
-                                    max={200}
-                                    unit="kg"
-                                    placeholder="Enter weight"
-                                    onChange={(e) => handleInputChange('pilotFrontWeight', e.toString())}
-                                />
-                                <FormMessage>Weight must be between 0 and 200 kg</FormMessage>
-                            </FormItem>
-                            <FormItem>
-                                <FormLabel>
-                                    Rear Passengers (kg)
-                                </FormLabel>
-                                <NumberInput
-                                    value={inputs.passengerRearWeight || 0}
-                                    onChange={(e) => handleInputChange('passengerRearWeight', e.toString())}
-                                />
-                            </FormItem>
-                            <FormItem>
-                                <FormLabel>
-                                    Baggage (kg)
-                                </FormLabel>
-                                <NumberInput
-                                    value={inputs.baggageWeight || 0}
-                                    onChange={(e) => handleInputChange('baggageWeight', e.toString())}
-                                />
-                            </FormItem>
-                            {selectedAircraft && (
-                                <>
-                                    <FormItem>
-                                        <FormLabel>Fuel</FormLabel>
-                                        <div className="space-y-2">
-                                            <div className="flex space-x-2">
-                                                <NumberInput
-                                                    value={inputs.fuelAmount}
-                                                    min={0}
-                                                    max={selectedAircraft ? getMaxFuel(aircraftData[selectedAircraft]) : 0}
-                                                    //unit={inputs.fuelUnit}
-                                                    onChange={(e) => handleInputChange('fuelAmount', e.toString())}
-                                                    className="flex-1"
-                                                />
-                                                <Select
-                                                    value={inputs.fuelUnit}
-                                                    onValueChange={(value: 'liters' | 'kg') => handleFuelUnitChange(value)}
+                                <FormItem>
+                                    <FormLabel>
+                                        Pilot & Front Passenger Weight
+                                        <span
+                                            className="text-sm text-gray-500 ml-2">(Standard: {DEFAULT_PILOT_WEIGHT} kg)</span>
+                                    </FormLabel>
+                                    <NumberInput
+                                        value={inputs.pilotFrontWeight}
+                                        min={0}
+                                        max={200}
+                                        unit="kg"
+                                        placeholder="Enter weight"
+                                        onChange={(e) => handleInputChange('pilotFrontWeight', e.toString())}
+                                    />
+                                    <FormMessage>Weight must be between 0 and 200 kg</FormMessage>
+                                </FormItem>
+                                <FormItem>
+                                    <FormLabel>
+                                        Rear Passengers (kg)
+                                    </FormLabel>
+                                    <NumberInput
+                                        value={inputs.passengerRearWeight || 0}
+                                        onChange={(e) => handleInputChange('passengerRearWeight', e.toString())}
+                                    />
+                                </FormItem>
+                                <FormItem>
+                                    <FormLabel>
+                                        Baggage (kg)
+                                    </FormLabel>
+                                    <NumberInput
+                                        value={inputs.baggageWeight || 0}
+                                        onChange={(e) => handleInputChange('baggageWeight', e.toString())}
+                                    />
+                                </FormItem>
+                                <FormItem>
+                                    <FormLabel>Cruise Power Setting</FormLabel>
+                                    <Select
+                                        value={inputs.powerSetting}
+                                        onValueChange={(value: '55%' | '65%' | '75%') =>
+                                            setInputs(prev => ({...prev, powerSetting: value}))}
+                                    >
+                                        <SelectTrigger className="bg-background border-input text-foreground">
+                                            <SelectValue placeholder="Select power setting"/>
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-popover text-popover-foreground">
+                                            {selectedAircraft && aircraftData[selectedAircraft].performance.fuelConsumption.map(setting => (
+                                                <SelectItem
+                                                    key={setting.powerSetting}
+                                                    value={setting.powerSetting}
+                                                    className="text-foreground"
                                                 >
-                                                    <SelectTrigger className="w-24">
-                                                        <SelectValue/>
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="liters">Liters</SelectItem>
-                                                        <SelectItem value="kg">Kg</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            {/* Fuel level indicator */}
-                                            <div className="space-y-1">
-                                                <div className="flex justify-between text-sm text-gray-500">
-                                                    <span>{getFuelLevelLabel(inputs.fuelAmount, aircraftData[selectedAircraft])}</span>
-                                                    <span>{Math.round((inputs.fuelAmount / getMaxFuel(aircraftData[selectedAircraft])) * 100)}%</span>
+                                                    {setting.powerSetting} ({setting.speed} KTAS, {setting.litersPerHour} L/h)
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
+                                {selectedAircraft && (
+                                    <>
+                                        <FormItem>
+                                            <FormLabel>Fuel</FormLabel>
+                                            <div className="space-y-2">
+                                                <div className="flex space-x-2">
+                                                    <NumberInput
+                                                        value={inputs.fuelAmount}
+                                                        min={0}
+                                                        max={selectedAircraft ? getMaxFuel(aircraftData[selectedAircraft]) : 0}
+                                                        onChange={(e) => handleInputChange('fuelAmount', e.toString())}
+                                                        className="flex-1 bg-background"
+                                                    />
+                                                    <Select
+                                                        value={inputs.fuelUnit}
+                                                        onValueChange={(value: 'liters' | 'kg') => handleFuelUnitChange(value)}
+                                                    >
+                                                        <SelectTrigger className="w-24 bg-background">
+                                                            <SelectValue/>
+                                                        </SelectTrigger>
+                                                        <SelectContent className="bg-popover text-popover-foreground">
+                                                            <SelectItem value="liters">Liters</SelectItem>
+                                                            <SelectItem value="kg">Kg</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                 </div>
-                                                <Progress
-                                                    value={(inputs.fuelAmount / getMaxFuel(aircraftData[selectedAircraft])) * 100}
-                                                    className="h-2"
-                                                    indicatorClassName={getFuelLevelColor(inputs.fuelAmount, aircraftData[selectedAircraft])}
-                                                />
-                                            </div>
 
-                                            <div className="flex space-x-2">
-                                                <Button
-                                                    type="button"
-                                                    variant={inputs.fuelAmount === aircraftData[selectedAircraft].stations.fuel.standardLiters ? "default" : "outline"}
-                                                    size="sm"
-                                                    className="flex-1"
-                                                    onClick={() => handleQuickFuelSelect('standard')}
-                                                >
-                                                    Standard Tanks
-                                                </Button>
-                                                <Button
-                                                    type="button"
-                                                    variant={inputs.fuelAmount === aircraftData[selectedAircraft].stations.fuel.maxLiters ? "default" : "outline"}
-                                                    size="sm"
-                                                    className="flex-1"
-                                                    onClick={() => handleQuickFuelSelect('full')}
-                                                >
-                                                    Full Tanks
-                                                </Button>
+                                                {/* Fuel level indicator */}
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between text-sm text-gray-500">
+                                                        <span>{getFuelLevelLabel(inputs.fuelAmount, aircraftData[selectedAircraft])}</span>
+                                                        <span>{Math.round((inputs.fuelAmount / getMaxFuel(aircraftData[selectedAircraft])) * 100)}%</span>
+                                                    </div>
+                                                    <Progress
+                                                        value={(inputs.fuelAmount / getMaxFuel(aircraftData[selectedAircraft])) * 100}
+                                                        className="h-2"
+                                                        indicatorClassName={getFuelLevelColor(inputs.fuelAmount, aircraftData[selectedAircraft])}
+                                                    />
+                                                </div>
+
+                                                <div className="flex space-x-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant={inputs.fuelAmount === aircraftData[selectedAircraft].stations.fuel.standardLiters ? "default" : "outline"}
+                                                        size="sm"
+                                                        className="flex-1"
+                                                        onClick={() => handleQuickFuelSelect('standard')}
+                                                    >
+                                                        Standard Tanks
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant={inputs.fuelAmount === aircraftData[selectedAircraft].stations.fuel.maxLiters ? "default" : "outline"}
+                                                        size="sm"
+                                                        className="flex-1"
+                                                        onClick={() => handleQuickFuelSelect('full')}
+                                                    >
+                                                        Full Tanks
+                                                    </Button>
+                                                </div>
                                             </div>
+                                            <FormMessage>
+                                                Max
+                                                fuel: {getMaxFuel(aircraftData[selectedAircraft]).toFixed(1)} {inputs.fuelUnit}
+                                            </FormMessage>
+                                        </FormItem>
+                                        <FormItem>
+                                            <FlightTimeInput
+                                                value={inputs.flightTime}
+                                                onChange={(minutes) => setInputs(prev => ({
+                                                    ...prev,
+                                                    flightTime: minutes
+                                                }))}
+                                            />
+                                        </FormItem>
+                                    </>
+                                )}
+                                <Button
+                                    type="submit"
+                                    disabled={!selectedAircraft}
+                                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                                >
+                                    Calculate
+                                </Button>
+                                <PrintButton disabled={!results}/>
+                            </form>
+
+                            {results && (
+                                <>
+                                    <Alert className="mt-4 bg-background border-border"
+                                           variant={results.takeoff.isWithinLimits && results.landing.isWithinLimits && results.landing.hasMinimumReserve
+                                               ? "default"
+                                               : "destructive"}>
+                                        <AlertDescription>
+                                            <div className="space-y-2">
+                                                <div className="font-semibold">Takeoff</div>
+                                                <p>Weight: {results.takeoff.totalWeight.toFixed(1)} kg</p>
+                                                <p>CG: {results.takeoff.cg.toFixed(3)} m</p>
+                                                <p className={results.takeoff.isWithinLimits ? "text-green-600" : "text-red-600"}>
+                                                    Status: {results.takeoff.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}
+                                                </p>
+
+                                                <div className="font-semibold mt-4">Landing (estimated)</div>
+                                                <p>Weight: {results.landing.totalWeight.toFixed(1)} kg</p>
+                                                <p>CG: {results.landing.cg.toFixed(3)} m</p>
+                                                <p>Fuel
+                                                    remaining: {results.landing.fuelRemaining.toFixed(1)} {inputs.fuelUnit}</p>
+                                                <p className={results.landing.isWithinLimits ? "text-green-600" : "text-red-600"}>
+                                                    Status: {results.landing.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}
+                                                </p>
+                                                {!results.landing.hasMinimumReserve && (
+                                                    <p className="text-red-600 font-bold mt-2">
+                                                        WARNING: Insufficient fuel reserve!
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </AlertDescription>
+                                    </Alert>
+                                    {!results.landing.hasMinimumReserve && (
+                                        <Alert variant="destructive" className="mt-2">
+                                            <AlertTitle>Warning: Insufficient Fuel Reserve</AlertTitle>
+                                            <AlertDescription>
+                                                Landing fuel ({results.landing.fuelRemaining.toFixed(1)} L) is below the
+                                                recommended
+                                                45-minute reserve
+                                                ({aircraftData[selectedAircraft].performance.reserveFuel.recommendedLiters} L).
+                                                Increase fuel load or reduce flight time.
+                                            </AlertDescription>
+                                        </Alert>
+                                    )}
+                                    <div className="mt-4">
+                                        <div className="mt-2 text-sm">
+                                            <p>Fuel Breakdown:</p>
+                                            <ul className="list-disc pl-5">
+                                                <li>Starting fuel: {inputs.fuelAmount.toFixed(1)} {inputs.fuelUnit}</li>
+                                                <li>Taxi
+                                                    fuel: {aircraftData[selectedAircraft].performance.taxiFuel.liters.toFixed(1)} L
+                                                </li>
+                                                <li>Trip fuel: {calculateTripFuel().toFixed(1)} L</li>
+                                                <li>Reserve
+                                                    required: {aircraftData[selectedAircraft].performance.reserveFuel.recommendedLiters} L
+                                                </li>
+                                                <li>Remaining at landing: {results.landing.fuelRemaining.toFixed(1)} L
+                                                </li>
+                                            </ul>
                                         </div>
-                                        <FormMessage>
-                                            Max
-                                            fuel: {getMaxFuel(aircraftData[selectedAircraft]).toFixed(1)} {inputs.fuelUnit}
-                                        </FormMessage>
-                                    </FormItem>
-                                    <FormItem>
-                                        <FlightTimeInput
-                                            value={inputs.flightTime}
-                                            onChange={(minutes) => setInputs(prev => ({...prev, flightTime: minutes}))}
-                                        />
-                                    </FormItem>
+                                    </div>
                                 </>
                             )}
-                            <Button
-                                type="submit"
-                                disabled={!selectedAircraft}
-                                className="w-full"
-                            >
-                                Calculate
-                            </Button>
-                            <PrintButton disabled={!results} />
-                        </form>
 
-                        {results && (
-                            <Alert className="mt-4"
-                                   variant={results.takeoff.isWithinLimits ? "default" : "destructive"}>
-                                <AlertDescription>
-                                    <div className="space-y-2">
-                                        <div className="font-semibold">Takeoff</div>
-                                        <p>Weight: {results.takeoff.totalWeight.toFixed(1)} kg</p>
-                                        <p>CG: {results.takeoff.cg.toFixed(3)} m</p>
-                                        <p className={results.takeoff.isWithinLimits ? "text-green-600" : "text-red-600"}>
-                                            Status: {results.takeoff.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}
-                                        </p>
 
-                                        <div className="font-semibold mt-4">Landing (estimated)</div>
-                                        <p>Weight: {results.landing.totalWeight.toFixed(1)} kg</p>
-                                        <p>CG: {results.landing.cg.toFixed(3)} m</p>
-                                        <p>Fuel
-                                            remaining: {results.landing.fuelRemaining.toFixed(1)} {inputs.fuelUnit}</p>
-                                        <p className={results.landing.isWithinLimits ? "text-green-600" : "text-red-600"}>
-                                            Status: {results.landing.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}
-                                        </p>
-                                    </div>
-                                </AlertDescription>
-                            </Alert>
-                        )}
+                            {/* Envelope Visualization Section */}
+                            <div className="h-full min-h-[400px]">
+                                {selectedAircraft && (
+                                    <CGEnvelopeVisualization
+                                        envelopePoints={aircraftData[selectedAircraft].envelope.points}
+                                        takeoffPoint={results ? {
+                                            cg: results.takeoff.cg,
+                                            weight: results.takeoff.totalWeight
+                                        } : undefined}
+                                        landingPoint={results ? {
+                                            cg: results.landing.cg,
+                                            weight: results.landing.totalWeight
+                                        } : undefined}
+                                        limits={aircraftData[selectedAircraft].envelope.limits}
+                                    />
+                                )}
+                            </div>
+                        </CardContent>
+                    </div>
+                </Card>
+                {selectedAircraft && (
+                    <AircraftInfoBox
+                        emptyWeight={aircraftData[selectedAircraft].basicEmptyWeight}
+                        mtow={aircraftData[selectedAircraft].mtow}
+                        maxBaggage={aircraftData[selectedAircraft].maxBaggage}
+                        maxFuelLiters={aircraftData[selectedAircraft].stations.fuel.maxLiters}
+                        maxDemoCrosswind={aircraftData[selectedAircraft].performance.maxDemoCrosswind}
+                        stallSpeedClean={aircraftData[selectedAircraft].performance.stallSpeedClean}
+                        stallSpeedLanding={aircraftData[selectedAircraft].performance.stallSpeedLanding}
+                        bestClimbSpeed={aircraftData[selectedAircraft].performance.bestClimbSpeed}
+                        approachSpeedNormal={aircraftData[selectedAircraft].performance.approachSpeedNormal}
+                    />
+                )}
 
-                        {/* Envelope Visualization Section */}
-                        <div className="h-full min-h-[500px]">
-                            {selectedAircraft && (
-                                <CGEnvelopeVisualization
-                                    envelopePoints={aircraftData[selectedAircraft].envelope.points}
-                                    takeoffPoint={results ? {
-                                        cg: results.takeoff.cg,
-                                        weight: results.takeoff.totalWeight
-                                    } : undefined}
-                                    landingPoint={results ? {
-                                        cg: results.landing.cg,
-                                        weight: results.landing.totalWeight
-                                    } : undefined}
-                                    limits={aircraftData[selectedAircraft].envelope.limits}
-                                />
-                            )}
+                {results && (
+                    <div className="hidden print:block mt-8">
+                        <h2 className="text-xl font-bold mb-4">Weight & Balance Calculation Summary</h2>
+                        <div className="space-y-4">
+                            <div>
+                                <h3 className="font-semibold">Aircraft Information</h3>
+                                <p>Type: {selectedAircraft}</p>
+                                <p>Date: {new Date().toLocaleDateString()}</p>
+                            </div>
+
+                            <div>
+                                <h3 className="font-semibold">Input Weights</h3>
+                                <p>Pilot & Front Passenger: {inputs.pilotFrontWeight} kg</p>
+                                <p>Rear Passengers: {inputs.passengerRearWeight} kg</p>
+                                <p>Baggage: {inputs.baggageWeight} kg</p>
+                                <p>Fuel: {inputs.fuelAmount} {inputs.fuelUnit}</p>
+                                <p>Flight
+                                    Time: {Math.floor(inputs.flightTime / 60)}:{(inputs.flightTime % 60).toString().padStart(2, '0')} hours</p>
+                            </div>
+
+                            <div>
+                                <h3 className="font-semibold">Takeoff Condition</h3>
+                                <p>Weight: {results.takeoff.totalWeight.toFixed(1)} kg</p>
+                                <p>CG: {results.takeoff.cg.toFixed(3)} m</p>
+                                <p>Status: {results.takeoff.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}</p>
+                            </div>
+
+                            <div>
+                                <h3 className="font-semibold">Landing Condition (estimated)</h3>
+                                <p>Weight: {results.landing.totalWeight.toFixed(1)} kg</p>
+                                <p>CG: {results.landing.cg.toFixed(3)} m</p>
+                                <p>Fuel Remaining: {results.landing.fuelRemaining.toFixed(1)} {inputs.fuelUnit}</p>
+                                <p>Status: {results.landing.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}</p>
+                            </div>
                         </div>
-                    </CardContent>
-                </div>
-            </Card>
-            {selectedAircraft && (
-            <AircraftInfoBox
-                emptyWeight={aircraftData[selectedAircraft].basicEmptyWeight}
-                mtow={aircraftData[selectedAircraft].mtow}
-                maxBaggage={aircraftData[selectedAircraft].maxBaggage}
-                maxFuelLiters={aircraftData[selectedAircraft].stations.fuel.maxLiters}
-                maxDemoCrosswind={aircraftData[selectedAircraft].performance.maxDemoCrosswind}
-                stallSpeedClean={aircraftData[selectedAircraft].performance.stallSpeedClean}
-                stallSpeedLanding={aircraftData[selectedAircraft].performance.stallSpeedLanding}
-                bestClimbSpeed={aircraftData[selectedAircraft].performance.bestClimbSpeed}
-                approachSpeedNormal={aircraftData[selectedAircraft].performance.approachSpeedNormal}
-            />
-        )}
-        {results && (
-            <div className="hidden print:block mt-8">
-                <h2 className="text-xl font-bold mb-4">Weight & Balance Calculation Summary</h2>
-                <div className="space-y-4">
-                    <div>
-                        <h3 className="font-semibold">Aircraft Information</h3>
-                        <p>Type: {selectedAircraft}</p>
-                        <p>Date: {new Date().toLocaleDateString()}</p>
-                    </div>
 
-                    <div>
-                        <h3 className="font-semibold">Input Weights</h3>
-                        <p>Pilot & Front Passenger: {inputs.pilotFrontWeight} kg</p>
-                        <p>Rear Passengers: {inputs.passengerRearWeight} kg</p>
-                        <p>Baggage: {inputs.baggageWeight} kg</p>
-                        <p>Fuel: {inputs.fuelAmount} {inputs.fuelUnit}</p>
-                        <p>Flight Time: {Math.floor(inputs.flightTime / 60)}:{(inputs.flightTime % 60).toString().padStart(2, '0')} hours</p>
+                        <div className="mt-8 text-sm">
+                            <p>Note: This is a calculation tool only. Always verify weight and balance using the
+                                aircraft's
+                                POH.</p>
+                            <p>Generated by Weight & Balance Calculator - Songer Consulting AB</p>
+                        </div>
                     </div>
-
-                    <div>
-                        <h3 className="font-semibold">Takeoff Condition</h3>
-                        <p>Weight: {results.takeoff.totalWeight.toFixed(1)} kg</p>
-                        <p>CG: {results.takeoff.cg.toFixed(3)} m</p>
-                        <p>Status: {results.takeoff.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}</p>
-                    </div>
-
-                    <div>
-                        <h3 className="font-semibold">Landing Condition (estimated)</h3>
-                        <p>Weight: {results.landing.totalWeight.toFixed(1)} kg</p>
-                        <p>CG: {results.landing.cg.toFixed(3)} m</p>
-                        <p>Fuel Remaining: {results.landing.fuelRemaining.toFixed(1)} {inputs.fuelUnit}</p>
-                        <p>Status: {results.landing.isWithinLimits ? 'Within Limits' : 'Exceeds Limits!'}</p>
-                    </div>
-                </div>
-
-                <div className="mt-8 text-sm">
-                    <p>Note: This is a calculation tool only. Always verify weight and balance using the aircraft's POH.</p>
-                    <p>Generated by Weight & Balance Calculator - Songer Consulting AB</p>
-                </div>
+                )}
+                <CompanyFooter/>
             </div>
-        )}
-        <CompanyFooter />
-    </>
+        </>
     );
 };
-
 export default WeightBalanceCalculator;

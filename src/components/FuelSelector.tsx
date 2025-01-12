@@ -73,7 +73,7 @@ const FuelSelector: React.FC<FuelSelectorProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                    <div className="flex justify-between text-sm text-gray-500">
+                    <div className="flex justify-between text-sm text-muted-foreground">
                         <span>{getFuelLevelLabel()}</span>
                         <span>{Math.round(fuelPercentage)}%</span>
                     </div>

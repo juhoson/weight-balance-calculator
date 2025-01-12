@@ -1,56 +1,54 @@
-// src/components/AircraftBackground.tsx
 import React, { useState, useEffect } from 'react';
 
 interface AircraftBackgroundProps {
     selectedAircraft: string;
 }
-
 const AircraftBackground: React.FC<AircraftBackgroundProps> = ({ selectedAircraft }) => {
-    const [currentImage, setCurrentImage] = useState('');
-    const [isTransitioning, setIsTransitioning] = useState(false);
+    const [imageState, setImageState] = React.useState({
+        currentImage: '',
+        isTransitioning: false
+    });
 
-    const getBackgroundImage = () => {
-        switch(selectedAircraft) {
-            case 'C172S (SE-MIA)':
-                return '/weight-balance/images/c172.jpg';
-            case 'DA40D (SE-MBC)':
-                return '/weight-balance/images/da40d.jpg';
-            case 'DA40NG (SE-MIO)':
-                return '/weight-balance/images/da40ng.jpg';
-            case 'PA28-161 (SE-KMI)':
-                return '/weight-balance/images/pa28160.jpg';
-            default:
-                return '';
-        }
-    };
+    const getBackgroundImage = React.useMemo(() => {
+        const imagePaths = {
+            'C172S (SE-MIA)': '/weight-balance/images/c172.jpg',
+            'DA40D (SE-MBC)': '/weight-balance/images/da40d.jpg',
+            'DA40NG (SE-MIO)': '/weight-balance/images/da40ng.jpg',
+            'PA28-161 (SE-KMI)': '/weight-balance/images/pa28160.jpg'
+        } as const;
 
-    useEffect(() => {
-        setIsTransitioning(true);
-        const newImage = getBackgroundImage();
+        return (aircraft: string) => imagePaths[aircraft as keyof typeof imagePaths] || '';
+    }, []);
 
-        // Start fade out
-        const timeout = setTimeout(() => {
-            setCurrentImage(newImage);
-            // Start fade in
-            setIsTransitioning(false);
-        }, 300); // Match this with CSS transition duration
+    React.useEffect(() => {
+        if (!selectedAircraft) return;
 
-        return () => clearTimeout(timeout);
-    }, [selectedAircraft]);
+        setImageState(prev => ({ ...prev, isTransitioning: true }));
+
+        const timer = setTimeout(() => {
+            console.log("Setting image for "+ selectedAircraft)
+            setImageState({
+                currentImage: getBackgroundImage(selectedAircraft),
+                isTransitioning: false
+            });
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [selectedAircraft, getBackgroundImage]);
+
+    if (!selectedAircraft) return null;
 
     return (
         <div
-            className={`absolute inset-0 bg-cover bg-center bg-no-repeat pointer-events-none transition-opacity duration-300 ease-in-out ${
-                isTransitioning ? 'opacity-0' : 'opacity-10'
+            className={`fixed inset-0 bg-cover bg-center bg-no-repeat pointer-events-none transition-opacity duration-300 ease-in-out ${
+                imageState.isTransitioning ? 'opacity-0' : 'opacity-20'
             }`}
             style={{
-                backgroundImage: currentImage ? `url(${currentImage})` : 'none',
-                zIndex: 0
+                backgroundImage: imageState.currentImage ? `url(${imageState.currentImage})` : 'none'
             }}
             role="img"
             aria-label={`${selectedAircraft} background`}
         />
     );
 };
-
 export default AircraftBackground;

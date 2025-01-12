@@ -11,7 +11,8 @@ const SafetyDisclaimer: React.FC = () => {
     return (
         <Card className="mb-6 border-yellow-200">
             <CardContent className="p-4">
-                <Alert variant="warning" className="border-yellow-200">
+                <Alert variant="warning"
+                       className="bg-background border-yellow-500/50 dark:border-yellow-500/30">
                     <AlertTriangle className="h-4 w-4 text-yellow-600" />
                     <AlertDescription>
                         <div className="space-y-2">

@@ -1,3 +1,26 @@
+interface FuelConsumption {
+    powerSetting: '55%' | '65%' | '75%';
+    litersPerHour: number;
+    speed: number;  // True Airspeed in knots
+}
+interface AircraftPerformance {
+    cruiseSpeed?: number;
+    maxDemoCrosswind: number;
+    stallSpeedClean: number;
+    stallSpeedLanding: number;
+    bestClimbSpeed: number;
+    approachSpeedNormal: number;
+    fuelConsumption: FuelConsumption[];
+    taxiFuel: {
+        liters: number;
+        timeMinutes: number;
+    };
+    reserveFuel: {
+        minimumMinutes: number;  // Typically 45 minutes
+        recommendedLiters: number;
+    };
+}
+
 export interface AircraftData {
     type: string;
     basicEmptyWeight: number;
@@ -24,15 +47,7 @@ export interface AircraftData {
             aftCG: number;
         };
     };
-    performance: {
-        cruiseSpeed?: number;
-        maxDemoCrosswind: number;
-        stallSpeedClean: number;
-        stallSpeedLanding: number;
-        bestClimbSpeed: number;
-        approachSpeedNormal: number;
-        fuelConsumption: number
-    };
+    performance: AircraftPerformance;
 }
 
 
@@ -76,7 +91,19 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedLanding: 40,
             bestClimbSpeed: 74,
             approachSpeedNormal: 65,
-            fuelConsumption: 38
+            fuelConsumption: [
+                { powerSetting: '55%', litersPerHour: 29.9, speed: 102 },
+                { powerSetting: '65%', litersPerHour: 34.4, speed: 111 },
+                { powerSetting: '75%', litersPerHour: 38.6, speed: 116 }
+            ],
+            taxiFuel: {
+                liters: 4.2,  // From the POH
+                timeMinutes: 10
+            },
+            reserveFuel: {
+                minimumMinutes: 45,
+                recommendedLiters: 22.4  // From the POH
+            }
         }
     },
     'DA40D (SE-MBC)': {
@@ -118,7 +145,19 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedLanding: 49,
             bestClimbSpeed: 66,
             approachSpeedNormal: 67,
-            fuelConsumption: 22
+            fuelConsumption: [
+                { powerSetting: '55%', litersPerHour: 15, speed: 106 },
+                { powerSetting: '65%', litersPerHour: 18, speed: 116 },
+                { powerSetting: '75%', litersPerHour: 22, speed: 122 }
+            ],
+            taxiFuel: {
+                liters: 4,
+                timeMinutes: 10
+            },
+            reserveFuel: {
+                minimumMinutes: 45,
+                recommendedLiters: 11
+            }
         }
     },
     'DA40NG (SE-MIO)': {
@@ -160,7 +199,19 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedLanding: 59,
             bestClimbSpeed: 72,
             approachSpeedNormal: 77,
-            fuelConsumption: 25
+            fuelConsumption: [
+                { powerSetting: '55%', litersPerHour: 15, speed: 96 },
+                { powerSetting: '65%', litersPerHour: 19, speed: 113 },
+                { powerSetting: '75%', litersPerHour: 25, speed: 125 }
+            ],
+            taxiFuel: {
+                liters: 4,
+                timeMinutes: 10
+            },
+            reserveFuel: {
+                minimumMinutes: 45,
+                recommendedLiters: 11
+            }
         }
     },
     'PA28-161 (SE-KMI)': {
@@ -202,7 +253,19 @@ export const aircraftData: Record<string, AircraftData> = {
             stallSpeedLanding: 44,
             bestClimbSpeed: 79,
             approachSpeedNormal: 63,
-            fuelConsumption: 38
+            fuelConsumption: [
+                { powerSetting: '55%', litersPerHour: 29.5, speed: 91 },
+                { powerSetting: '65%', litersPerHour: 33.3, speed: 99 },
+                { powerSetting: '75%', litersPerHour: 37.9, speed: 107 }
+            ],
+            taxiFuel: {
+                liters: 4.2,
+                timeMinutes: 10
+            },
+            reserveFuel: {
+                minimumMinutes: 45,
+                recommendedLiters: 22.1
+            }
         }
     }
 };

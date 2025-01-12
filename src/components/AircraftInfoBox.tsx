@@ -25,11 +25,11 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
                                                                  maxFuelLiters
                                                              }) => {
     return (
-        <Card className="mt-4">
-            <CardContent className="p-4">
+        <Card className="mt-4 bg-card text-card-foreground">
+            <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                        <h3 className="text-sm font-semibold text-gray-600 mb-2">Weights</h3>
+                        <h3 className="text-sm font-semibold text-muted-foreground mb-2">Weights</h3>
                         <ul className="space-y-1 text-sm">
                             <li className="flex justify-between">
                                 <span>Empty Weight:</span>

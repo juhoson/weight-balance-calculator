@@ -29,28 +29,24 @@ const FlightTimeInput: React.FC<FlightTimeInputProps> = ({ value, onChange }) =>
             <FormLabel>Flight Time</FormLabel>
             <div className="flex items-center space-x-2">
                 <Button
-                    type="button"
                     variant="outline"
                     size="icon"
-                    onClick={decrement}
+                    className="bg-background"
                 >
-                    <Minus className="h-4 w-4" />
+                    <Minus className="h-4 w-4"/>
                 </Button>
-                <div className="flex-1 text-center">
-                    <Input
-                        type="text"
-                        value={formatTime(value)}
-                        readOnly
-                        className="text-center"
-                    />
-                </div>
+                <Input
+                    type="text"
+                    value={value}
+                    readOnly
+                    className="text-center bg-background"
+                />
                 <Button
-                    type="button"
                     variant="outline"
                     size="icon"
-                    onClick={increment}
+                    className="bg-background"
                 >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-4 w-4"/>
                 </Button>
             </div>
         </FormItem>
