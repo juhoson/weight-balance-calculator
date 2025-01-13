@@ -6,21 +6,21 @@ interface PrintButtonProps {
 }
 
 const PrintButton: React.FC<PrintButtonProps> = ({ disabled }) => {
-    const handlePrint = () => {
-        window.print();
-    };
+  const handlePrint = () => {
+    window.print();
+  };
 
-    return (
-        <Button
-            onClick={handlePrint}
-            disabled={disabled}
-            variant="outline"
-            className="print:hidden" // Hide button when printing
-        >
-            <Printer className="mr-2 h-4 w-4" />
+  return (
+    <Button
+      onClick={handlePrint}
+      disabled={disabled}
+      variant="outline"
+      className="print:hidden" // Hide button when printing
+    >
+      <Printer className="mr-2 h-4 w-4" />
             Print Calculations
-        </Button>
-    );
+    </Button>
+  );
 };
 
 export default PrintButton;
