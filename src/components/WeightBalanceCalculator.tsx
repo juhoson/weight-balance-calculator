@@ -1,10 +1,10 @@
 import * as React from 'react';
 import CGEnvelopeVisualization from "./CGEnvelopeVisualization";
-import { Button } from './ui/Button';
-import { NumberInput } from './ui/NumberInput';
+import {Button} from './ui/Button';
+import {NumberInput} from './ui/NumberInput';
 import {Alert, AlertDescription, AlertTitle} from './ui/Alert';
-import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/Select';
+import {Card, CardContent, CardHeader, CardTitle} from './ui/Card';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/Select';
 
 import {aircraftData, calculateCG, calculateMoment, isWithinEnvelope} from '../data/aircraftData';
 import {FormItem, FormLabel, FormMessage} from "./ui/Form";
@@ -70,7 +70,6 @@ const WeightBalanceCalculator: React.FC = () => {
     });
 
     const [results, setResults] = React.useState<CalculationResults | null>(null);
-
 
 
     // Handle aircraft selection with default fuel
