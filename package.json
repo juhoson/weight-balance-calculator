@@ -25,11 +25,19 @@
     "recharts": "^2.15.0",
     "tailwind-merge": "^2.6.0"
   },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix"
+    ]
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "lint-staged": "lint-staged"
   },
   "eslintConfig": {
     "extends": [
@@ -56,6 +64,8 @@
     "@typescript-eslint/parser": "^5.62.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^4.x.x"
