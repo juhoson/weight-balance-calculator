@@ -8,10 +8,11 @@ import {
     Tooltip,
     Legend,
     ResponsiveContainer,
-    Label, ReferenceLine,
+    Label,
+    ReferenceLine,
 } from 'recharts';
-
 import { Plane, PlaneLanding } from 'lucide-react';
+import React from 'react';
 
 interface EnvelopePoint {
     cg: number;
@@ -29,21 +30,32 @@ interface CGEnvelopeVisualizationProps {
         aftCG: number;
     };
 }
+
 const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                                                                              envelopePoints,
                                                                              takeoffPoint,
                                                                              landingPoint,
                                                                              limits
                                                                          }) => {
+    // Responsive sizing hook
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
     const CustomTooltip = ({ active, payload }: any) => {
         if (active && payload && payload.length > 0) {
             const data = payload[0].payload;
             const isEnvelope = data.dataType === 'boundary';
 
             return (
-                <div
-                    className="bg-card/90 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-border text-foreground">
-
+                <div className="bg-card/90 backdrop-blur-sm p-2 rounded-lg shadow-lg border border-border text-foreground text-xs md:text-sm md:p-3">
                     {isEnvelope ? (
                         <div className="font-medium">
                             <p>Envelope Point</p>
@@ -70,23 +82,23 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
     };
 
     const CustomLegend = ({payload}: any) => (
-        <div className="flex justify-center gap-6 mt-4 mb-8 text-foreground">
+        <div className="flex justify-center gap-3 md:gap-6 mt-2 md:mt-4 mb-4 md:mb-8 text-foreground">
             {payload.map((entry: any, index: number) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="flex items-center gap-1 md:gap-2">
                     {entry.value === 'Takeoff' ? (
                         <>
-                            <Plane size={16} className="text-orange-500 rotate-45"/>
-                            <span className="text-sm font-medium">Takeoff</span>
+                            <Plane size={isMobile ? 12 : 16} className="text-orange-500 rotate-45"/>
+                            <span className="text-xs md:text-sm font-medium">Takeoff</span>
                         </>
                     ) : entry.value === 'Landing' ? (
                         <>
-                            <PlaneLanding size={16} className="text-green-500 -rotate-45"/>
-                            <span className="text-sm font-medium">Landing</span>
+                            <PlaneLanding size={isMobile ? 12 : 16} className="text-green-500 -rotate-45"/>
+                            <span className="text-xs md:text-sm font-medium">Landing</span>
                         </>
                     ) : (
                         <>
-                            <div className="w-3 h-3 rounded-full bg-blue-500 opacity-70"/>
-                            <span className="text-sm font-medium">Envelope</span>
+                            <div className="w-2 h-2 md:w-3 md:h-3 rounded-full bg-blue-500 opacity-70"/>
+                            <span className="text-xs md:text-sm font-medium">Envelope</span>
                         </>
                     )}
                 </div>
@@ -94,11 +106,15 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
         </div>
     );
 
-    // src/components/CGEnvelopeVisualization.tsx
     return (
-        <div className="mt-8 p-4">
-            <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 30, bottom: 70, left: 60 }}>
+        <div className="mt-4 md:mt-8 p-2 md:p-4">
+            <ResponsiveContainer width="100%" height={isMobile ? 400 : 500}>
+                <ScatterChart
+                    margin={isMobile ?
+                        { top: 20, right: 10, bottom: 50, left: 40 } :
+                        { top: 20, right: 30, bottom: 70, left: 60 }
+                    }
+                >
                     <CartesianGrid
                         strokeDasharray="3 3"
                         stroke="currentColor"
@@ -109,12 +125,16 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                         dataKey="cg"
                         domain={[limits.forwardCG, limits.aftCG]}
                         stroke="currentColor"
+                        tick={{ fontSize: isMobile ? 10 : 12 }}
                     >
                         <Label
                             value="Center of Gravity (meters)"
                             position="bottom"
-                            offset={40}
-                            style={{ fill: "currentColor" }}
+                            offset={isMobile ? 25 : 40}
+                            style={{
+                                fill: "currentColor",
+                                fontSize: isMobile ? 10 : 12
+                            }}
                         />
                     </XAxis>
                     <YAxis
@@ -122,13 +142,17 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                         dataKey="weight"
                         domain={[limits.minWeight, limits.maxWeight]}
                         stroke="currentColor"
+                        tick={{ fontSize: isMobile ? 10 : 12 }}
                     >
                         <Label
                             value="Weight (kg)"
                             angle={-90}
                             position="left"
-                            offset={40}
-                            style={{ fill: "currentColor" }}
+                            offset={isMobile ? 25 : 40}
+                            style={{
+                                fill: "currentColor",
+                                fontSize: isMobile ? 10 : 12
+                            }}
                         />
                     </YAxis>
 
@@ -151,7 +175,7 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                             type="linear"
                             dataKey="weight"
                             stroke="#9CA3AF"
-                            strokeWidth={2}
+                            strokeWidth={isMobile ? 1 : 2}
                             strokeDasharray="4 4"
                             dot={false}
                         />
@@ -165,7 +189,8 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                         label={{
                             value: `MTOW (${limits.maxWeight} kg)`,
                             position: 'right',
-                            fill: '#dc2626'
+                            fill: '#dc2626',
+                            fontSize: isMobile ? 10 : 12
                         }}
                     />
 
@@ -174,7 +199,7 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                         <Scatter
                             name="Takeoff"
                             data={[{ ...takeoffPoint, dataType: 'takeoff' }]}
-                            shape={<CustomScatterTakeoff />}
+                            shape={<CustomScatterTakeoff size={isMobile ? 18 : 24} />}
                         />
                     )}
 
@@ -182,7 +207,7 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
                         <Scatter
                             name="Landing"
                             data={[{ ...landingPoint, dataType: 'landing' }]}
-                            shape={<CustomScatterLanding />}
+                            shape={<CustomScatterLanding size={isMobile ? 18 : 24} />}
                         />
                     )}
 
@@ -196,24 +221,24 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
 
 // Custom scatter shapes
 const CustomScatterTakeoff = (props: any) => {
-    const { cx, cy } = props;
+    const { cx, cy, size } = props;
     return (
         <Plane
-            x={cx - 12}
-            y={cy - 12}
-            size={24}
+            x={cx - size/2}
+            y={cy - size/2}
+            size={size}
             className="text-orange-500 rotate-45"
         />
     );
 };
 
 const CustomScatterLanding = (props: any) => {
-    const { cx, cy } = props;
+    const { cx, cy, size } = props;
     return (
         <PlaneLanding
-            x={cx - 12}
-            y={cy - 12}
-            size={24}
+            x={cx - size/2}
+            y={cy - size/2}
+            size={size}
             className="text-green-500 -rotate-45"
         />
     );

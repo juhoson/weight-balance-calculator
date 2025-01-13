@@ -425,13 +425,6 @@ const WeightBalanceCalculator: React.FC = () => {
                                         </FormItem>
                                     </>
                                 )}
-                                <Button
-                                    type="submit"
-                                    disabled={!selectedAircraft}
-                                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-                                >
-                                    Calculate
-                                </Button>
                                 <PrintButton disabled={!results}/>
                             </form>
 
