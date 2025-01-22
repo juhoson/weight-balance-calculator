@@ -16,7 +16,7 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, onChange}) => {
   };
 
   return (
-    <div className="relative w-full bg-gray-100 rounded-lg p-6">
+    <div className="relative w-full bg-background rounded-lg p-6 border border-border">
       <div className="flex justify-center space-x-4 mb-8">
         {/* Front seats */}
         <div className="space-y-2">
@@ -26,11 +26,11 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, onChange}) => {
           >
             <User
               size={32}
-              className={weights.pilotWeight > 0 ? 'text-blue-600' : 'text-gray-400'}
+              className={weights.pilotWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
             />
-            <span className="text-sm">Pilot</span>
+            <span className="text-sm text-foreground">Pilot</span>
             {weights.pilotWeight > 0 && (
-              <span className="text-xs font-medium">{weights.pilotWeight} kg</span>
+              <span className="text-xs font-medium text-foreground">{weights.pilotWeight} kg</span>
             )}
           </div>
         </div>
@@ -41,11 +41,12 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, onChange}) => {
           >
             <User
               size={32}
-              className={weights.frontPassengerWeight > 0 ? 'text-blue-600' : 'text-gray-400'}
+              className={weights.frontPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
             />
-            <span className="text-sm">Front Pass.</span>
+            <span className="text-sm text-foreground">Front Pass.</span>
             {weights.frontPassengerWeight > 0 && (
-              <span className="text-xs font-medium">{weights.frontPassengerWeight} kg</span>
+              <span
+                className="text-xs font-medium text-foreground">{weights.frontPassengerWeight} kg</span>
             )}
           </div>
         </div>
@@ -60,11 +61,12 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, onChange}) => {
           >
             <User
               size={32}
-              className={weights.rearLeftPassengerWeight > 0 ? 'text-blue-600' : 'text-gray-400'}
+              className={weights.rearLeftPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
             />
-            <span className="text-sm">Rear Left</span>
+            <span className="text-sm text-foreground">Rear Left</span>
             {weights.rearLeftPassengerWeight > 0 && (
-              <span className="text-xs font-medium">{weights.rearLeftPassengerWeight} kg</span>
+              <span
+                className="text-xs font-medium text-foreground">{weights.rearLeftPassengerWeight} kg</span>
             )}
           </div>
         </div>
@@ -75,11 +77,12 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, onChange}) => {
           >
             <User
               size={32}
-              className={weights.rearRightPassengerWeight > 0 ? 'text-blue-600' : 'text-gray-400'}
+              className={weights.rearRightPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
             />
-            <span className="text-sm">Rear Right</span>
+            <span className="text-sm text-foreground">Rear Right</span>
             {weights.rearRightPassengerWeight > 0 && (
-              <span className="text-xs font-medium">{weights.rearRightPassengerWeight} kg</span>
+              <span
+                className="text-xs font-medium text-foreground">{weights.rearRightPassengerWeight} kg</span>
             )}
           </div>
         </div>
@@ -87,8 +90,8 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, onChange}) => {
 
       {/* Aircraft outline */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="w-full h-full border-2 border-gray-300 rounded-lg"/>
-        <div className="absolute top-1/2 left-0 w-full border-t-2 border-gray-300"/>
+        <div className="w-full h-full border-2 border-border rounded-lg"/>
+        <div className="absolute top-1/2 left-0 w-full border-t-2 border-border"/>
       </div>
     </div>
   );
