@@ -16,15 +16,18 @@ import FlightTimeInput from './FlightTimeInput';
 import AircraftBackground from './AircraftBackground';
 import CompanyFooter from './CompanyFooter';
 import PrintButton from './PrintButton';
+import SeatLayout from './SeatLayout';
 
-interface CalculatorInputs {
-    pilotFrontWeight: number;
-    passengerRearWeight: number;
+export interface CalculatorInputs {
+    pilotWeight: number;
+    frontPassengerWeight: number;
+    rearLeftPassengerWeight: number;
+    rearRightPassengerWeight: number;
     baggageWeight: number;
     fuelAmount: number;
     fuelUnit: 'liters' | 'kg';
     flightTime: number;
-    powerSetting: '55%' | '65%' | '75%';  // Add this
+    powerSetting: '55%' | '65%' | '75%';
 }
 
 interface CalculationResults {
@@ -59,13 +62,15 @@ const WeightBalanceCalculator: React.FC = () => {
   const [inputs, setInputs] = React.useState<CalculatorInputs>(() => {
     const standardFuel = aircraftData[DEFAULT_AIRCRAFT].stations.fuel.standardLiters;
     return {
-      pilotFrontWeight: DEFAULT_PILOT_WEIGHT,
-      passengerRearWeight: 0,
+      pilotWeight: DEFAULT_PILOT_WEIGHT,
+      frontPassengerWeight: 0,
+      rearLeftPassengerWeight: 0,
+      rearRightPassengerWeight: 0,
       baggageWeight: 0,
       fuelAmount: standardFuel,
       fuelUnit: 'liters',
-      flightTime: 60,  // 1 hour default
-      powerSetting: '75%'  // Default power setting
+      flightTime: 60,
+      powerSetting: '75%'
     };
   });
 
@@ -192,8 +197,10 @@ const WeightBalanceCalculator: React.FC = () => {
     // Calculate moments and CG for takeoff
     const takeoffMoments = {
       empty: calculateMoment(aircraft.basicEmptyWeight, aircraft.armAftDatum),
-      pilotFront: calculateMoment(inputs.pilotFrontWeight, aircraft.stations.pilotFront.arm),
-      passengerRear: calculateMoment(inputs.passengerRearWeight, aircraft.stations.passengerRear.arm),
+      pilot: calculateMoment(inputs.pilotWeight, aircraft.stations.pilotFront.arm),
+      frontPassenger: calculateMoment(inputs.frontPassengerWeight, aircraft.stations.pilotFront.arm),
+      rearLeftPassenger: calculateMoment(inputs.rearLeftPassengerWeight, aircraft.stations.passengerRear.arm),
+      rearRightPassenger: calculateMoment(inputs.rearRightPassengerWeight, aircraft.stations.passengerRear.arm),
       baggage: calculateMoment(inputs.baggageWeight, aircraft.stations.baggage.arm),
       fuel: calculateMoment(startingFuelWeight, aircraft.stations.fuel.arm)
     };
@@ -205,8 +212,8 @@ const WeightBalanceCalculator: React.FC = () => {
     };
 
     const takeoffWeight = aircraft.basicEmptyWeight +
-            inputs.pilotFrontWeight +
-            inputs.passengerRearWeight +
+            inputs.pilotWeight + inputs.frontPassengerWeight +
+            inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight +
             inputs.baggageWeight +
             startingFuelWeight;
 
@@ -238,7 +245,7 @@ const WeightBalanceCalculator: React.FC = () => {
         hasMinimumReserve
       }
     });
-  }, [selectedAircraft, calculateTripFuel, inputs.fuelUnit, inputs.fuelAmount, inputs.pilotFrontWeight, inputs.passengerRearWeight, inputs.baggageWeight]);
+  }, [selectedAircraft, calculateTripFuel, inputs.fuelUnit, inputs.fuelAmount, inputs.baggageWeight]);
 
   const getMaxFuel = (aircraft: typeof aircraftData[keyof typeof aircraftData]) => {
     if (inputs.fuelUnit === 'liters') {
@@ -291,28 +298,10 @@ const WeightBalanceCalculator: React.FC = () => {
                 </FormItem>
 
                 <FormItem>
-                  <FormLabel>
-                                        Pilot & Front Passenger Weight
-                    <span
-                      className="text-sm text-gray-500 ml-2">(Standard: {DEFAULT_PILOT_WEIGHT} kg)</span>
-                  </FormLabel>
-                  <NumberInput
-                    value={inputs.pilotFrontWeight}
-                    min={0}
-                    max={200}
-                    unit="kg"
-                    placeholder="Enter weight"
-                    onChange={(e) => handleInputChange('pilotFrontWeight', e.toString())}
-                  />
-                  <FormMessage>Weight must be between 0 and 200 kg</FormMessage>
-                </FormItem>
-                <FormItem>
-                  <FormLabel>
-                                        Rear Passengers (kg)
-                  </FormLabel>
-                  <NumberInput
-                    value={inputs.passengerRearWeight || 0}
-                    onChange={(e) => handleInputChange('passengerRearWeight', e.toString())}
+                  <FormLabel>Passenger Weights</FormLabel>
+                  <SeatLayout
+                    weights={inputs}
+                    onChange={(seatKey, value) => handleInputChange(seatKey, value.toString())}
                   />
                 </FormItem>
                 <FormItem>
@@ -537,8 +526,9 @@ const WeightBalanceCalculator: React.FC = () => {
 
               <div>
                 <h3 className="font-semibold">Input Weights</h3>
-                <p>Pilot & Front Passenger: {inputs.pilotFrontWeight} kg</p>
-                <p>Rear Passengers: {inputs.passengerRearWeight} kg</p>
+                <p>Pilot & Front Passenger: {inputs.pilotWeight + inputs.frontPassengerWeight} kg</p>
+                <p>Rear
+                                    Passengers: {inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight} kg</p>
                 <p>Baggage: {inputs.baggageWeight} kg</p>
                 <p>Fuel: {inputs.fuelAmount} {inputs.fuelUnit}</p>
                 <p>Flight
