@@ -1,8 +1,14 @@
+// Add speed unit type
+type SpeedUnit = 'KIAS' | 'MPH';
+
 interface FuelConsumption {
     powerSetting: '55%' | '65%' | '75%';
     litersPerHour: number;
-    speed: number;  // True Airspeed in knots
+    speed: number;
+    speedUnit: SpeedUnit;  // Added speed unit
 }
+
+
 interface AircraftPerformance {
     cruiseSpeed?: number;
     maxDemoCrosswind: number;
@@ -10,14 +16,36 @@ interface AircraftPerformance {
     stallSpeedLanding: number;
     bestClimbSpeed: number;
     approachSpeedNormal: number;
+    speedUnit: SpeedUnit;  // Added speed unit for all performance speeds
     fuelConsumption: FuelConsumption[];
     taxiFuel: {
         liters: number;
         timeMinutes: number;
     };
     reserveFuel: {
-        minimumMinutes: number;  // Typically 45 minutes
+        minimumMinutes: number;
         recommendedLiters: number;
+    };
+}
+
+export const mphToKias = (mph: number): number => {
+  return mph * 0.868976;
+};
+
+export const kiasToMph = (kias: number): number => {
+  return kias / 0.868976;
+};
+
+interface AircraftStations {
+    pilotFront: { arm: number; maxWeight: number; };
+    passengerRear?: { arm: number; maxWeight: number; };  // Optional for standard layout
+    passengerBack?: { arm: number; maxWeight: number; };  // Optional for tandem layout
+    baggage: { arm: number; maxWeight: number; };
+    fuel: {
+        arm: number;
+        maxLiters: number;
+        standardLiters: number;
+        weightPerLiter: number;
     };
 }
 
@@ -27,17 +55,7 @@ export interface AircraftData {
     armAftDatum: number;
     mtow: number;
     maxBaggage: number;
-    stations: {
-        pilotFront: { arm: number; maxWeight: number; };
-        passengerRear: { arm: number; maxWeight: number; };
-        baggage: { arm: number; maxWeight: number; };
-        fuel: {
-            arm: number;
-            maxLiters: number;
-            standardLiters: number;
-            weightPerLiter: number;
-        };
-    };
+    stations: AircraftStations;
     envelope: {
         points: Array<{ cg: number; weight: number; }>;
         limits: {
@@ -50,6 +68,28 @@ export interface AircraftData {
     performance: AircraftPerformance;
 }
 
+// Helper function to get speed in desired unit
+export const getSpeedInUnit = (
+  speed: number,
+  fromUnit: SpeedUnit,
+  toUnit: SpeedUnit
+): number => {
+  if (fromUnit === toUnit) return speed;
+  return fromUnit === 'MPH' ? mphToKias(speed) : kiasToMph(speed);
+};
+
+// Helper function to format speed with unit
+export const formatSpeed = (
+  speed: number,
+  unit: SpeedUnit,
+  targetUnit?: SpeedUnit
+): string => {
+  const displaySpeed = targetUnit ?
+    getSpeedInUnit(speed, unit, targetUnit) :
+    speed;
+  const displayUnit = targetUnit || unit;
+  return `${Math.round(displaySpeed)} ${displayUnit}`;
+};
 
 export const aircraftData: Record<string, AircraftData> = {
   'C172S (SE-MIA)': {
@@ -59,9 +99,9 @@ export const aircraftData: Record<string, AircraftData> = {
     mtow: 1155,
     maxBaggage: 54,
     stations: {
-      pilotFront: { arm: 0.94, maxWeight: 340 },
-      passengerRear: { arm: 1.85, maxWeight: 340 },
-      baggage: { arm: 2.41, maxWeight: 54 },
+      pilotFront: {arm: 0.94, maxWeight: 340},
+      passengerRear: {arm: 1.85, maxWeight: 340},
+      baggage: {arm: 2.41, maxWeight: 54},
       fuel: {
         arm: 1.17,
         weightPerLiter: 0.72,
@@ -71,12 +111,12 @@ export const aircraftData: Record<string, AircraftData> = {
     },
     envelope: {
       points: [
-        { cg: 0.89, weight: 800 },
-        { cg: 0.89, weight: 883 },
-        { cg: 1.04, weight: 1155 },
-        { cg: 1.20, weight: 1155 },
-        { cg: 1.20, weight: 800 },
-        { cg: 0.89, weight: 800 }
+        {cg: 0.89, weight: 800},
+        {cg: 0.89, weight: 883},
+        {cg: 1.04, weight: 1155},
+        {cg: 1.20, weight: 1155},
+        {cg: 1.20, weight: 800},
+        {cg: 0.89, weight: 800}
       ],
       limits: {
         maxWeight: 1155,
@@ -91,18 +131,19 @@ export const aircraftData: Record<string, AircraftData> = {
       stallSpeedLanding: 40,
       bestClimbSpeed: 74,
       approachSpeedNormal: 65,
+      speedUnit: 'KIAS',
       fuelConsumption: [
-        { powerSetting: '55%', litersPerHour: 29.9, speed: 102 },
-        { powerSetting: '65%', litersPerHour: 34.4, speed: 111 },
-        { powerSetting: '75%', litersPerHour: 38.6, speed: 116 }
+        {powerSetting: '55%', litersPerHour: 29.9, speed: 102, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 34.4, speed: 111, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 38.6, speed: 116, speedUnit: 'KIAS'}
       ],
       taxiFuel: {
-        liters: 4.2,  // From the POH
+        liters: 4.2,
         timeMinutes: 10
       },
       reserveFuel: {
         minimumMinutes: 45,
-        recommendedLiters: 22.4  // From the POH
+        recommendedLiters: 22.4
       }
     }
   },
@@ -113,9 +154,9 @@ export const aircraftData: Record<string, AircraftData> = {
     mtow: 1150,
     maxBaggage: 30,
     stations: {
-      pilotFront: { arm: 2.30, maxWeight: 340 },
-      passengerRear: { arm: 3.25, maxWeight: 340 },
-      baggage: { arm: 3.65, maxWeight: 30 },
+      pilotFront: {arm: 2.30, maxWeight: 340},
+      passengerRear: {arm: 3.25, maxWeight: 340},
+      baggage: {arm: 3.65, maxWeight: 30},
       fuel: {
         arm: 2.63,
         weightPerLiter: 0.8,
@@ -125,12 +166,12 @@ export const aircraftData: Record<string, AircraftData> = {
     },
     envelope: {
       points: [
-        { cg: 2.40, weight: 840 },
-        { cg: 2.40, weight: 980 },
-        { cg: 2.46, weight: 1150 },
-        { cg: 2.59, weight: 1150 },
-        { cg: 2.59, weight: 840 },
-        { cg: 2.40, weight: 840 }
+        {cg: 2.40, weight: 840},
+        {cg: 2.40, weight: 980},
+        {cg: 2.46, weight: 1150},
+        {cg: 2.59, weight: 1150},
+        {cg: 2.59, weight: 840},
+        {cg: 2.40, weight: 840}
       ],
       limits: {
         maxWeight: 1150,
@@ -145,10 +186,11 @@ export const aircraftData: Record<string, AircraftData> = {
       stallSpeedLanding: 49,
       bestClimbSpeed: 66,
       approachSpeedNormal: 67,
+      speedUnit: 'KIAS',
       fuelConsumption: [
-        { powerSetting: '55%', litersPerHour: 15, speed: 106 },
-        { powerSetting: '65%', litersPerHour: 18, speed: 116 },
-        { powerSetting: '75%', litersPerHour: 22, speed: 122 }
+        {powerSetting: '55%', litersPerHour: 15, speed: 106, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 18, speed: 116, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 22, speed: 122, speedUnit: 'KIAS'}
       ],
       taxiFuel: {
         liters: 4,
@@ -167,9 +209,9 @@ export const aircraftData: Record<string, AircraftData> = {
     mtow: 1280,
     maxBaggage: 45,
     stations: {
-      pilotFront: { arm: 2.30, maxWeight: 340 },
-      passengerRear: { arm: 3.25, maxWeight: 340 },
-      baggage: { arm: 3.89, maxWeight: 45 },
+      pilotFront: {arm: 2.30, maxWeight: 340},
+      passengerRear: {arm: 3.25, maxWeight: 340},
+      baggage: {arm: 3.89, maxWeight: 45},
       fuel: {
         arm: 2.63,
         weightPerLiter: 0.8,
@@ -179,12 +221,12 @@ export const aircraftData: Record<string, AircraftData> = {
     },
     envelope: {
       points: [
-        { cg: 2.40, weight: 940 },
-        { cg: 2.40, weight: 1080 },
-        { cg: 2.46, weight: 1280 },
-        { cg: 2.53, weight: 1280 },
-        { cg: 2.53, weight: 940 },
-        { cg: 2.40, weight: 940 }
+        {cg: 2.40, weight: 940},
+        {cg: 2.40, weight: 1080},
+        {cg: 2.46, weight: 1280},
+        {cg: 2.53, weight: 1280},
+        {cg: 2.53, weight: 940},
+        {cg: 2.40, weight: 940}
       ],
       limits: {
         maxWeight: 1280,
@@ -199,10 +241,11 @@ export const aircraftData: Record<string, AircraftData> = {
       stallSpeedLanding: 59,
       bestClimbSpeed: 72,
       approachSpeedNormal: 77,
+      speedUnit: 'KIAS',
       fuelConsumption: [
-        { powerSetting: '55%', litersPerHour: 15, speed: 96 },
-        { powerSetting: '65%', litersPerHour: 19, speed: 113 },
-        { powerSetting: '75%', litersPerHour: 25, speed: 125 }
+        {powerSetting: '55%', litersPerHour: 15, speed: 96, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 19, speed: 113, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 25, speed: 125, speedUnit: 'KIAS'}
       ],
       taxiFuel: {
         liters: 4,
@@ -221,9 +264,9 @@ export const aircraftData: Record<string, AircraftData> = {
     mtow: 1055,
     maxBaggage: 23,
     stations: {
-      pilotFront: { arm: 2.05, maxWeight: 340 },
-      passengerRear: { arm: 3.00, maxWeight: 340 },
-      baggage: { arm: 3.63, maxWeight: 23 },
+      pilotFront: {arm: 2.05, maxWeight: 340},
+      passengerRear: {arm: 3.00, maxWeight: 340},
+      baggage: {arm: 3.63, maxWeight: 23},
       fuel: {
         arm: 2.41,
         weightPerLiter: 0.72,
@@ -233,12 +276,12 @@ export const aircraftData: Record<string, AircraftData> = {
     },
     envelope: {
       points: [
-        { cg: 2.11, weight: 750 },
-        { cg: 2.11, weight: 885 },
-        { cg: 2.21, weight: 1055 },
-        { cg: 2.36, weight: 1055 },
-        { cg: 2.36, weight: 750 },
-        { cg: 2.11, weight: 750 }
+        {cg: 2.11, weight: 750},
+        {cg: 2.11, weight: 885},
+        {cg: 2.21, weight: 1055},
+        {cg: 2.36, weight: 1055},
+        {cg: 2.36, weight: 750},
+        {cg: 2.11, weight: 750}
       ],
       limits: {
         maxWeight: 1055,
@@ -253,10 +296,11 @@ export const aircraftData: Record<string, AircraftData> = {
       stallSpeedLanding: 44,
       bestClimbSpeed: 79,
       approachSpeedNormal: 63,
+      speedUnit: 'KIAS',
       fuelConsumption: [
-        { powerSetting: '55%', litersPerHour: 29.5, speed: 91 },
-        { powerSetting: '65%', litersPerHour: 33.3, speed: 99 },
-        { powerSetting: '75%', litersPerHour: 37.9, speed: 107 }
+        {powerSetting: '55%', litersPerHour: 29.5, speed: 91, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 33.3, speed: 99, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 37.9, speed: 107, speedUnit: 'KIAS'}
       ],
       taxiFuel: {
         liters: 4.2,
@@ -265,6 +309,85 @@ export const aircraftData: Record<string, AircraftData> = {
       reserveFuel: {
         minimumMinutes: 45,
         recommendedLiters: 22.1
+      }
+    }
+  },
+  'PA18-150 (SE-GCG)': {
+    type: 'Piper PA-18-150 Super Cub',
+    basicEmptyWeight: 467,
+    armAftDatum: 2.31,
+    mtow: 794,
+    maxBaggage: 20,
+    stations: {
+      pilotFront: {
+        arm: 2.16,
+        maxWeight: 110
+      },
+      passengerBack: {  // Using passengerBack instead of passengerRear
+        arm: 3.12,
+        maxWeight: 110
+      },
+      baggage: {
+        arm: 3.68,
+        maxWeight: 20
+      },
+      fuel: {
+        arm: 2.79,
+        weightPerLiter: 0.72,
+        maxLiters: 140,
+        standardLiters: 88
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 2.08, weight: 467},
+        {cg: 2.08, weight: 680},
+        {cg: 2.39, weight: 794},
+        {cg: 2.54, weight: 794},
+        {cg: 2.54, weight: 467},
+        {cg: 2.08, weight: 467}
+      ],
+      limits: {
+        maxWeight: 794,
+        minWeight: 467,
+        forwardCG: 2.08,
+        aftCG: 2.54
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 15,
+      stallSpeedClean: 50,
+      stallSpeedLanding: 45,
+      bestClimbSpeed: 69,
+      approachSpeedNormal: 63,
+      speedUnit: 'MPH',
+      fuelConsumption: [
+        {
+          powerSetting: '55%',
+          litersPerHour: 18,
+          speed: 98,
+          speedUnit: 'MPH'
+        },
+        {
+          powerSetting: '65%',
+          litersPerHour: 22,
+          speed: 109,
+          speedUnit: 'MPH'
+        },
+        {
+          powerSetting: '75%',
+          litersPerHour: 26,
+          speed: 117,
+          speedUnit: 'MPH'
+        }
+      ],
+      taxiFuel: {
+        liters: 3,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 15
       }
     }
   }
@@ -306,6 +429,6 @@ export const isWithinEnvelope = (
   if (cg > aircraft.envelope.limits.aftCG) return false;
 
   // Check if point is inside the envelope polygon
-  const point = { cg, weight };
+  const point = {cg, weight};
   return isPointInPolygon(point, aircraft.envelope.points);
 };

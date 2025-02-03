@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, CardContent } from './ui/Card';
+import {Card, CardContent} from './ui/Card';
 
 interface AircraftPerformanceProps {
     maxDemoCrosswind: number;
@@ -11,6 +11,8 @@ interface AircraftPerformanceProps {
     mtow: number;
     maxBaggage: number;
     maxFuelLiters: number;
+    speedUnit?: 'KIAS' | 'MPH';  // Add speed unit
+    aircraftType: string;        // Add aircraft type for identification
 }
 
 const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
@@ -22,8 +24,19 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
   emptyWeight,
   mtow,
   maxBaggage,
-  maxFuelLiters
+  maxFuelLiters,
+  speedUnit = 'KIAS',
+  aircraftType
 }) => {
+  // Helper function to format speed display
+  const formatSpeed = (speed: number) => {
+    if (aircraftType.includes('PA18-150')) {
+      const kias = Math.round(speed * 0.868976); // Convert MPH to KIAS
+      return `${speed} MPH (${kias} KIAS)`;
+    }
+    return `${speed} KIAS`;
+  };
+
   return (
     <Card className="mt-4 bg-card text-card-foreground">
       <CardContent className="space-y-4">
@@ -55,11 +68,12 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
             <ul className="space-y-1 text-sm">
               <li className="flex justify-between">
                 <span>Best Climb:</span>
-                <span className="font-medium">{bestClimbSpeed} KIAS</span>
+                <span className="font-medium whitespace-nowrap">{formatSpeed(bestClimbSpeed)}</span>
               </li>
               <li className="flex justify-between">
                 <span>Approach:</span>
-                <span className="font-medium">{approachSpeedNormal} KIAS</span>
+                <span
+                  className="font-medium whitespace-nowrap">{formatSpeed(approachSpeedNormal)}</span>
               </li>
             </ul>
           </div>
@@ -69,11 +83,11 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
             <ul className="space-y-1 text-sm">
               <li className="flex justify-between">
                 <span>Clean:</span>
-                <span className="font-medium">{stallSpeedClean} KIAS</span>
+                <span className="font-medium whitespace-nowrap">{formatSpeed(stallSpeedClean)}</span>
               </li>
               <li className="flex justify-between">
                 <span>Landing:</span>
-                <span className="font-medium">{stallSpeedLanding} KIAS</span>
+                <span className="font-medium whitespace-nowrap">{formatSpeed(stallSpeedLanding)}</span>
               </li>
             </ul>
           </div>

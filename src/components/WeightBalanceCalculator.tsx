@@ -23,6 +23,7 @@ export interface CalculatorInputs {
     frontPassengerWeight: number;
     rearLeftPassengerWeight: number;
     rearRightPassengerWeight: number;
+    backPassengerWeight?: number;
     baggageWeight: number;
     fuelAmount: number;
     fuelUnit: 'liters' | 'kg';
@@ -66,6 +67,7 @@ const WeightBalanceCalculator: React.FC = () => {
       frontPassengerWeight: 0,
       rearLeftPassengerWeight: 0,
       rearRightPassengerWeight: 0,
+      backPassengerWeight: 0,
       baggageWeight: 0,
       fuelAmount: standardFuel,
       fuelUnit: 'liters',
@@ -73,6 +75,38 @@ const WeightBalanceCalculator: React.FC = () => {
       powerSetting: '75%'
     };
   });
+
+  const handleWeightChange = (
+    seat: keyof Omit<
+            CalculatorInputs,
+            'fuelUnit' | 'flightTime' | 'powerSetting' | 'fuelAmount'
+        >,
+    value: string
+  ) => {
+    const numericValue = parseFloat(value) || 0;
+
+    if (selectedAircraft?.includes('PA18-150')) {
+      // For tandem aircraft
+      setInputs(prev => ({
+        ...prev,
+        [seat]: numericValue,
+        // Clear other passenger weights if they exist
+        ...(seat !== 'pilotWeight' && seat !== 'backPassengerWeight' ? {
+          frontPassengerWeight: 0,
+          rearLeftPassengerWeight: 0,
+          rearRightPassengerWeight: 0
+        } : {})
+      }));
+    } else {
+      // For standard aircraft
+      setInputs(prev => ({
+        ...prev,
+        [seat]: numericValue,
+        // Clear tandem passenger weight if it exists
+        backPassengerWeight: 0
+      }));
+    }
+  };
 
   const [results, setResults] = React.useState<CalculationResults | null>(null);
 
@@ -180,10 +214,10 @@ const WeightBalanceCalculator: React.FC = () => {
     if (!selectedAircraft) return;
 
     const aircraft = aircraftData[selectedAircraft];
+    const isTandem = selectedAircraft.includes('PA18-150');
 
     // Calculate trip fuel
     const tripFuel = calculateTripFuel();
-    // Add taxi fuel
     const totalFuelConsumed = tripFuel + aircraft.performance.taxiFuel.liters;
 
     // Convert fuel to weight for calculations
@@ -198,36 +232,60 @@ const WeightBalanceCalculator: React.FC = () => {
     const takeoffMoments = {
       empty: calculateMoment(aircraft.basicEmptyWeight, aircraft.armAftDatum),
       pilot: calculateMoment(inputs.pilotWeight, aircraft.stations.pilotFront.arm),
-      frontPassenger: calculateMoment(inputs.frontPassengerWeight, aircraft.stations.pilotFront.arm),
-      rearLeftPassenger: calculateMoment(inputs.rearLeftPassengerWeight, aircraft.stations.passengerRear.arm),
-      rearRightPassenger: calculateMoment(inputs.rearRightPassengerWeight, aircraft.stations.passengerRear.arm),
+      // Handle different seating configurations
+      ...(isTandem
+        ? {
+          // Tandem configuration - use backPassengerWeight
+          backPassenger: calculateMoment(
+            inputs.backPassengerWeight || 0,
+            aircraft.stations.passengerBack?.arm || 0
+          )
+        }
+        : {
+          // Standard configuration
+          frontPassenger: calculateMoment(
+            inputs.frontPassengerWeight,
+            aircraft.stations.pilotFront.arm
+          ),
+          rearLeftPassenger: calculateMoment(
+            inputs.rearLeftPassengerWeight,
+            aircraft.stations.passengerRear?.arm || 0
+          ),
+          rearRightPassenger: calculateMoment(
+            inputs.rearRightPassengerWeight,
+            aircraft.stations.passengerRear?.arm || 0
+          )
+        }),
       baggage: calculateMoment(inputs.baggageWeight, aircraft.stations.baggage.arm),
       fuel: calculateMoment(startingFuelWeight, aircraft.stations.fuel.arm)
     };
 
-    // Calculate moments and CG for landing
-    const landingMoments = {
-      ...takeoffMoments,
-      fuel: calculateMoment(landingFuelWeight, aircraft.stations.fuel.arm)
-    };
+    // Calculate total weight based on configuration
+    const totalPassengerWeight = isTandem
+      ? (inputs.backPassengerWeight || 0)
+      : (inputs.frontPassengerWeight + inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight);
 
     const takeoffWeight = aircraft.basicEmptyWeight +
-            inputs.pilotWeight + inputs.frontPassengerWeight +
-            inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight +
+            inputs.pilotWeight +
+            totalPassengerWeight +
             inputs.baggageWeight +
             startingFuelWeight;
 
+    // Rest of the calculation remains the same
     const landingWeight = takeoffWeight - (startingFuelWeight - landingFuelWeight);
 
     const takeoffTotalMoment = Object.values(takeoffMoments).reduce((sum, moment) => sum + moment, 0);
-    const landingTotalMoment = Object.values(landingMoments).reduce((sum, moment) => sum + moment, 0);
+    const landingTotalMoment = Object.values({
+      ...takeoffMoments,
+      fuel: calculateMoment(landingFuelWeight, aircraft.stations.fuel.arm)
+    })
+      .reduce((sum, moment) => sum + moment, 0);
 
     const takeoffCG = calculateCG(takeoffWeight, takeoffTotalMoment);
     const landingCG = calculateCG(landingWeight, landingTotalMoment);
 
     const landingFuelLiters = landingFuelWeight / aircraft.stations.fuel.weightPerLiter;
     const hasMinimumReserve = landingFuelLiters >= aircraft.performance.reserveFuel.recommendedLiters;
-
 
     setResults({
       takeoff: {
@@ -240,12 +298,12 @@ const WeightBalanceCalculator: React.FC = () => {
         totalWeight: landingWeight,
         cg: landingCG,
         isWithinLimits: isWithinEnvelope(aircraft, landingWeight, landingCG),
-        moments: landingMoments,
+        moments: takeoffMoments,
         fuelRemaining: landingFuelLiters,
         hasMinimumReserve
       }
     });
-  }, [selectedAircraft, calculateTripFuel, inputs.fuelUnit, inputs.fuelAmount, inputs.baggageWeight]);
+  }, [selectedAircraft, calculateTripFuel, inputs]);
 
   const getMaxFuel = (aircraft: typeof aircraftData[keyof typeof aircraftData]) => {
     if (inputs.fuelUnit === 'liters') {
@@ -301,7 +359,8 @@ const WeightBalanceCalculator: React.FC = () => {
                   <FormLabel>Passenger Weights</FormLabel>
                   <SeatLayout
                     weights={inputs}
-                    onChange={(seatKey, value) => handleInputChange(seatKey, value.toString())}
+                    aircraftType={selectedAircraft}
+                    onChange={handleWeightChange}
                   />
                 </FormItem>
                 <FormItem>
@@ -511,6 +570,8 @@ const WeightBalanceCalculator: React.FC = () => {
             stallSpeedLanding={aircraftData[selectedAircraft].performance.stallSpeedLanding}
             bestClimbSpeed={aircraftData[selectedAircraft].performance.bestClimbSpeed}
             approachSpeedNormal={aircraftData[selectedAircraft].performance.approachSpeedNormal}
+            speedUnit={aircraftData[selectedAircraft].performance.speedUnit}
+            aircraftType={selectedAircraft}
           />
         )}
 
