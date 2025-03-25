@@ -48,7 +48,7 @@ interface CalculationResults {
     };
 }
 
-const DEFAULT_AIRCRAFT = 'C172S (SE-MIA)';
+const DEFAULT_AIRCRAFT = 'PA28-161 (SE-KMI)';
 const DEFAULT_PILOT_WEIGHT = 85;
 
 const MemoizedAircraftBackground = React.memo(AircraftBackground, (prevProps, nextProps) => {

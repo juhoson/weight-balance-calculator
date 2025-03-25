@@ -12,7 +12,6 @@ const AircraftBackground: React.FC<AircraftBackgroundProps> = ({selectedAircraft
 
   const getBackgroundImage = React.useMemo(() => {
     const imagePaths = {
-      'C172S (SE-MIA)': '/weight-balance/images/c172.jpg',
       'DA40D (SE-MBC)': '/weight-balance/images/da40d.jpg',
       'DA40NG (SE-MIO)': '/weight-balance/images/da40ng.jpg',
       'PA28-161 (SE-KMI)': '/weight-balance/images/pa28160.jpg',

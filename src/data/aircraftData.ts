@@ -92,61 +92,6 @@ export const formatSpeed = (
 };
 
 export const aircraftData: Record<string, AircraftData> = {
-  'C172S (SE-MIA)': {
-    type: 'Cessna 172S',
-    basicEmptyWeight: 800.4,
-    armAftDatum: 1.062,
-    mtow: 1155,
-    maxBaggage: 54,
-    stations: {
-      pilotFront: {arm: 0.94, maxWeight: 340},
-      passengerRear: {arm: 1.85, maxWeight: 340},
-      baggage: {arm: 2.41, maxWeight: 54},
-      fuel: {
-        arm: 1.17,
-        weightPerLiter: 0.72,
-        maxLiters: 200,
-        standardLiters: 132
-      }
-    },
-    envelope: {
-      points: [
-        {cg: 0.89, weight: 800},
-        {cg: 0.89, weight: 883},
-        {cg: 1.04, weight: 1155},
-        {cg: 1.20, weight: 1155},
-        {cg: 1.20, weight: 800},
-        {cg: 0.89, weight: 800}
-      ],
-      limits: {
-        maxWeight: 1155,
-        minWeight: 750,
-        forwardCG: 0.85,
-        aftCG: 1.25
-      }
-    },
-    performance: {
-      maxDemoCrosswind: 15,
-      stallSpeedClean: 48,
-      stallSpeedLanding: 40,
-      bestClimbSpeed: 74,
-      approachSpeedNormal: 65,
-      speedUnit: 'KIAS',
-      fuelConsumption: [
-        {powerSetting: '55%', litersPerHour: 29.9, speed: 102, speedUnit: 'KIAS'},
-        {powerSetting: '65%', litersPerHour: 34.4, speed: 111, speedUnit: 'KIAS'},
-        {powerSetting: '75%', litersPerHour: 38.6, speed: 116, speedUnit: 'KIAS'}
-      ],
-      taxiFuel: {
-        liters: 4.2,
-        timeMinutes: 10
-      },
-      reserveFuel: {
-        minimumMinutes: 45,
-        recommendedLiters: 22.4
-      }
-    }
-  },
   'DA40D (SE-MBC)': {
     type: 'Diamond DA40 D',
     basicEmptyWeight: 840,
