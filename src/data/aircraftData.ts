@@ -1,3 +1,4 @@
+// Update the aircraftData object to include the new aircraft
 // Add speed unit type
 type SpeedUnit = 'KIAS' | 'MPH';
 
@@ -268,7 +269,7 @@ export const aircraftData: Record<string, AircraftData> = {
         arm: 2.16,
         maxWeight: 110
       },
-      passengerBack: {  // Using passengerBack instead of passengerRear
+      passengerBack: {
         arm: 3.12,
         maxWeight: 110
       },
@@ -333,6 +334,119 @@ export const aircraftData: Record<string, AircraftData> = {
       reserveFuel: {
         minimumMinutes: 45,
         recommendedLiters: 15
+      }
+    }
+  },
+  // New aircraft: OH-WOW - Diamond DA40 NG
+  'DA40NG (OH-WOW)': {
+    type: 'Diamond DA40 NG',
+    basicEmptyWeight: 924,
+    armAftDatum: 2.456,
+    mtow: 1280,
+    maxBaggage: 45,
+    stations: {
+      pilotFront: {arm: 2.30, maxWeight: 340},
+      passengerRear: {arm: 3.25, maxWeight: 340},
+      baggage: {arm: 3.89, maxWeight: 45},
+      fuel: {
+        arm: 2.63,
+        weightPerLiter: 0.8,
+        maxLiters: 148,
+        standardLiters: 106
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 2.40, weight: 940},
+        {cg: 2.40, weight: 1080},
+        {cg: 2.46, weight: 1280},
+        {cg: 2.53, weight: 1280},
+        {cg: 2.53, weight: 940},
+        {cg: 2.40, weight: 940}
+      ],
+      limits: {
+        maxWeight: 1280,
+        minWeight: 900,
+        forwardCG: 2.38,
+        aftCG: 2.54
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 25,
+      stallSpeedClean: 64,
+      stallSpeedLanding: 59,
+      bestClimbSpeed: 72,
+      approachSpeedNormal: 77,
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 15, speed: 96, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 19, speed: 113, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 25, speed: 125, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 4,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 11
+      }
+    }
+  },
+
+  // New aircraft: SE-GVE - Piper PA-28-161 Warrior II
+  'PA28-161 (SE-GVE)': {
+    type: 'Piper PA-28-161 Warrior II',
+    basicEmptyWeight: 685,
+    armAftDatum: 2.14,
+    mtow: 1055,
+    maxBaggage: 23,
+    stations: {
+      pilotFront: {arm: 2.05, maxWeight: 340},
+      passengerRear: {arm: 3.00, maxWeight: 340},
+      baggage: {arm: 3.63, maxWeight: 23},
+      fuel: {
+        arm: 2.41,
+        weightPerLiter: 0.72,
+        maxLiters: 182,
+        standardLiters: 128
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 2.11, weight: 750},
+        {cg: 2.11, weight: 885},
+        {cg: 2.21, weight: 1055},
+        {cg: 2.36, weight: 1055},
+        {cg: 2.36, weight: 750},
+        {cg: 2.11, weight: 750}
+      ],
+      limits: {
+        maxWeight: 1055,
+        minWeight: 700,
+        forwardCG: 2.05,
+        aftCG: 2.40
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 17,
+      stallSpeedClean: 50,
+      stallSpeedLanding: 44,
+      bestClimbSpeed: 79,
+      approachSpeedNormal: 63,
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 29.5, speed: 91, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 33.3, speed: 99, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 37.9, speed: 107, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 4.2,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 22.1
       }
     }
   }
