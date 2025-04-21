@@ -449,6 +449,62 @@ export const aircraftData: Record<string, AircraftData> = {
         recommendedLiters: 22.1
       }
     }
+  },
+  'PA-32R-300 (SE-GRZ)': {
+    type: 'Piper PA-32R-300 Lance',
+    basicEmptyWeight: 975.65, // kg from SE-GRZ document
+    armAftDatum: 2.0401, // m from SE-GRZ document (204.01 cm converted to m)
+    mtow: 1633, // kg
+    maxBaggage: 91, // kg
+    stations: {
+      pilotFront: {arm: 2.04, maxWeight: 340},
+      passengerRear: {arm: 2.99, maxWeight: 340}, // Middle row
+      passengerBack: {arm: 3.65, maxWeight: 340}, // Back row (third row)
+      baggage: {arm: 4.54, maxWeight: 91},
+      fuel: {
+        arm: 2.38,
+        weightPerLiter: 0.72,
+        maxLiters: 356, // from SE-GRZ document
+        standardLiters: 253 // from SE-GRZ document
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 1.93, weight: 1089}, // 193.0 cm converted to m
+        {cg: 2.032, weight: 1315}, // 203.2 cm converted to m
+        {cg: 2.322, weight: 1633}, // 232.2 cm converted to m
+        {cg: 2.413, weight: 1633}, // 241.3 cm converted to m
+        {cg: 2.413, weight: 1089}, // 241.3 cm converted to m
+        {cg: 1.93, weight: 1089} // Closes the envelope polygon
+      ],
+      limits: {
+        maxWeight: 1633,
+        minWeight: 1089,
+        forwardCG: 1.93,
+        aftCG: 2.413
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 17, // knots - estimated from similar PA-32R models
+      stallSpeedClean: 70, // knots - estimated 73 MPH converted
+      stallSpeedLanding: 65, // knots - estimated 65 MPH converted
+      bestClimbSpeed: 95, // knots - estimated 106 MPH converted
+      approachSpeedNormal: 78, // knots - estimated 86 MPH converted
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 45, speed: 125, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 60, speed: 145, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 75, speed: 160, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 5,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 45
+      }
+    }
   }
 };
 

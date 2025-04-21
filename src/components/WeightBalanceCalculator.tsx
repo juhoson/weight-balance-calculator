@@ -23,7 +23,9 @@ export interface CalculatorInputs {
     frontPassengerWeight: number;
     rearLeftPassengerWeight: number;
     rearRightPassengerWeight: number;
-    backPassengerWeight?: number;
+    backLeftPassengerWeight?: number;    // Added for 3rd row left passenger in 6-seater
+    backRightPassengerWeight?: number;   // Added for 3rd row right passenger in 6-seater
+    backPassengerWeight?: number;        // For tandem aircraft
     baggageWeight: number;
     fuelAmount: number;
     fuelUnit: 'liters' | 'kg';
@@ -97,8 +99,17 @@ const WeightBalanceCalculator: React.FC = () => {
           rearRightPassengerWeight: 0
         } : {})
       }));
+    } else if (selectedAircraft?.includes('PA32R-300')) {
+      // For 6-seat aircraft (PA-32R-300 Lance)
+      setInputs(prev => ({
+        ...prev,
+        [seat]: numericValue,
+        // Keep all other passenger weights as they are since this is a 6-seater
+        // Just clear tandem passenger weight if it exists
+        backPassengerWeight: 0
+      }));
     } else {
-      // For standard aircraft
+      // For standard aircraft (4-seat)
       setInputs(prev => ({
         ...prev,
         [seat]: numericValue,
@@ -210,11 +221,14 @@ const WeightBalanceCalculator: React.FC = () => {
     return 'bg-green-500';
   };
 
+  // Updated calculateWeightAndBalance function to properly handle all seats in PA-32R-300
+
   const calculateWeightAndBalance = React.useCallback(() => {
     if (!selectedAircraft) return;
 
     const aircraft = aircraftData[selectedAircraft];
     const isTandem = selectedAircraft.includes('PA18-150');
+    const is6Seater = selectedAircraft.includes('PA-32');
 
     // Calculate trip fuel
     const tripFuel = calculateTripFuel();
@@ -242,7 +256,7 @@ const WeightBalanceCalculator: React.FC = () => {
           )
         }
         : {
-          // Standard configuration
+          // Standard configuration for front and middle rows
           frontPassenger: calculateMoment(
             inputs.frontPassengerWeight,
             aircraft.stations.pilotFront.arm
@@ -254,16 +268,44 @@ const WeightBalanceCalculator: React.FC = () => {
           rearRightPassenger: calculateMoment(
             inputs.rearRightPassengerWeight,
             aircraft.stations.passengerRear?.arm || 0
-          )
+          ),
+          // Add back row passengers for 6-seater - use passengerBack arm if available, otherwise use passengerRear
+          ...(is6Seater
+            ? {
+              backLeftPassenger: calculateMoment(
+                inputs.backLeftPassengerWeight || 0,
+                aircraft.stations.passengerBack?.arm || aircraft.stations.passengerRear?.arm || 0
+              ),
+              backRightPassenger: calculateMoment(
+                inputs.backRightPassengerWeight || 0,
+                aircraft.stations.passengerBack?.arm || aircraft.stations.passengerRear?.arm || 0
+              )
+            }
+            : {})
         }),
       baggage: calculateMoment(inputs.baggageWeight, aircraft.stations.baggage.arm),
       fuel: calculateMoment(startingFuelWeight, aircraft.stations.fuel.arm)
     };
 
     // Calculate total weight based on configuration
-    const totalPassengerWeight = isTandem
-      ? (inputs.backPassengerWeight || 0)
-      : (inputs.frontPassengerWeight + inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight);
+    let totalPassengerWeight;
+
+    if (isTandem) {
+      // For tandem aircraft
+      totalPassengerWeight = inputs.backPassengerWeight || 0;
+    } else if (is6Seater) {
+      // For 6-seater aircraft, include all rows
+      totalPassengerWeight = inputs.frontPassengerWeight +
+                inputs.rearLeftPassengerWeight +
+                inputs.rearRightPassengerWeight +
+                (inputs.backLeftPassengerWeight || 0) +
+                (inputs.backRightPassengerWeight || 0);
+    } else {
+      // For standard 4-seater aircraft
+      totalPassengerWeight = inputs.frontPassengerWeight +
+                inputs.rearLeftPassengerWeight +
+                inputs.rearRightPassengerWeight;
+    }
 
     const takeoffWeight = aircraft.basicEmptyWeight +
             inputs.pilotWeight +
@@ -357,8 +399,7 @@ const WeightBalanceCalculator: React.FC = () => {
 
                 <FormItem>
                   <FormLabel>Passenger Weights</FormLabel>
-                  <SeatLayout
-                    weights={inputs}
+                  <SeatLayout weights={inputs}
                     aircraftType={selectedAircraft}
                     onChange={handleWeightChange}
                   />
