@@ -450,6 +450,65 @@ export const aircraftData: Record<string, AircraftData> = {
       }
     }
   },
+  'PA28-181 (SE-GLC)': {
+    type: 'Piper PA-28-181 Cherokee Archer',
+    basicEmptyWeight: 712, // kg - from provided load sheet (dated 2003-05-19)
+    armAftDatum: 2.195, // m - from load sheet (219.5 cm converted to m)
+    mtow: 1110, // kg - from load sheet (Normal Category)
+    maxBaggage: 91, // kg - from load sheet
+
+    stations: {
+      pilotFront: {arm: 2.15, maxWeight: 135}, // Estimated arm from similar PA-28 models
+      passengerRear: {arm: 3.00, maxWeight: 135}, // Estimated arm from similar PA-28 models
+      baggage: {arm: 3.63, maxWeight: 91},  // Max baggage from load sheet
+      fuel: {
+        arm: 2.40, // Estimated from similar PA-28 models
+        weightPerLiter: 0.72, // Standard aviation fuel density
+        maxLiters: 182, // From load sheet (129 kg usable / 0.72 kg/L ≈ 182 L)
+        standardLiters: 129 // From load sheet (standard tanks)
+      }
+    },
+
+    envelope: {
+      // Points derived from the CG envelope graph in the load sheet
+      points: [
+        {cg: 2.08, weight: 600},
+        {cg: 2.08, weight: 950},
+        {cg: 2.13, weight: 1110}, // MTOW
+        {cg: 2.35, weight: 1110}, // MTOW
+        {cg: 2.35, weight: 600},
+        {cg: 2.08, weight: 600}  // Closes the envelope polygon
+      ],
+      limits: {
+        maxWeight: 1110, // kg - Normal Category MTOW
+        minWeight: 600,  // kg - Minimum in the envelope
+        forwardCG: 2.08, // m
+        aftCG: 2.35      // m
+      }
+    },
+
+    performance: {
+      maxDemoCrosswind: 17, // knots - standard for PA-28 models
+      stallSpeedClean: 55, // knots - estimated from PA-28-181 data
+      stallSpeedLanding: 49, // knots - estimated from PA-28-181 data
+      bestClimbSpeed: 76, // knots - estimated from PA-28-181 data
+      approachSpeedNormal: 70, // knots - estimated from PA-28-181 data
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 24, speed: 100, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 30, speed: 110, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 36, speed: 120, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 4,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 18
+      }
+    }
+  },
   'PA-32R-300 (SE-GRZ)': {
     type: 'Piper PA-32R-300 Lance',
     basicEmptyWeight: 975.65, // kg from SE-GRZ document
@@ -503,6 +562,61 @@ export const aircraftData: Record<string, AircraftData> = {
       reserveFuel: {
         minimumMinutes: 45,
         recommendedLiters: 45
+      }
+    }
+  },
+  'PA28-161 (SE-KML)': {
+    type: 'Piper PA-28-161 Cadet',
+    basicEmptyWeight: 663,
+    armAftDatum: 2.13,
+    mtow: 1055,
+    maxBaggage: 23,
+    stations: {
+      pilotFront: {arm: 2.05, maxWeight: 340},
+      passengerRear: {arm: 3.00, maxWeight: 340},
+      baggage: {arm: 3.63, maxWeight: 23},
+      fuel: {
+        arm: 2.41,
+        weightPerLiter: 0.72,
+        maxLiters: 182,
+        standardLiters: 128
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 2.11, weight: 700},
+        {cg: 2.11, weight: 885},
+        {cg: 2.21, weight: 1055},
+        {cg: 2.36, weight: 1055},
+        {cg: 2.36, weight: 700},
+        {cg: 2.11, weight: 700}
+      ],
+      limits: {
+        maxWeight: 1055,
+        minWeight: 700,
+        forwardCG: 2.05,
+        aftCG: 2.40
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 17,
+      stallSpeedClean: 50,
+      stallSpeedLanding: 44,
+      bestClimbSpeed: 79,
+      approachSpeedNormal: 63,
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 29.5, speed: 91, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 33.3, speed: 99, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 37.9, speed: 107, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 4.2,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 22.1
       }
     }
   }
