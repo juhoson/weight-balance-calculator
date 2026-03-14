@@ -15,236 +15,157 @@ interface LayoutProps {
     onSeatClick: (seat: keyof Omit<CalculatorInputs, 'fuelUnit' | 'flightTime' | 'powerSetting' | 'fuelAmount'>) => void;
 }
 
-// Separate component for Tandem Layout
-const TandemLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
-  <div className="flex flex-col items-center space-y-16">
-    <div
-      className="cursor-pointer flex flex-col items-center"
-      onClick={() => onSeatClick('pilotWeight')}
-    >
-      <User
-        size={32}
-        className={weights.pilotWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-      />
-      <span className="text-sm text-foreground">Pilot</span>
-      {weights.pilotWeight > 0 && (
-        <span className="text-xs font-medium text-foreground">
-          {weights.pilotWeight} kg
-        </span>
-      )}
-    </div>
+type SeatKey = keyof Omit<CalculatorInputs, 'fuelUnit' | 'flightTime' | 'powerSetting' | 'fuelAmount'>;
 
-    <div
-      className="cursor-pointer flex flex-col items-center"
-      onClick={() => onSeatClick('backPassengerWeight')}
+interface SeatButtonProps {
+    label: string;
+    weight: number;
+    onClick: () => void;
+}
+
+const SeatButton: React.FC<SeatButtonProps> = ({label, weight, onClick}) => {
+  const occupied = weight > 0;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border-2 transition-all duration-150 min-w-[68px]
+        ${occupied
+      ? 'border-primary bg-primary/10 text-primary shadow-sm'
+      : 'border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-primary/70'
+    }`}
     >
-      <User
-        size={32}
-        className={(weights.backPassengerWeight || 0) > 0 ? 'text-primary' : 'text-muted-foreground'}
+      <User size={26} strokeWidth={occupied ? 2.2 : 1.5}/>
+      <span className="text-xs font-medium leading-tight">{label}</span>
+      {occupied
+        ? <span className="text-xs font-bold tabular-nums">{weight} kg</span>
+        : <span className="text-[10px] opacity-50 leading-tight">tap to add</span>
+      }
+    </button>
+  );
+};
+
+// Fuselage wrapper — aircraft silhouette as background, seat rows overlaid
+const Fuselage: React.FC<{ children: React.ReactNode; rows: number }> = ({children}) => {
+  return (
+    <div className="relative w-full max-w-[900px] mx-auto select-none overflow-hidden" style={{minHeight: '500px'}}>
+      {/* Aircraft silhouette — scaled wide so wing tips are cropped, fuselage is centred */}
+      <img
+        src="/weight-balance/images/vecteezy_top-view-of-plane-silhouette-icon_22093352.png"
+        alt=""
+        aria-hidden="true"
+        className="absolute left-1/2 -translate-x-1/2 top-0 w-[190%] h-auto opacity-25 dark:invert dark:opacity-30 pointer-events-none"
       />
-      <span className="text-sm text-foreground">Back Seat</span>
-      {(weights.backPassengerWeight || 0) > 0 && (
-        <span className="text-xs font-medium text-foreground">
-          {weights.backPassengerWeight} kg
-        </span>
-      )}
+      {/* Seat rows */}
+      <div className="absolute inset-0 flex flex-col items-center justify-around pt-[8%] pb-[20%]"
+        style={{maxHeight: '450px'}}>
+        {children}
+      </div>
     </div>
-  </div>
+  );
+};
+
+// Separate component for Tandem Layout (2 seats, front/back)
+const TandemLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
+  <Fuselage rows={2}>
+    <SeatButton
+      label="Pilot"
+      weight={weights.pilotWeight}
+      onClick={() => onSeatClick('pilotWeight')}
+    />
+    <SeatButton
+      label="Back Seat"
+      weight={weights.backPassengerWeight || 0}
+      onClick={() => onSeatClick('backPassengerWeight')}
+    />
+  </Fuselage>
 ));
 
-// Separate component for Standard Layout
+// Separate component for Standard Layout (4 seats, 2+2)
 const StandardLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
-  <div className="flex flex-col items-center">
-    <div className="flex justify-center items-center space-x-8 mb-8">
-      <div
-        className="cursor-pointer flex flex-col items-center"
+  <Fuselage rows={2}>
+    {/* Front row */}
+    <div className="flex gap-3">
+      <SeatButton
+        label="Pilot"
+        weight={weights.pilotWeight}
         onClick={() => onSeatClick('pilotWeight')}
-      >
-        <User
-          size={32}
-          className={weights.pilotWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Pilot</span>
-        {weights.pilotWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.pilotWeight} kg
-          </span>
-        )}
-      </div>
-      <div
-        className="cursor-pointer flex flex-col items-center"
+      />
+      <SeatButton
+        label="Front Pass."
+        weight={weights.frontPassengerWeight}
         onClick={() => onSeatClick('frontPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={weights.frontPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Front Pass.</span>
-        {weights.frontPassengerWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.frontPassengerWeight} kg
-          </span>
-        )}
-      </div>
+      />
     </div>
-
-    <div className="flex justify-center space-x-16">
-      <div
-        className="cursor-pointer flex flex-col items-center"
+    {/* Rear row */}
+    <div className="flex gap-3">
+      <SeatButton
+        label="Rear Left"
+        weight={weights.rearLeftPassengerWeight}
         onClick={() => onSeatClick('rearLeftPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={weights.rearLeftPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Rear Left</span>
-        {weights.rearLeftPassengerWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.rearLeftPassengerWeight} kg
-          </span>
-        )}
-      </div>
-      <div
-        className="cursor-pointer flex flex-col items-center"
+      />
+      <SeatButton
+        label="Rear Right"
+        weight={weights.rearRightPassengerWeight}
         onClick={() => onSeatClick('rearRightPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={weights.rearRightPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Rear Right</span>
-        {weights.rearRightPassengerWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.rearRightPassengerWeight} kg
-          </span>
-        )}
-      </div>
+      />
     </div>
-  </div>
+  </Fuselage>
 ));
 
 // Six-Seat Layout for PA-32R-300 Lance
 const SixSeatLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
-  <div className="flex flex-col items-center">
-    {/* Front Row (Pilot and Co-Pilot) */}
-    <div className="flex justify-center items-center space-x-8 mb-8">
-      <div
-        className="cursor-pointer flex flex-col items-center"
+  <Fuselage rows={3}>
+    {/* Front row */}
+    <div className="flex gap-3">
+      <SeatButton
+        label="Pilot"
+        weight={weights.pilotWeight}
         onClick={() => onSeatClick('pilotWeight')}
-      >
-        <User
-          size={32}
-          className={weights.pilotWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Pilot</span>
-        {weights.pilotWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.pilotWeight} kg
-          </span>
-        )}
-      </div>
-      <div
-        className="cursor-pointer flex flex-col items-center"
+      />
+      <SeatButton
+        label="Co-Pilot"
+        weight={weights.frontPassengerWeight}
         onClick={() => onSeatClick('frontPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={weights.frontPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Co-Pilot</span>
-        {weights.frontPassengerWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.frontPassengerWeight} kg
-          </span>
-        )}
-      </div>
+      />
     </div>
-
-    {/* Middle Row (Two passengers) */}
-    <div className="flex justify-center space-x-16 mb-8">
-      <div
-        className="cursor-pointer flex flex-col items-center"
+    {/* Middle row */}
+    <div className="flex gap-3">
+      <SeatButton
+        label="Mid Left"
+        weight={weights.rearLeftPassengerWeight}
         onClick={() => onSeatClick('rearLeftPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={weights.rearLeftPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Middle Left</span>
-        {weights.rearLeftPassengerWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.rearLeftPassengerWeight} kg
-          </span>
-        )}
-      </div>
-      <div
-        className="cursor-pointer flex flex-col items-center"
+      />
+      <SeatButton
+        label="Mid Right"
+        weight={weights.rearRightPassengerWeight}
         onClick={() => onSeatClick('rearRightPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={weights.rearRightPassengerWeight > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Middle Right</span>
-        {weights.rearRightPassengerWeight > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.rearRightPassengerWeight} kg
-          </span>
-        )}
-      </div>
+      />
     </div>
-
-    {/* Back Row (Two passengers) */}
-    <div className="flex justify-center space-x-16">
-      <div
-        className="cursor-pointer flex flex-col items-center"
+    {/* Back row */}
+    <div className="flex gap-3">
+      <SeatButton
+        label="Back Left"
+        weight={weights.backLeftPassengerWeight || 0}
         onClick={() => onSeatClick('backLeftPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={(weights.backLeftPassengerWeight || 0) > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Back Left</span>
-        {(weights.backLeftPassengerWeight || 0) > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.backLeftPassengerWeight} kg
-          </span>
-        )}
-      </div>
-      <div
-        className="cursor-pointer flex flex-col items-center"
+      />
+      <SeatButton
+        label="Back Right"
+        weight={weights.backRightPassengerWeight || 0}
         onClick={() => onSeatClick('backRightPassengerWeight')}
-      >
-        <User
-          size={32}
-          className={(weights.backRightPassengerWeight || 0) > 0 ? 'text-primary' : 'text-muted-foreground'}
-        />
-        <span className="text-sm text-foreground">Back Right</span>
-        {(weights.backRightPassengerWeight || 0) > 0 && (
-          <span className="text-xs font-medium text-foreground">
-            {weights.backRightPassengerWeight} kg
-          </span>
-        )}
-      </div>
+      />
     </div>
-  </div>
+  </Fuselage>
 ));
 
 const SeatLayout: React.FC<SeatLayoutProps> = ({weights, aircraftType, onChange}) => {
-  const [selectedSeat, setSelectedSeat] = React.useState<keyof Omit<
-        CalculatorInputs,
-        'fuelUnit' | 'flightTime' | 'powerSetting' | 'fuelAmount'
-    > | null>(null);
-
+  const [selectedSeat, setSelectedSeat] = React.useState<SeatKey | null>(null);
   const [seatWeight, setSeatWeight] = React.useState<number>(0);
 
   const isTandem = aircraftType?.includes('PA18-150');
   const is6Seater = aircraftType?.includes('PA-32');
 
-  const handleSeatClick = (seat: keyof Omit<
-        CalculatorInputs,
-        'fuelUnit' | 'flightTime' | 'powerSetting' | 'fuelAmount'
-    >) => {
+  const handleSeatClick = (seat: SeatKey) => {
     setSelectedSeat(seat);
     setSeatWeight(weights[seat] || 0);
   };
@@ -260,7 +181,6 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, aircraftType, onChange}
     setSelectedSeat(null);
   };
 
-  // Render the appropriate layout based on aircraft type
   const renderLayout = () => {
     if (isTandem) {
       return <TandemLayout weights={weights} onSeatClick={handleSeatClick}/>;
