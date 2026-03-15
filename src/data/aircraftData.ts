@@ -565,6 +565,64 @@ export const aircraftData: Record<string, AircraftData> = {
       }
     }
   },
+  // PA28-161 Cadet HB-OJI — Lausanne Aeroclub
+  // Empty weight from standard PA28-161 Cadet published values (aircraft-specific W&B sheet not available)
+  // MTOW, max baggage, fuel and crosswind from CL-PA28-161-Cadet-EN1 checklist; arms from standard PA-28-161 datum
+  'PA28-161 (HB-OJI)': {
+    type: 'Piper PA-28-161 Cadet',
+    basicEmptyWeight: 676,
+    armAftDatum: 2.13,
+    mtow: 1055,
+    maxBaggage: 23,
+    stations: {
+      pilotFront: {arm: 2.05, maxWeight: 340},
+      passengerRear: {arm: 3.00, maxWeight: 340},
+      baggage: {arm: 3.63, maxWeight: 23},
+      fuel: {
+        arm: 2.41,
+        weightPerLiter: 0.72,
+        maxLiters: 182,
+        standardLiters: 128
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 2.11, weight: 700},
+        {cg: 2.11, weight: 885},
+        {cg: 2.21, weight: 1055},
+        {cg: 2.36, weight: 1055},
+        {cg: 2.36, weight: 700},
+        {cg: 2.11, weight: 700}
+      ],
+      limits: {
+        maxWeight: 1055,
+        minWeight: 700,
+        forwardCG: 2.05,
+        aftCG: 2.40
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 17,
+      stallSpeedClean: 50,
+      stallSpeedLanding: 44,
+      bestClimbSpeed: 79,
+      approachSpeedNormal: 63,
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 29.5, speed: 91, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 34, speed: 99, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 37.9, speed: 107, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 4.2,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 22.1
+      }
+    }
+  },
   'PA28-161 (SE-KML)': {
     type: 'Piper PA-28-161 Cadet',
     basicEmptyWeight: 663,
