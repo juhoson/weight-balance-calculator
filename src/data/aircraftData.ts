@@ -16,6 +16,7 @@ interface AircraftPerformance {
     stallSpeedClean: number;
     stallSpeedLanding: number;
     bestClimbSpeed: number;
+    bestGlideSpeed?: number;
     approachSpeedNormal: number;
     speedUnit: SpeedUnit;  // Added speed unit for all performance speeds
     fuelConsumption: FuelConsumption[];
@@ -620,6 +621,62 @@ export const aircraftData: Record<string, AircraftData> = {
       reserveFuel: {
         minimumMinutes: 45,
         recommendedLiters: 22.1
+      }
+    }
+  },
+  'TB9 (SE-KBH)': {
+    type: 'SOCATA TB9 Tampico',
+    basicEmptyWeight: 652,
+    armAftDatum: 1.12,
+    mtow: 1060,
+    maxBaggage: 40,
+    stations: {
+      pilotFront: {arm: 1.09, maxWeight: 340},
+      passengerRear: {arm: 1.745, maxWeight: 340},
+      baggage: {arm: 2.29, maxWeight: 40},
+      fuel: {
+        arm: 1.395,
+        weightPerLiter: 0.72,
+        maxLiters: 152,
+        standardLiters: 120
+      }
+    },
+    envelope: {
+      points: [
+        {cg: 1.035, weight: 652},
+        {cg: 1.035, weight: 900},
+        {cg: 1.05, weight: 1060},
+        {cg: 1.355, weight: 1060},
+        {cg: 1.355, weight: 652},
+        {cg: 1.035, weight: 652}
+      ],
+      limits: {
+        maxWeight: 1060,
+        minWeight: 650,
+        forwardCG: 1.035,
+        aftCG: 1.355
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 25,
+      stallSpeedClean: 58,
+      stallSpeedLanding: 50,
+      bestClimbSpeed: 85,
+      bestGlideSpeed: 86,
+      approachSpeedNormal: 80,
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 19, speed: 113, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 24, speed: 120, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 29, speed: 128, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 3,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 14
       }
     }
   },

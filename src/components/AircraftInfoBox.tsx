@@ -6,6 +6,7 @@ interface AircraftPerformanceProps {
     stallSpeedClean: number;
     stallSpeedLanding: number;
     bestClimbSpeed: number;
+    bestGlideSpeed?: number;
     approachSpeedNormal: number;
     emptyWeight: number;
     mtow: number;
@@ -20,6 +21,7 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
   stallSpeedClean,
   stallSpeedLanding,
   bestClimbSpeed,
+  bestGlideSpeed,
   approachSpeedNormal,
   emptyWeight,
   mtow,
@@ -75,6 +77,12 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
                 <span
                   className="font-medium whitespace-nowrap">{formatSpeed(approachSpeedNormal)}</span>
               </li>
+              {bestGlideSpeed && (
+                <li className="flex justify-between">
+                  <span>Best Glide:</span>
+                  <span className="font-medium whitespace-nowrap">{formatSpeed(bestGlideSpeed)}</span>
+                </li>
+              )}
             </ul>
           </div>
 

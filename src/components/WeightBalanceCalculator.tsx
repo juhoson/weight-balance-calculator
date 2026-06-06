@@ -610,6 +610,7 @@ const WeightBalanceCalculator: React.FC = () => {
             stallSpeedClean={aircraftData[selectedAircraft].performance.stallSpeedClean}
             stallSpeedLanding={aircraftData[selectedAircraft].performance.stallSpeedLanding}
             bestClimbSpeed={aircraftData[selectedAircraft].performance.bestClimbSpeed}
+            bestGlideSpeed={aircraftData[selectedAircraft].performance.bestGlideSpeed}
             approachSpeedNormal={aircraftData[selectedAircraft].performance.approachSpeedNormal}
             speedUnit={aircraftData[selectedAircraft].performance.speedUnit}
             aircraftType={selectedAircraft}
