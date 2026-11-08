@@ -2,6 +2,9 @@ import { authFetch } from './session';
 import type {
   AirframeImportRequest,
   AirframeView,
+  ClubSelectionRequest,
+  ClubView,
+  GenericTypeView,
   ImportPreviewResponse,
   ImportResult,
   StandardTypeResponse,
@@ -71,7 +74,22 @@ export function confirmImport(body: AirframeImportRequest): Promise<ImportResult
   });
 }
 
-/** Shared aircraft, plus the signed-in user's own, in the calculator's shape. */
+/** The signed-in user's own aircraft and chosen club aircraft; empty when signed out. */
 export function fetchAirframes(): Promise<AirframeView[]> {
   return request<AirframeView[]>('/api/airframes');
+}
+
+/** The generic version of each model. Public. */
+export function fetchGenericTypes(): Promise<GenericTypeView[]> {
+  return request<GenericTypeView[]>('/api/aircraft-types/generic');
+}
+
+/** Clubs and which of their aircraft the signed-in user shows. */
+export function fetchClubs(): Promise<ClubView[]> {
+  return request<ClubView[]>('/api/clubs');
+}
+
+/** Replaces the signed-in user's club selection; returns the updated clubs. */
+export function saveClubSelection(body: ClubSelectionRequest): Promise<ClubView[]> {
+  return request<ClubView[]>('/api/clubs/selection', { method: 'PUT', body: JSON.stringify(body) });
 }

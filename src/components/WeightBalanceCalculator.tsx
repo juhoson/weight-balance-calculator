@@ -4,7 +4,7 @@ import {Button} from './ui/Button';
 import {NumberInput} from './ui/NumberInput';
 import {Alert, AlertDescription, AlertTitle} from './ui/Alert';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/Card';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/Select';
+import {Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue} from './ui/Select';
 
 import {type AircraftData, calculateCG, calculateMoment, isWithinEnvelope} from '../data/aircraftData';
 import {useAircraftCatalog} from '../lib/useAircraftCatalog';
@@ -20,6 +20,10 @@ import CompanyFooter from './CompanyFooter';
 import PrintButton from './PrintButton';
 import SeatLayout from './SeatLayout';
 import AircraftSourceNotice from './AircraftSourceNotice';
+import ClubAircraftButton from './ClubAircraftDialog';
+import GenericEmptyWeight from './GenericEmptyWeight';
+import {type AircraftMeta, genericKey} from '../lib/aircraftCatalog';
+import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 
 export interface CalculatorInputs {
     pilotWeight: number;
@@ -53,16 +57,42 @@ interface CalculationResults {
     };
 }
 
-const DEFAULT_AIRCRAFT = 'PA28-161 (SE-KMI)';
+const DEFAULT_AIRCRAFT = genericKey('PA28-161');
+const SELECTED_KEY = 'selectedAircraft.v1';
 const DEFAULT_PILOT_WEIGHT = 85;
 
 const MemoizedAircraftBackground = React.memo(AircraftBackground, (prevProps, nextProps) => {
   return prevProps.selectedAircraft === nextProps.selectedAircraft;
 });
 
-/** The default aircraft if the list has it, else the first one. */
+function rememberedAircraft(): string | null {
+  try {
+    return localStorage.getItem(SELECTED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** The aircraft chosen last time if the list has it, else the default, else the first one. */
 function pickAircraft(list: Record<string, AircraftData>): string {
+  const remembered = rememberedAircraft();
+  if (remembered && list[remembered]) return remembered;
   return list[DEFAULT_AIRCRAFT] ? DEFAULT_AIRCRAFT : Object.keys(list)[0];
+}
+
+/** The aircraft list's sections: generic models, your own aircraft, then each club. */
+function groupKeys(keys: string[], meta: Record<string, AircraftMeta>): Array<{ title: string; keys: string[] }> {
+  const groups = new Map<string, string[]>();
+  const add = (title: string, key: string) => groups.set(title, [...(groups.get(title) ?? []), key]);
+  for (const key of keys) {
+    const m = meta[key];
+    if (!m || m.kind === 'generic') add('Generic aircraft', key);
+    else if (m.owned) add('Your aircraft', key);
+    else add(m.club ?? 'Other aircraft', key);
+  }
+  const fixed = ['Generic aircraft', 'Your aircraft'];
+  const clubs = Array.from(groups.keys()).filter(t => !fixed.includes(t)).sort((a, b) => a.localeCompare(b));
+  return [...fixed, ...clubs].filter(t => groups.has(t)).map(title => ({ title, keys: groups.get(title) as string[] }));
 }
 
 interface WeightBalanceCalculatorProps {
@@ -72,7 +102,26 @@ interface WeightBalanceCalculatorProps {
 
 const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({preferredRegistration}) => {
   const catalog = useAircraftCatalog();
-  const aircraftList = catalog.aircraft;
+  // A generic aircraft's empty weight and arm are the pilot's own (remembered per model).
+  const [emptyOverrides, setEmptyOverrides] = React.useState<EmptyOverrides>(loadEmptyOverrides);
+  const aircraftList = React.useMemo(() => {
+    const list = {...catalog.aircraft};
+    for (const [key, o] of Object.entries(emptyOverrides)) {
+      // A cleared field (0) falls back to the typical value; GenericEmptyWeight says so.
+      if (list[key] && catalog.meta[key]?.kind === 'generic' && o.weight > 0 && o.arm > 0) {
+        list[key] = {...list[key], basicEmptyWeight: o.weight, armAftDatum: o.arm};
+      }
+    }
+    return list;
+  }, [catalog.aircraft, catalog.meta, emptyOverrides]);
+  const updateEmptyOverride = (key: string, value: { weight: number; arm: number } | null) => {
+    setEmptyOverrides(prev => {
+      const next = {...prev};
+      if (value) next[key] = value; else delete next[key];
+      saveEmptyOverrides(next);
+      return next;
+    });
+  };
   const [disclaimerAccepted, setDisclaimerAccepted] = React.useState(() => {
     return localStorage.getItem('disclaimerAccepted') === 'true';
   });
@@ -141,6 +190,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   // Handle aircraft selection with default fuel
   const handleAircraftSelection = React.useCallback((aircraft: string) => {
     setSelectedAircraft(aircraft);
+    try {
+      localStorage.setItem(SELECTED_KEY, aircraft);
+    } catch {
+      // Not remembered; fine.
+    }
     const standardFuel = aircraftList[aircraft].stations.fuel.standardLiters;
     setInputs(prev => ({
       ...prev,
@@ -387,8 +441,14 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   React.useEffect(() => {
     if (preferredRegistration && !preferredApplied.current && catalog.source === 'database') {
       preferredApplied.current = true;
-      const keys = Object.keys(catalog.meta).filter(k => catalog.meta[k].registration === preferredRegistration);
-      const key = keys.find(k => catalog.meta[k].owned) ?? keys[0];
+      const keys = Object.keys(catalog.meta).filter(k => {
+        const m = catalog.meta[k];
+        return m.kind === 'airframe' && m.registration === preferredRegistration;
+      });
+      const key = keys.find(k => {
+        const m = catalog.meta[k];
+        return m.kind === 'airframe' && m.owned;
+      }) ?? keys[0];
       if (key) {
         handleAircraftSelection(key);
         return;
@@ -418,7 +478,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4 print:hidden">
                 <FormItem>
-                  <FormLabel>Aircraft Type</FormLabel>
+                  <FormLabel>Aircraft</FormLabel>
                   <Select
                     value={selectedAircraft}
                     onValueChange={handleAircraftSelection}
@@ -427,15 +487,31 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                       <SelectValue placeholder="Select Aircraft Type"/>
                     </SelectTrigger>
                     <SelectContent className="bg-popover text-popover-foreground">
-                      {Object.entries(aircraftList).map(([key]) => (
-                        <SelectItem key={key} value={key}>
-                          {key}{catalog.meta[key]?.owned ? ' · yours' : ''}
-                        </SelectItem>
+                      {groupKeys(Object.keys(aircraftList), catalog.meta).map(group => (
+                        <SelectGroup key={group.title}>
+                          <SelectLabel>{group.title}</SelectLabel>
+                          {group.keys.map(key => (
+                            <SelectItem key={key} value={key}>
+                              {catalog.meta[key]?.kind === 'generic' ? `${catalog.meta[key].label} (generic)` : key}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
                       ))}
                     </SelectContent>
                   </Select>
                   <AircraftSourceNotice catalog={catalog} selectedMeta={catalog.meta[selectedAircraft]}/>
+                  <ClubAircraftButton onSaved={catalog.reload}/>
                 </FormItem>
+
+                {catalog.meta[selectedAircraft]?.kind === 'generic' && (
+                  <GenericEmptyWeight
+                    weight={emptyOverrides[selectedAircraft]?.weight ?? catalog.aircraft[selectedAircraft].basicEmptyWeight}
+                    arm={emptyOverrides[selectedAircraft]?.arm ?? catalog.aircraft[selectedAircraft].armAftDatum}
+                    typicalWeight={catalog.aircraft[selectedAircraft].basicEmptyWeight}
+                    typicalArm={catalog.aircraft[selectedAircraft].armAftDatum}
+                    onChange={value => updateEmptyOverride(selectedAircraft, value)}
+                  />
+                )}
 
                 <FormItem>
                   <FormLabel>Passenger Weights</FormLabel>
@@ -662,7 +738,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             <div className="space-y-4">
               <div>
                 <h3 className="font-semibold">Aircraft Information</h3>
-                <p>Type: {selectedAircraft}</p>
+                <p>Aircraft: {catalog.meta[selectedAircraft]?.kind === 'generic'
+                  ? `${catalog.meta[selectedAircraft].label} (generic)` : selectedAircraft}</p>
+                <p>Empty weight: {aircraftList[selectedAircraft].basicEmptyWeight} kg,
+                  arm {aircraftList[selectedAircraft].armAftDatum} m</p>
                 <p>Date: {new Date().toLocaleDateString()}</p>
               </div>
 

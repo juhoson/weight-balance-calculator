@@ -1,7 +1,7 @@
 import { aircraftData } from '../data/aircraftData';
-import { loadCachedCatalog, saveCachedCatalog, toAircraftData, toCatalog } from './aircraftCatalog';
+import { builtinCatalog, loadCachedCatalog, saveCachedCatalog, toAircraftData, toCatalog } from './aircraftCatalog';
 import { getSeatLayout } from './seatLayout';
-import { allBuiltinViews, viewFromBuiltin } from './testViews';
+import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from './testViews';
 
 describe('toCatalog', () => {
   it('turns database aircraft back into exactly the built-in calculator data', () => {
@@ -19,7 +19,19 @@ describe('toCatalog', () => {
     const { aircraft, meta } = toCatalog([mine, shared]);
     expect(aircraft['PA28-161 (SE-KMI)'].basicEmptyWeight).toBe(682.4);
     expect(aircraft['PA28-161 (SE-KMI, yours)'].basicEmptyWeight).toBe(690);
-    expect(meta['PA28-161 (SE-KMI, yours)'].owned).toBe(true);
+    expect(meta['PA28-161 (SE-KMI, yours)']).toMatchObject({ kind: 'airframe', owned: true, club: null });
+  });
+
+  it('lists generic types first, by name, with the typical values as empty weight and arm', () => {
+    const club = viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'Västerås Flygklubb' } });
+    const { aircraft, meta } = toCatalog([club], [
+      genericFromBuiltin('TB9 (F-GKVK)'),
+      genericFromBuiltin('DA40D (SE-MBC)', { typicalEmptyWeight: 800, typicalEmptyArm: 2.5 }),
+    ]);
+    expect(Object.keys(aircraft)).toEqual(['DA40D (generic)', 'TB9 (generic)', 'PA28-161 (SE-KMI)']);
+    expect(aircraft['DA40D (generic)']).toMatchObject({ basicEmptyWeight: 800, armAftDatum: 2.5 });
+    expect(meta['DA40D (generic)']).toEqual({ kind: 'generic', label: aircraftData['DA40D (SE-MBC)'].type, typeStatus: 'CURATED' });
+    expect(meta['PA28-161 (SE-KMI)']).toMatchObject({ kind: 'airframe', club: 'Västerås Flygklubb' });
   });
 
   it('leaves out aircraft the calculator cannot use', () => {
@@ -42,6 +54,18 @@ describe('toCatalog', () => {
   });
 });
 
+describe('builtinCatalog', () => {
+  it('offers one generic aircraft per model and no registrations', () => {
+    const { aircraft, meta } = builtinCatalog();
+    expect(Object.keys(aircraft).sort()).toEqual([
+      'DA40D (generic)', 'DA40NG (generic)', 'PA-32R-300 (generic)', 'PA18-150 (generic)', 'PA28-140 (generic)',
+      'PA28-161 (generic)', 'PA28-181 (generic)', 'TB9 (generic)',
+    ]);
+    expect(Object.values(meta).every(m => m.kind === 'generic')).toBe(true);
+    expect(aircraft['PA28-161 (generic)']).toEqual(aircraftData['PA28-161 (SE-KMI)']);
+  });
+});
+
 describe('getSeatLayout', () => {
   it('matches the old name-based rule for every built-in aircraft', () => {
     for (const [key, a] of Object.entries(aircraftData)) {
@@ -61,25 +85,27 @@ describe('offline cache', () => {
 
   it('round-trips the database list', () => {
     const views = allBuiltinViews();
-    saveCachedCatalog(views, 7, new Date('2026-11-01T10:00:00Z'));
+    const generics = [genericFromBuiltin('TB9 (F-GKVK)')];
+    saveCachedCatalog(views, generics, 7, new Date('2026-11-01T10:00:00Z'));
     const cached = loadCachedCatalog(7);
     expect(cached?.savedAt).toBe('2026-11-01T10:00:00.000Z');
     expect(cached?.views).toEqual(views);
+    expect(cached?.generics).toEqual(generics);
   });
 
   it('ignores a corrupt cache', () => {
-    localStorage.setItem('aircraftCatalog.v2', '{not json');
+    localStorage.setItem('aircraftCatalog.v3', '{not json');
     expect(loadCachedCatalog(null)).toBeNull();
-    localStorage.setItem('aircraftCatalog.v2', JSON.stringify({ views: 'nope' }));
+    localStorage.setItem('aircraftCatalog.v3', JSON.stringify({ views: 'nope' }));
     expect(loadCachedCatalog(null)).toBeNull();
   });
 
   it('only returns a list cached for the same user', () => {
-    saveCachedCatalog(allBuiltinViews(), 7);
+    saveCachedCatalog(allBuiltinViews(), [], 7);
     expect(loadCachedCatalog(7)).not.toBeNull();
     expect(loadCachedCatalog(8)).toBeNull();
     expect(loadCachedCatalog(null)).toBeNull(); // signed out must not see user 7's own aircraft
-    saveCachedCatalog(allBuiltinViews(), null);
+    saveCachedCatalog([], [], null);
     expect(loadCachedCatalog(null)).not.toBeNull();
     expect(loadCachedCatalog(7)).toBeNull();
   });

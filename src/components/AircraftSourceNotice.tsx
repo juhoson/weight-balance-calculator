@@ -28,7 +28,7 @@ const AircraftSourceNotice: React.FC<AircraftSourceNoticeProps> = ({catalog, sel
     lines.push(
       <p key="source" className="flex items-center gap-1 text-amber-700 dark:text-amber-300">
         <CloudOff className="h-3.5 w-3.5 shrink-0"/>
-        Offline: using the built-in aircraft list. Aircraft you added are not available.
+        Offline: using the built-in generic aircraft. Your own and club aircraft are not available.
       </p>
     );
   }
@@ -47,7 +47,7 @@ const AircraftSourceNotice: React.FC<AircraftSourceNoticeProps> = ({catalog, sel
       </p>
     );
   }
-  if (selectedMeta?.weighedOn) {
+  if (selectedMeta?.kind === 'airframe' && selectedMeta.weighedOn) {
     lines.push(
       <p key="weighed" className="text-muted-foreground">
         Empty weight from the weighing of {formatDate(selectedMeta.weighedOn)}.

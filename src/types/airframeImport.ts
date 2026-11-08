@@ -105,11 +105,18 @@ export interface UnacknowledgedAlertsBody {
 export type TypeKind = 'STANDARD' | 'VARIANT';
 export type Verification = 'UNVERIFIED' | 'USER_CONFIRMED' | 'VERIFIED';
 
+export interface ClubRef {
+  id: number;
+  name: string;
+}
+
 /** An aircraft from GET /api/airframes: type values plus the current weighing. */
 export interface AirframeView {
   id: number;
   registration: string;
   owned: boolean;
+  /** The club a shared aircraft belongs to; null for the user's own. */
+  club?: ClubRef | null;
   typeKind: TypeKind;
   typeStatus: TypeStatus;
   verification: Verification;
@@ -117,4 +124,29 @@ export interface AirframeView {
   basicEmptyWeight: number;
   armAftDatum: number;
   spec: AircraftSpec;
+}
+
+/**
+ * From GET /api/aircraft-types/generic: the generic version of a model. The pilot enters the
+ * empty weight and arm of their own aircraft; the typical values are the prefill.
+ */
+export interface GenericTypeView {
+  typeId: number;
+  typeStatus: TypeStatus;
+  typicalEmptyWeight: number;
+  typicalEmptyArm: number;
+  spec: AircraftSpec;
+}
+
+/** From GET /api/clubs: a club, its aircraft, and which of them the signed-in user shows. */
+export interface ClubView {
+  id: number;
+  name: string;
+  /** All of the club's aircraft are shown, including ones added later. */
+  allAircraft: boolean;
+  aircraft: Array<{ id: number; registration: string; code: string; name: string; selected: boolean }>;
+}
+
+export interface ClubSelectionRequest {
+  clubs: Array<{ clubId: number; allAircraft: boolean; airframeIds?: number[] }>;
 }

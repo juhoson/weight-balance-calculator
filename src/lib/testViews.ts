@@ -1,6 +1,6 @@
 // Test helper: AirframeView objects built from the calculator's built-in aircraft.
 import { aircraftData, type AircraftData } from '../data/aircraftData';
-import type { AirframeView } from '../types/airframeImport';
+import type { AirframeView, GenericTypeView } from '../types/airframeImport';
 
 let nextId = 1;
 
@@ -25,3 +25,12 @@ export function viewFromBuiltin(key: string, over: Partial<AirframeView> = {}): 
 }
 
 export const allBuiltinViews = (): AirframeView[] => Object.keys(aircraftData).map(k => viewFromBuiltin(k));
+
+/** A generic type built from a built-in aircraft (its empty weight/arm become the typical values). */
+export function genericFromBuiltin(key: string, over: Partial<GenericTypeView> = {}): GenericTypeView {
+  const v = viewFromBuiltin(key);
+  return {
+    typeId: v.id, typeStatus: 'CURATED', typicalEmptyWeight: v.basicEmptyWeight, typicalEmptyArm: v.armAftDatum,
+    spec: v.spec, ...over,
+  };
+}

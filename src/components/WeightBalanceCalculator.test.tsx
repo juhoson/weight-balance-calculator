@@ -1,12 +1,18 @@
 import React, { Profiler } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
-import { fetchAirframes } from '../api/backend';
-import { allBuiltinViews, viewFromBuiltin } from '../lib/testViews';
+import { fetchAirframes, fetchGenericTypes } from '../api/backend';
+import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/testViews';
 
-jest.mock('../api/backend', () => ({ fetchAirframes: jest.fn() }));
+jest.mock('../api/backend', () => ({
+  fetchAirframes: jest.fn(), fetchGenericTypes: jest.fn(), fetchClubs: jest.fn(), saveClubSelection: jest.fn(),
+}));
 jest.mock('./CGEnvelopeVisualization', () => () => <div data-testid="envelope" />);
+let mockUser: { id: number; email: string; displayName: string } | null = null;
+jest.mock('../api/useAuth', () => ({ useAuth: () => ({ user: mockUser, signOutReason: null }) }));
 const mockedFetch = fetchAirframes as jest.MockedFunction<typeof fetchAirframes>;
+const mockedGenerics = fetchGenericTypes as jest.MockedFunction<typeof fetchGenericTypes>;
+const pilot = { id: 7, email: 'p@example.com', displayName: 'Pilot' };
 
 beforeAll(() => {
   // Radix and Recharts measure elements; jsdom has no ResizeObserver.
@@ -21,6 +27,9 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('disclaimerAccepted', 'true');
   mockedFetch.mockReset();
+  mockedGenerics.mockReset();
+  mockedGenerics.mockResolvedValue([genericFromBuiltin('PA28-161 (SE-KMI)')]);
+  mockUser = null;
 });
 
 const emptyWeightShown = () =>
@@ -31,6 +40,7 @@ it('selects an aircraft that was just added once the database list loads', async
     registration: 'SE-CUB', owned: true, basicEmptyWeight: 455, weighedOn: '2026-05-04',
   });
   added.spec.code = 'PA-18'; // a code the old name-based seat rule would not have recognised
+  mockUser = pilot;
   mockedFetch.mockResolvedValue([...allBuiltinViews(), added]);
 
   render(<WeightBalanceCalculator preferredRegistration="SE-CUB" />);
@@ -44,19 +54,38 @@ it('selects an aircraft that was just added once the database list loads', async
 
 it('flags aircraft whose values are AI-suggested', async () => {
   const ai = viewFromBuiltin('TB9 (F-GKVK)', { registration: 'F-NEWX', owned: true, typeStatus: 'AI_SUGGESTED' });
+  mockUser = pilot;
   mockedFetch.mockResolvedValue([...allBuiltinViews(), ai]);
   render(<WeightBalanceCalculator preferredRegistration="F-NEWX" />);
   expect(await screen.findByText(/AI-suggested type values/)).toBeInTheDocument();
 });
 
-it('keeps working on the built-in list when the database is unreachable', async () => {
-  mockedFetch.mockRejectedValue(new Error('offline'));
+it('keeps working on the built-in generic aircraft when the database is unreachable', async () => {
+  mockedGenerics.mockRejectedValue(new Error('offline'));
   render(<WeightBalanceCalculator />);
-  expect(await screen.findByText(/Offline: using the built-in aircraft list/)).toBeInTheDocument();
-  expect(emptyWeightShown()).toContain('682.4 kg'); // default PA28-161 (SE-KMI)
+  expect(await screen.findByText(/Offline: using the built-in generic aircraft/)).toBeInTheDocument();
+  expect(emptyWeightShown()).toContain('682.4 kg'); // default: generic PA28-161, typical values
+});
+
+it('signed out: a generic aircraft takes the pilot\'s own empty weight, remembered per model', async () => {
+  render(<WeightBalanceCalculator />);
+  await waitFor(() => expect(mockedGenerics).toHaveBeenCalled());
+  expect(mockedFetch).not.toHaveBeenCalled();
+  expect(screen.getByText(/typical values for the model, not your aircraft/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Sign in to show your club/ })).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Empty weight (kg)'), { target: { value: '701.5' } });
+  await waitFor(() => expect(emptyWeightShown()).toContain('701.5 kg'));
+  expect(JSON.parse(localStorage.getItem('genericEmptyWeights.v1') ?? '{}')['PA28-161 (generic)'])
+    .toEqual({ weight: 701.5, arm: 2.13 });
+
+  fireEvent.change(screen.getByLabelText('Empty weight (kg)'), { target: { value: '' } });
+  expect(await screen.findByText(/Enter both values/)).toBeInTheDocument();
+  expect(emptyWeightShown()).toContain('682.4 kg'); // a cleared field falls back to typical, not 0
 });
 
 it('settles after rendering instead of re-rendering endlessly', async () => {
+  mockUser = pilot;
   mockedFetch.mockResolvedValue(allBuiltinViews());
   let commits = 0;
   render(<Profiler id="calc" onRender={() => { commits += 1; }}><WeightBalanceCalculator /></Profiler>);
