@@ -2,12 +2,15 @@ import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
-import { fetchAirframes, fetchGenericTypes } from '../api/backend';
+import { fetchAirframes, fetchGenericTypes, fetchRouteWeather } from '../api/backend';
+import { esgg, essx, routeWeather } from '../lib/testRoute';
 import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/testViews';
 
 jest.mock('../api/backend', () => ({
   fetchAirframes: jest.fn(), fetchGenericTypes: jest.fn(), fetchClubs: jest.fn(), saveClubSelection: jest.fn(),
+  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(),
 }));
+const mockedRoute = fetchRouteWeather as jest.MockedFunction<typeof fetchRouteWeather>;
 jest.mock('./CGEnvelopeVisualization', () => () => <div data-testid="envelope" />);
 let mockUser: { id: number; email: string; displayName: string } | null = null;
 jest.mock('../api/useAuth', () => ({ useAuth: () => ({ user: mockUser, signOutReason: null }) }));
@@ -30,6 +33,8 @@ beforeEach(() => {
   mockedFetch.mockReset();
   mockedGenerics.mockReset();
   mockedGenerics.mockResolvedValue([genericFromBuiltin('PA28-161 (SE-KMI)')]);
+  mockedRoute.mockReset();
+  mockedRoute.mockImplementation(async (from, to) => (from === to ? routeWeather(essx, essx, 0) : routeWeather(essx, esgg, 175)));
   mockUser = null;
 });
 
@@ -119,4 +124,32 @@ it('signed in: the generic aircraft can be hidden, and the list searched by regi
   expect(screen.queryByRole('option', { name: /generic/i })).not.toBeInTheDocument();
   await user.click(option);
   await waitFor(() => expect(screen.getByRole('heading', { name: 'SE-MBC' })).toBeInTheDocument());
+});
+
+it('a club aircraft starts from the club\'s home airfield', async () => {
+  mockUser = pilot;
+  mockedFetch.mockResolvedValue([
+    viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'Västerås Flygklubb', homeAirport: 'ESSX' } }),
+  ]);
+  localStorage.setItem('hideGenericAircraft.v1.7', 'true');
+  render(<WeightBalanceCalculator />);
+  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSX', 'ESSX'));
+  expect(await screen.findByText(/Västerås Flygklubb's home airfield/)).toBeInTheDocument();
+  expect(await screen.findByText(/Local flight from/)).toBeInTheDocument();
+});
+
+it('a trip sets the flight time from distance and cruise speed and shows the fuel at landing', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
+  render(<WeightBalanceCalculator />);
+  // PA28-161 at 75%: 107 kt -> 175 NM takes 98 min, rounded up to 1:40.
+  expect(await screen.findByText(/From the route: 175 NM at 107 kt/)).toBeInTheDocument();
+  expect(screen.getByDisplayValue('1:40')).toBeInTheDocument();
+  expect(screen.getByText(/ESSX → ESGG · 175 NM · 1:40 at 75%/)).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Fuel at landing/ })).toBeInTheDocument();
+  // 128 L - 4.2 taxi - 37.9 L/h * 100 min = 60.6 L, above the 22.1 L reserve
+  expect(screen.getByText(/At landing 60.6 L/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: '10 minutes longer' }));
+  expect(screen.getByDisplayValue('1:50')).toBeInTheDocument();
+  expect(await screen.findByText(/Set by you/)).toBeInTheDocument();
 });

@@ -108,6 +108,8 @@ export type Verification = 'UNVERIFIED' | 'USER_CONFIRMED' | 'VERIFIED';
 export interface ClubRef {
   id: number;
   name: string;
+  /** ICAO code of the club's airfield, the default departure. */
+  homeAirport?: string | null;
 }
 
 /** An aircraft from GET /api/airframes: type values plus the current weighing. */
@@ -142,6 +144,7 @@ export interface GenericTypeView {
 export interface ClubView {
   id: number;
   name: string;
+  homeAirport?: string | null;
   /** All of the club's aircraft are shown, including ones added later. */
   allAircraft: boolean;
   aircraft: Array<{ id: number; registration: string; code: string; name: string; selected: boolean }>;

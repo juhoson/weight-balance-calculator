@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Fuel, XCircle } from 'lucide-react';
 import type { AircraftData } from '../data/aircraftData';
 import CGEnvelopeVisualization from './CGEnvelopeVisualization';
 import PrintButton from './PrintButton';
+import FuelTank from './FuelTank';
 import { cn } from '../lib/utils';
 
 export interface LoadResult {
@@ -77,12 +78,20 @@ interface ResultsPanelProps {
   fuelAmount: number;
   fuelUnit: 'liters' | 'kg';
   tripFuel: number;
+  powerSetting: string;
+  /** E.g. "ESSX → ESGG · 175 NM", when the trip time comes from the route. */
+  routeLabel?: string | null;
 }
 
 /** The outcome: overall verdict, takeoff and landing figures, the CG envelope and the fuel plan. */
-const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, aircraft, fuelAmount, fuelUnit, tripFuel }) => {
+const ResultsPanel: React.FC<ResultsPanelProps> = ({
+  results, aircraft, fuelAmount, fuelUnit, tripFuel, powerSetting, routeLabel,
+}) => {
   const verdict = results ? verdictOf(results) : null;
   const reserve = aircraft.performance.reserveFuel.recommendedLiters;
+  const fuel = aircraft.stations.fuel;
+  const startL = fuelUnit === 'liters' ? fuelAmount : fuelAmount / fuel.weightPerLiter;
+  const litersPerHour = aircraft.performance.fuelConsumption.find(f => f.powerSetting === powerSetting)?.litersPerHour ?? 0;
   return (
     <section id="results" aria-label="Results" className="space-y-4 scroll-mt-4">
       {results && verdict && (
@@ -117,7 +126,12 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, aircraft, fuelAmou
 
       {results && (
         <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Fuel className="h-4 w-4"/> Fuel plan</h3>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Fuel className="h-4 w-4"/> Fuel plan</h3>
+          {routeLabel && <p className="text-xs text-muted-foreground">{routeLabel}</p>}
+          <div className="my-3">
+            <FuelTank capacityL={fuel.maxLiters} startL={startL} taxiL={aircraft.performance.taxiFuel.liters}
+              tripL={tripFuel} reserveL={reserve} litersPerHour={litersPerHour} powerSetting={powerSetting}/>
+          </div>
           <dl className="space-y-1 text-sm tabular-nums">
             {[
               ['Starting fuel', `${fuelAmount.toFixed(1)} ${fuelUnit === 'liters' ? 'L' : 'kg'}`],

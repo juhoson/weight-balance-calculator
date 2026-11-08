@@ -9,6 +9,7 @@ import type {
   ImportResult,
   StandardTypeResponse,
 } from '../types/airframeImport';
+import type { AirportInfo, NearbyAirport, RouteWeather } from '../types/route';
 
 // Empty = same origin; in development package.json's "proxy" forwards /api to the backend.
 const API_BASE = process.env.REACT_APP_API_URL ?? '';
@@ -92,4 +93,18 @@ export function fetchClubs(): Promise<ClubView[]> {
 /** Replaces the signed-in user's club selection; returns the updated clubs. */
 export function saveClubSelection(body: ClubSelectionRequest): Promise<ClubView[]> {
   return request<ClubView[]>('/api/clubs/selection', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+/** Airports by code, name or town. Public. */
+export function searchAirports(query: string): Promise<AirportInfo[]> {
+  return request<AirportInfo[]>(`/api/airports?${new URLSearchParams({ q: query })}`);
+}
+
+export function nearestAirports(lat: number, lon: number): Promise<NearbyAirport[]> {
+  return request<NearbyAirport[]>(`/api/airports/nearest?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`);
+}
+
+/** METAR/TAF for departure, arrival and stations about every 100 NM between them. Public. */
+export function fetchRouteWeather(from: string, to: string): Promise<RouteWeather> {
+  return request<RouteWeather>(`/api/weather/route?${new URLSearchParams({ from, to })}`);
 }

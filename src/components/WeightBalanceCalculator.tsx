@@ -22,6 +22,11 @@ import ResultsPanel, {VERDICT_TEXT, VerdictIcon, verdictOf, verdictStyles} from 
 import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
+import RouteSection from './route/RouteSection';
+import {useRouteWeather} from '../lib/useRouteWeather';
+import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
+import {nearestAirports} from '../api/backend';
+import {flightMinutes, MPH_TO_KT} from '../lib/wind';
 
 export interface CalculatorInputs {
     pilotWeight: number;
@@ -481,6 +486,63 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     }
   }, [aircraftList, catalog.meta, catalog.source, preferredRegistration, selectedAircraft, handleAircraftSelection]);
 
+  // ---- Route: departure/arrival, weather, and the flight time of a trip -----------------------
+  const [route, setRouteState] = React.useState<PlannedRoute>(loadRoute);
+  const setRoute = React.useCallback((r: PlannedRoute) => { setRouteState(r); saveRoute(r); }, []);
+  const weather = useRouteWeather(route.from, route.to);
+  const [locating, setLocating] = React.useState(false);
+  const [locationError, setLocationError] = React.useState<string | null>(null);
+  const [locatedCode, setLocatedCode] = React.useState<string | null>(null);
+
+  const metaNow = catalog.meta[selectedAircraft];
+  const homeAirport = metaNow?.kind === 'airframe' ? metaNow.homeAirport : null;
+  const homeClub = metaNow?.kind === 'airframe' ? metaNow.club : null;
+  // A club aircraft starts from the club's airfield, unless the pilot picked the airports themselves.
+  React.useEffect(() => {
+    if (homeAirport && (route.auto || !route.from) && route.from !== homeAirport) {
+      setRoute({from: homeAirport, to: homeAirport, auto: true});
+    }
+  }, [homeAirport, route.auto, route.from, setRoute]);
+
+  const locateNearest = React.useCallback(async (quiet = false) => {
+    setLocating(true);
+    setLocationError(null);
+    try {
+      const pos = await currentPosition();
+      const [nearest] = await nearestAirports(pos.lat, pos.lon);
+      if (nearest) {
+        setLocatedCode(nearest.airport.code);
+        setRoute({from: nearest.airport.code, to: nearest.airport.code, auto: true});
+      }
+    } catch (e) {
+      if (!quiet) setLocationError(e instanceof Error ? e.message : 'Could not find the nearest airport.');
+    } finally {
+      setLocating(false);
+    }
+  }, [setRoute]);
+  // Without a club airfield, use the position - but only if the pilot already allowed it; never prompt on load.
+  const triedLocation = React.useRef(false);
+  React.useEffect(() => {
+    if (triedLocation.current || route.from || homeAirport) return;
+    triedLocation.current = true;
+    locationAlreadyAllowed().then(ok => { if (ok) locateNearest(true); });
+  }, [route.from, homeAirport, locateNearest]);
+
+  // A trip (arrival differs from departure) sets the flight time from distance and cruise speed,
+  // until the pilot sets the time themselves.
+  const trip = weather.data && weather.data.departure.code !== weather.data.arrival.code ? weather.data : null;
+  const cruise = aircraftList[selectedAircraft]?.performance.fuelConsumption.find(f => f.powerSetting === inputs.powerSetting);
+  const cruiseKt = cruise ? Math.round(cruise.speedUnit === 'MPH' ? cruise.speed * MPH_TO_KT : cruise.speed) : 0;
+  const routeMinutes = trip ? flightMinutes(trip.distanceNm, cruiseKt) : 0;
+  const [manualTime, setManualTime] = React.useState(false);
+  React.useEffect(() => { setManualTime(false); }, [route.from, route.to]);
+  React.useEffect(() => {
+    if (routeMinutes > 0 && !manualTime) {
+      setInputs(prev => (prev.flightTime === routeMinutes ? prev : {...prev, flightTime: routeMinutes}));
+    }
+  }, [routeMinutes, manualTime]);
+  const fmtTime = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+
   const aircraft = aircraftList[selectedAircraft];
   const selectedMeta = catalog.meta[selectedAircraft];
   if (!aircraft) return null; // only for the render before the list effect picks another aircraft
@@ -552,7 +614,21 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             </FormItem>
           </Section>
 
-          <Section step={3} title="Fuel and flight">
+          <Section step={3} title="Route and weather">
+            <RouteSection
+              route={route}
+              onChange={setRoute}
+              weather={weather}
+              maxCrosswindKt={aircraft.performance.maxDemoCrosswind}
+              onUseLocation={() => locateNearest(false)}
+              locating={locating}
+              locationError={locationError}
+              defaultNote={route.from && route.from === homeAirport && homeClub ? `${homeClub}'s home airfield`
+                : route.from && route.from === locatedCode ? 'Nearest airport to your location' : null}
+            />
+          </Section>
+
+          <Section step={4} title="Fuel and flight">
             <FormItem>
               <FormLabel>Fuel on board</FormLabel>
               <div className="flex gap-2">
@@ -622,10 +698,23 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                   </SelectContent>
                 </Select>
               </FormItem>
-              <FlightTimeInput
-                value={inputs.flightTime}
-                onChange={(minutes) => setInputs(prev => ({...prev, flightTime: minutes}))}
-              />
+              <div>
+                <FlightTimeInput
+                  value={inputs.flightTime}
+                  onChange={(minutes) => {
+                    if (trip) setManualTime(true);
+                    setInputs(prev => ({...prev, flightTime: minutes}));
+                  }}
+                />
+                {trip && routeMinutes > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {manualTime
+                      ? <>Set by you. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline"
+                        onClick={() => setManualTime(false)}>Use the route time ({fmtTime(routeMinutes)})</button></>
+                      : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind.</>}
+                  </p>
+                )}
+              </div>
             </div>
           </Section>
 
@@ -639,6 +728,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             fuelAmount={inputs.fuelAmount}
             fuelUnit={inputs.fuelUnit}
             tripFuel={calculateTripFuel()}
+            powerSetting={inputs.powerSetting}
+            routeLabel={trip ? `${trip.departure.code} → ${trip.arrival.code} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
           />
         </aside>
       </form>

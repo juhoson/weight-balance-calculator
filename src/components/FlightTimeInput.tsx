@@ -38,6 +38,7 @@ const FlightTimeInput: React.FC<FlightTimeInputProps> = ({ value, onChange }) =>
           size="icon"
           className="bg-background"
           onClick={handleDecrement}
+          aria-label="10 minutes shorter"
           //onTouchStart={handleDecrement}
         >
           <Minus className="h-4 w-4"/>
@@ -46,6 +47,7 @@ const FlightTimeInput: React.FC<FlightTimeInputProps> = ({ value, onChange }) =>
           type="text"
           value={formatTime(value)}
           readOnly
+          aria-label="Flight time"
           className="text-center bg-background"
         />
         <Button
@@ -54,6 +56,7 @@ const FlightTimeInput: React.FC<FlightTimeInputProps> = ({ value, onChange }) =>
           size="icon"
           className="bg-background"
           onClick={handleIncrement}
+          aria-label="10 minutes longer"
           //onTouchStart={handleIncrement}
         >
           <Plus className="h-4 w-4"/>

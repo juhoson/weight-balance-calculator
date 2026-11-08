@@ -18,6 +18,8 @@ export type AircraftMeta =
       owned: boolean;
       /** Club name for a shared aircraft; null for the user's own. */
       club: string | null;
+      /** The club's airfield (ICAO), the default departure. */
+      homeAirport: string | null;
       typeStatus: TypeStatus;
       verification: Verification;
       weighedOn: string | null;
@@ -143,6 +145,7 @@ export function toCatalog(views: AirframeView[], generics: GenericTypeView[] = [
       registration: view.registration,
       owned: view.owned,
       club: view.owned ? null : view.club?.name ?? null,
+      homeAirport: view.owned ? null : view.club?.homeAirport ?? null,
       typeStatus: view.typeStatus,
       verification: view.verification,
       weighedOn: view.weighedOn,
