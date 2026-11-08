@@ -170,7 +170,7 @@ const ClubAircraftButton: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   const [open, setOpen] = React.useState(false);
   if (!user) {
     return (
-      <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+      <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
         Flying a club aircraft?
         <SignInButton variant="link" size="sm" className="h-auto p-0 text-xs" label="Sign in to show your club's aircraft"/>
       </p>
@@ -178,7 +178,7 @@ const ClubAircraftButton: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   }
   return (
     <>
-      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => setOpen(true)}>
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Users className="mr-1 h-4 w-4"/>
         Choose club aircraft
       </Button>

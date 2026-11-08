@@ -36,7 +36,7 @@ const GenericEmptyWeight: React.FC<GenericEmptyWeightProps> = ({weight, arm, typ
           />
         </label>
         <label className="space-y-1 text-sm">
-          <span className="text-muted-foreground">Empty arm (m aft of datum)</span>
+          <span className="text-muted-foreground">Empty arm (m)</span>
           <NumberInput
             aria-label="Empty arm (m)"
             value={arm}

@@ -7,10 +7,13 @@ import type { AirframeView, GenericTypeView, StationSpec, TypeStatus, Verificati
  * aircraft data carries the typical values as the prefill.
  */
 export type AircraftMeta =
-  | { kind: 'generic'; label: string; typeStatus: TypeStatus }
+  | { kind: 'generic'; label: string; code: string; typeStatus: TypeStatus }
   | {
       kind: 'airframe';
       label: string;
+      code: string;
+      /** Model name, e.g. "Piper PA-28-161 Warrior II". */
+      model: string;
       registration: string;
       owned: boolean;
       /** Club name for a shared aircraft; null for the user's own. */
@@ -118,7 +121,7 @@ export function toCatalog(views: AirframeView[], generics: GenericTypeView[] = [
       continue;
     }
     generic[key] = data;
-    meta[key] = { kind: 'generic', label: g.spec.name, typeStatus: g.typeStatus };
+    meta[key] = { kind: 'generic', label: g.spec.name, code: g.spec.code, typeStatus: g.typeStatus };
   }
 
   const sorted = [...views].sort((a, b) => Number(a.owned) - Number(b.owned)); // shared first keep the plain key
@@ -135,6 +138,8 @@ export function toCatalog(views: AirframeView[], generics: GenericTypeView[] = [
     meta[key] = {
       kind: 'airframe',
       label: key,
+      code: view.spec.code,
+      model: view.spec.name,
       registration: view.registration,
       owned: view.owned,
       club: view.owned ? null : view.club?.name ?? null,

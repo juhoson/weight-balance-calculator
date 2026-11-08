@@ -46,20 +46,14 @@ const SeatButton: React.FC<SeatButtonProps> = ({label, weight, onClick}) => {
   );
 };
 
-// Fuselage wrapper — aircraft silhouette as background, seat rows overlaid
+// Top view of the cabin: wings behind the front row, seat rows inside a rounded fuselage.
+// Drawn with CSS so it scales with the screen instead of cropping an image.
 const Fuselage: React.FC<{ children: React.ReactNode; rows: number }> = ({children}) => {
   return (
-    <div className="relative w-full max-w-[900px] mx-auto select-none overflow-hidden" style={{minHeight: '500px'}}>
-      {/* Aircraft silhouette — scaled wide so wing tips are cropped, fuselage is centred */}
-      <img
-        src="/weight-balance/images/vecteezy_top-view-of-plane-silhouette-icon_22093352.png"
-        alt=""
-        aria-hidden="true"
-        className="absolute left-1/2 -translate-x-1/2 top-0 w-[190%] h-auto opacity-25 dark:invert dark:opacity-30 pointer-events-none"
-      />
-      {/* Seat rows */}
-      <div className="absolute inset-0 flex flex-col items-center justify-around pt-[8%] pb-[20%]"
-        style={{maxHeight: '450px'}}>
+    <div className="relative mx-auto w-full max-w-md select-none py-2">
+      <div aria-hidden="true" className="absolute inset-x-0 top-[34%] h-14 rounded-full bg-muted"/>
+      <div aria-hidden="true" className="absolute bottom-0 left-1/2 h-8 w-40 -translate-x-1/2 rounded-full bg-muted"/>
+      <div className="relative mx-auto flex w-[64%] min-w-[210px] flex-col items-center gap-4 rounded-b-[2.5rem] rounded-t-[50%] border border-border bg-card px-3 pb-10 pt-14 shadow-sm">
         {children}
       </div>
     </div>

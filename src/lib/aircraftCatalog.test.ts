@@ -30,7 +30,9 @@ describe('toCatalog', () => {
     ]);
     expect(Object.keys(aircraft)).toEqual(['DA40D (generic)', 'TB9 (generic)', 'PA28-161 (SE-KMI)']);
     expect(aircraft['DA40D (generic)']).toMatchObject({ basicEmptyWeight: 800, armAftDatum: 2.5 });
-    expect(meta['DA40D (generic)']).toEqual({ kind: 'generic', label: aircraftData['DA40D (SE-MBC)'].type, typeStatus: 'CURATED' });
+    expect(meta['DA40D (generic)']).toEqual({
+      kind: 'generic', label: aircraftData['DA40D (SE-MBC)'].type, code: 'DA40D', typeStatus: 'CURATED',
+    });
     expect(meta['PA28-161 (SE-KMI)']).toMatchObject({ kind: 'airframe', club: 'Västerås Flygklubb' });
   });
 

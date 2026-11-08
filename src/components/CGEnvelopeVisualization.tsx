@@ -29,13 +29,16 @@ interface CGEnvelopeVisualizationProps {
         forwardCG: number;
         aftCG: number;
     };
+    /** Chart height in px; defaults to 400 on mobile, 500 otherwise. */
+    height?: number;
 }
 
 const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
   envelopePoints,
   takeoffPoint,
   landingPoint,
-  limits
+  limits,
+  height
 }) => {
   // Responsive sizing hook
   const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
@@ -83,11 +86,13 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
     [limits.maxWeight, isMobile]
   );
 
+  // Compact (a fixed height, e.g. in the results panel): tighter margins.
+  const compact = height !== undefined;
   const chartMargin = React.useMemo(
-    () => isMobile ?
+    () => compact ? {top: 16, right: 40, bottom: 8, left: 40} : isMobile ?
       {top: 20, right: 10, bottom: 50, left: 40} :
       {top: 20, right: 30, bottom: 70, left: 60},
-    [isMobile]
+    [isMobile, compact]
   );
 
   const axisTickStyle = React.useMemo(
@@ -162,8 +167,8 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
   ), [isMobile]);
 
   return (
-    <div className="mt-4 md:mt-8 p-2 md:p-4">
-      <ResponsiveContainer width="100%" height={isMobile ? 400 : 500}>
+    <div className={compact ? '' : 'mt-4 md:mt-8 p-2 md:p-4'}>
+      <ResponsiveContainer width="100%" height={height ?? (isMobile ? 400 : 500)}>
         <ScatterChart margin={chartMargin}>
           <CartesianGrid
             strokeDasharray="3 3"
@@ -177,12 +182,14 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
             stroke="currentColor"
             tick={axisTickStyle}
           >
-            <Label
-              value="Center of Gravity (meters)"
-              position="bottom"
-              offset={isMobile ? 25 : 40}
-              style={labelStyle}
-            />
+            {!compact && (
+              <Label
+                value="Center of Gravity (meters)"
+                position="bottom"
+                offset={compact ? 22 : isMobile ? 25 : 40}
+                style={labelStyle}
+              />
+            )}
           </XAxis>
           <YAxis
             type="number"
@@ -195,7 +202,7 @@ const CGEnvelopeVisualization: React.FC<CGEnvelopeVisualizationProps> = ({
               value="Weight (kg)"
               angle={-90}
               position="left"
-              offset={isMobile ? 25 : 40}
+              offset={compact ? 22 : isMobile ? 25 : 40}
               style={labelStyle}
             />
           </YAxis>

@@ -9,22 +9,23 @@ const SafetyDisclaimer: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <Card className="mb-6 border-yellow-200">
-      <CardContent className="p-4">
+    <Card className="border-amber-300/60 dark:border-amber-500/30">
+      <CardContent className="p-3">
         <Alert variant="warning"
-          className="bg-background border-yellow-500/50 dark:border-yellow-500/30">
-          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          className="border-0 bg-transparent p-1 [&>svg]:left-1 [&>svg]:top-[0.6rem]">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
           <AlertDescription>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-yellow-800">
+                <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">
                   Important Safety Notice - Reference Tool Only
                 </span>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="text-yellow-800"
+                  className="text-amber-800 dark:text-amber-300"
+                  aria-label={isExpanded ? 'Hide safety notice' : 'Show safety notice'}
                 >
                   {isExpanded ? (
                     <ChevronUp className="h-4 w-4" />

@@ -1,13 +1,13 @@
 const CompanyFooter: React.FC = () => {
   return (
-    <div className="text-center mt-8 text-sm text-gray-500">
+    <div className="mt-8 text-center text-sm text-muted-foreground">
       <p>
                 Created by{' '}
         <a
           href="https://songerconsulting.se"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-600 hover:text-blue-800 underline"
+          className="font-medium text-primary underline-offset-4 hover:underline"
         >
                     Songer Consulting AB
         </a>

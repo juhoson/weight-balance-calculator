@@ -13,7 +13,7 @@ const AccountMenu: React.FC = () => {
   }
   return (
     <div className="flex items-center gap-2">
-      <span className="flex items-center gap-1.5 text-sm text-muted-foreground" title={user.email}>
+      <span className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:flex" title={user.email}>
         {user.pictureUrl
           // Google photo URLs can refuse requests that carry a referrer.
           ? <img src={user.pictureUrl} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
@@ -21,8 +21,8 @@ const AccountMenu: React.FC = () => {
         {user.displayName}
       </span>
       <Button variant="ghost" size="sm" onClick={() => session.signOut()}>
-        <LogOut className="mr-1 h-4 w-4" />
-        Sign out
+        <LogOut className="h-4 w-4 sm:mr-1" />
+        <span className="sr-only sm:not-sr-only">Sign out</span>
       </Button>
     </div>
   );

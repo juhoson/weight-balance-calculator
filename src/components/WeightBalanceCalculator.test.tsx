@@ -1,5 +1,6 @@
 import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
 import { fetchAirframes, fetchGenericTypes } from '../api/backend';
 import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/testViews';
@@ -33,7 +34,7 @@ beforeEach(() => {
 });
 
 const emptyWeightShown = () =>
-  screen.getByText('Empty Weight:').parentElement?.textContent?.replace(/\s+/g, ' ');
+  screen.getByText(/^Empty weight( \(yours\))?$/, { selector: 'dt' }).parentElement?.textContent?.replace(/\s+/g, ' ');
 
 it('selects an aircraft that was just added once the database list loads', async () => {
   const added = viewFromBuiltin('PA18-150 (SE-GCG)', {
@@ -94,4 +95,28 @@ it('settles after rendering instead of re-rendering endlessly', async () => {
   await act(async () => { await new Promise(r => setTimeout(r, 300)); });
   expect(commits).toBe(settled); // nothing re-renders without input
   expect(settled).toBeLessThan(15);
+});
+
+it('signed in: the generic aircraft can be hidden, and the list searched by registration', async () => {
+  mockUser = pilot;
+  mockedFetch.mockResolvedValue([
+    viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'Västerås Flygklubb' } }),
+    viewFromBuiltin('DA40D (SE-MBC)', { club: { id: 2, name: 'Hässlö Flygförening' } }),
+  ]);
+  render(<WeightBalanceCalculator />);
+  const toggle = await screen.findByLabelText('Show generic aircraft');
+
+  fireEvent.click(toggle); // hide generic
+  await waitFor(() => expect(screen.queryByText(/typical values for the model/)).not.toBeInTheDocument());
+  expect(localStorage.getItem('hideGenericAircraft.v1.7')).toBe('true');
+
+  const user = userEvent.setup();
+  const picker = screen.getByRole('combobox', { name: 'Aircraft' });
+  await user.click(picker);
+  await user.keyboard('{Control>}a{/Control}mbc');
+  const option = await screen.findByRole('option', { name: /SE-MBC/ });
+  expect(screen.queryByRole('option', { name: /SE-KMI/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /generic/i })).not.toBeInTheDocument();
+  await user.click(option);
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'SE-MBC' })).toBeInTheDocument());
 });
