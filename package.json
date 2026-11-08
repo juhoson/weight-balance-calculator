@@ -2,6 +2,7 @@
   "name": "weight-balance-calculator",
   "version": "0.1.0",
   "homepage": "/weight-balance",
+  "proxy": "http://localhost:8080",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -37,7 +38,8 @@
     "eject": "react-scripts eject",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "lint-staged": "lint-staged"
+    "lint-staged": "lint-staged",
+    "deploy": "node scripts/deploy-ftp.mjs"
   },
   "eslintConfig": {
     "extends": [
@@ -59,10 +61,15 @@
   },
   "devDependencies": {
     "@shadcn/ui": "^0.0.4",
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/react": "^14.3.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/jest": "^27.5.2",
     "@types/node": "^22.10.5",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "autoprefixer": "^10.4.20",
+    "basic-ftp": "^5.0.5",
     "eslint": "^8.57.1",
     "husky": "^9.1.7",
     "lint-staged": "^15.3.0",

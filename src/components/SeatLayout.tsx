@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type {SeatLayoutKind} from '../lib/seatLayout';
 import {User} from 'lucide-react';
 import {CalculatorInputs} from './WeightBalanceCalculator';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/Dialog';
@@ -6,7 +7,7 @@ import {NumberInput} from './ui/NumberInput';
 
 interface SeatLayoutProps {
     weights: CalculatorInputs;
-    aircraftType: string;
+    layout: SeatLayoutKind;
     onChange: (seat: keyof Omit<CalculatorInputs, 'fuelUnit' | 'flightTime' | 'powerSetting' | 'fuelAmount'>, value: string) => void;
 }
 
@@ -158,12 +159,12 @@ const SixSeatLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
   </Fuselage>
 ));
 
-const SeatLayout: React.FC<SeatLayoutProps> = ({weights, aircraftType, onChange}) => {
+const SeatLayout: React.FC<SeatLayoutProps> = ({weights, layout, onChange}) => {
   const [selectedSeat, setSelectedSeat] = React.useState<SeatKey | null>(null);
   const [seatWeight, setSeatWeight] = React.useState<number>(0);
 
-  const isTandem = aircraftType?.includes('PA18-150');
-  const is6Seater = aircraftType?.includes('PA-32');
+  const isTandem = layout === 'tandem';
+  const is6Seater = layout === 'sixSeat';
 
   const handleSeatClick = (seat: SeatKey) => {
     setSelectedSeat(seat);

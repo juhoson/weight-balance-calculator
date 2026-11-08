@@ -12,8 +12,7 @@ interface AircraftPerformanceProps {
     mtow: number;
     maxBaggage: number;
     maxFuelLiters: number;
-    speedUnit?: 'KIAS' | 'MPH';  // Add speed unit
-    aircraftType: string;        // Add aircraft type for identification
+    speedUnit?: 'KIAS' | 'MPH';
 }
 
 const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
@@ -27,12 +26,11 @@ const AircraftInfoBox: React.FC<AircraftPerformanceProps> = ({
   mtow,
   maxBaggage,
   maxFuelLiters,
-  speedUnit = 'KIAS',
-  aircraftType
+  speedUnit = 'KIAS'
 }) => {
   // Helper function to format speed display
   const formatSpeed = (speed: number) => {
-    if (aircraftType.includes('PA18-150')) {
+    if (speedUnit === 'MPH') {
       const kias = Math.round(speed * 0.868976); // Convert MPH to KIAS
       return `${speed} MPH (${kias} KIAS)`;
     }

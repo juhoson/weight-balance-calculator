@@ -6,7 +6,9 @@ import {Alert, AlertDescription, AlertTitle} from './ui/Alert';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/Card';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/Select';
 
-import {aircraftData, calculateCG, calculateMoment, isWithinEnvelope} from '../data/aircraftData';
+import {type AircraftData, calculateCG, calculateMoment, isWithinEnvelope} from '../data/aircraftData';
+import {useAircraftCatalog} from '../lib/useAircraftCatalog';
+import {getSeatLayout} from '../lib/seatLayout';
 import {FormItem, FormLabel, FormMessage} from './ui/Form';
 import AircraftInfoBox from './AircraftInfoBox';
 import SafetyDisclaimer from './SafetyDisclaimer';
@@ -17,6 +19,7 @@ import AircraftBackground from './AircraftBackground';
 import CompanyFooter from './CompanyFooter';
 import PrintButton from './PrintButton';
 import SeatLayout from './SeatLayout';
+import AircraftSourceNotice from './AircraftSourceNotice';
 
 export interface CalculatorInputs {
     pilotWeight: number;
@@ -57,13 +60,25 @@ const MemoizedAircraftBackground = React.memo(AircraftBackground, (prevProps, ne
   return prevProps.selectedAircraft === nextProps.selectedAircraft;
 });
 
-const WeightBalanceCalculator: React.FC = () => {
+/** The default aircraft if the list has it, else the first one. */
+function pickAircraft(list: Record<string, AircraftData>): string {
+  return list[DEFAULT_AIRCRAFT] ? DEFAULT_AIRCRAFT : Object.keys(list)[0];
+}
+
+interface WeightBalanceCalculatorProps {
+  /** Select this aircraft once the database list has loaded (e.g. one just added). */
+  preferredRegistration?: string | null;
+}
+
+const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({preferredRegistration}) => {
+  const catalog = useAircraftCatalog();
+  const aircraftList = catalog.aircraft;
   const [disclaimerAccepted, setDisclaimerAccepted] = React.useState(() => {
     return localStorage.getItem('disclaimerAccepted') === 'true';
   });
-  const [selectedAircraft, setSelectedAircraft] = React.useState<string>(DEFAULT_AIRCRAFT);
+  const [selectedAircraft, setSelectedAircraft] = React.useState<string>(() => pickAircraft(aircraftList));
   const [inputs, setInputs] = React.useState<CalculatorInputs>(() => {
-    const standardFuel = aircraftData[DEFAULT_AIRCRAFT].stations.fuel.standardLiters;
+    const standardFuel = aircraftList[selectedAircraft].stations.fuel.standardLiters;
     return {
       pilotWeight: DEFAULT_PILOT_WEIGHT,
       frontPassengerWeight: 0,
@@ -86,8 +101,9 @@ const WeightBalanceCalculator: React.FC = () => {
     value: string
   ) => {
     const numericValue = parseFloat(value) || 0;
+    const layout = getSeatLayout(aircraftList[selectedAircraft]);
 
-    if (selectedAircraft?.includes('PA18-150')) {
+    if (layout === 'tandem') {
       // For tandem aircraft
       setInputs(prev => ({
         ...prev,
@@ -99,7 +115,7 @@ const WeightBalanceCalculator: React.FC = () => {
           rearRightPassengerWeight: 0
         } : {})
       }));
-    } else if (selectedAircraft?.includes('PA32R-300')) {
+    } else if (layout === 'sixSeat') {
       // For 6-seat aircraft (PA-32R-300 Lance)
       setInputs(prev => ({
         ...prev,
@@ -123,15 +139,15 @@ const WeightBalanceCalculator: React.FC = () => {
 
 
   // Handle aircraft selection with default fuel
-  const handleAircraftSelection = (aircraft: string) => {
+  const handleAircraftSelection = React.useCallback((aircraft: string) => {
     setSelectedAircraft(aircraft);
-    const standardFuel = aircraftData[aircraft].stations.fuel.standardLiters;
+    const standardFuel = aircraftList[aircraft].stations.fuel.standardLiters;
     setInputs(prev => ({
       ...prev,
       fuelAmount: standardFuel,
       fuelUnit: 'liters'
     }));
-  };
+  }, [aircraftList]);
 
   const handleDisclaimerAccept = () => {
     localStorage.setItem('disclaimerAccepted', 'true');
@@ -141,7 +157,7 @@ const WeightBalanceCalculator: React.FC = () => {
   const handleQuickFuelSelect = (type: 'standard' | 'full') => {
     if (!selectedAircraft) return;
 
-    const aircraft = aircraftData[selectedAircraft];
+    const aircraft = aircraftList[selectedAircraft];
     const fuelAmount = type === 'standard'
       ? aircraft.stations.fuel.standardLiters
       : aircraft.stations.fuel.maxLiters;
@@ -160,10 +176,13 @@ const WeightBalanceCalculator: React.FC = () => {
       [field]: parseFloat(value) || 0
     }));
   };
-  const calculateTripFuel = () => {
+  // Memoized: calculateWeightAndBalance depends on it, and the effect that runs the calculation
+  // depends on that - a new function on every render made the calculator re-render endlessly.
+  const calculateTripFuel = React.useCallback(() => {
     if (!selectedAircraft) return 0;
 
-    const aircraft = aircraftData[selectedAircraft];
+    const aircraft = aircraftList[selectedAircraft];
+    if (!aircraft) return 0;
     const consumptionData = aircraft.performance.fuelConsumption.find(
       setting => setting.powerSetting === inputs.powerSetting
     );
@@ -172,10 +191,10 @@ const WeightBalanceCalculator: React.FC = () => {
 
     // Calculate fuel used during flight (not including taxi)
     return (consumptionData.litersPerHour * inputs.flightTime) / 60;
-  };
+  }, [selectedAircraft, aircraftList, inputs.powerSetting, inputs.flightTime]);
 
   const handleFuelUnitChange = (unit: 'liters' | 'kg') => {
-    const aircraft = aircraftData[selectedAircraft];
+    const aircraft = aircraftList[selectedAircraft];
     let newFuelAmount = inputs.fuelAmount;
 
     // Convert current amount to new unit
@@ -201,7 +220,7 @@ const WeightBalanceCalculator: React.FC = () => {
 
   const getFuelLevelLabel = (
     fuelAmount: number,
-    aircraft: typeof aircraftData[keyof typeof aircraftData]
+    aircraft: AircraftData
   ) => {
     if (fuelAmount === 0) return 'Empty';
     if (fuelAmount === aircraft.stations.fuel.maxLiters) return 'Full';
@@ -213,7 +232,7 @@ const WeightBalanceCalculator: React.FC = () => {
 
   const getFuelLevelColor = (
     fuelAmount: number,
-    aircraft: typeof aircraftData[keyof typeof aircraftData]
+    aircraft: AircraftData
   ) => {
     const percentage = (fuelAmount / aircraft.stations.fuel.maxLiters) * 100;
     if (percentage <= 25) return 'bg-red-500';
@@ -226,9 +245,11 @@ const WeightBalanceCalculator: React.FC = () => {
   const calculateWeightAndBalance = React.useCallback(() => {
     if (!selectedAircraft) return;
 
-    const aircraft = aircraftData[selectedAircraft];
-    const isTandem = selectedAircraft.includes('PA18-150');
-    const is6Seater = selectedAircraft.includes('PA-32');
+    const aircraft = aircraftList[selectedAircraft];
+    if (!aircraft) return;
+    const layout = getSeatLayout(aircraft);
+    const isTandem = layout === 'tandem';
+    const is6Seater = layout === 'sixSeat';
 
     // Calculate trip fuel
     const tripFuel = calculateTripFuel();
@@ -345,9 +366,9 @@ const WeightBalanceCalculator: React.FC = () => {
         hasMinimumReserve
       }
     });
-  }, [selectedAircraft, calculateTripFuel, inputs]);
+  }, [selectedAircraft, aircraftList, calculateTripFuel, inputs]);
 
-  const getMaxFuel = (aircraft: typeof aircraftData[keyof typeof aircraftData]) => {
+  const getMaxFuel = (aircraft: AircraftData) => {
     if (inputs.fuelUnit === 'liters') {
       return aircraft.stations.fuel.maxLiters;
     }
@@ -355,10 +376,28 @@ const WeightBalanceCalculator: React.FC = () => {
   };
 
   React.useEffect(() => {
-    if (selectedAircraft) {
+    if (selectedAircraft && aircraftList[selectedAircraft]) {
       calculateWeightAndBalance();
     }
-  }, [selectedAircraft, calculateWeightAndBalance]);
+  }, [selectedAircraft, aircraftList, calculateWeightAndBalance]);
+
+  // When the list changes, keep the selected aircraft if it is still there; otherwise fall back to
+  // the default. Once the database has answered, select a just-added aircraft if one was given.
+  const preferredApplied = React.useRef(false);
+  React.useEffect(() => {
+    if (preferredRegistration && !preferredApplied.current && catalog.source === 'database') {
+      preferredApplied.current = true;
+      const keys = Object.keys(catalog.meta).filter(k => catalog.meta[k].registration === preferredRegistration);
+      const key = keys.find(k => catalog.meta[k].owned) ?? keys[0];
+      if (key) {
+        handleAircraftSelection(key);
+        return;
+      }
+    }
+    if (!aircraftList[selectedAircraft]) {
+      handleAircraftSelection(pickAircraft(aircraftList));
+    }
+  }, [aircraftList, catalog.meta, catalog.source, preferredRegistration, selectedAircraft, handleAircraftSelection]);
 
   return (
     <>
@@ -381,26 +420,27 @@ const WeightBalanceCalculator: React.FC = () => {
                 <FormItem>
                   <FormLabel>Aircraft Type</FormLabel>
                   <Select
-                    defaultValue={DEFAULT_AIRCRAFT}
+                    value={selectedAircraft}
                     onValueChange={handleAircraftSelection}
                   >
                     <SelectTrigger className="bg-background border-input">
                       <SelectValue placeholder="Select Aircraft Type"/>
                     </SelectTrigger>
                     <SelectContent className="bg-popover text-popover-foreground">
-                      {Object.entries(aircraftData).map(([key]) => (
+                      {Object.entries(aircraftList).map(([key]) => (
                         <SelectItem key={key} value={key}>
-                          {key}
+                          {key}{catalog.meta[key]?.owned ? ' · yours' : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <AircraftSourceNotice catalog={catalog} selectedMeta={catalog.meta[selectedAircraft]}/>
                 </FormItem>
 
                 <FormItem>
                   <FormLabel>Passenger Weights</FormLabel>
                   <SeatLayout weights={inputs}
-                    aircraftType={selectedAircraft}
+                    layout={getSeatLayout(aircraftList[selectedAircraft])}
                     onChange={handleWeightChange}
                   />
                 </FormItem>
@@ -424,7 +464,7 @@ const WeightBalanceCalculator: React.FC = () => {
                       <SelectValue placeholder="Select power setting"/>
                     </SelectTrigger>
                     <SelectContent className="bg-popover text-popover-foreground">
-                      {selectedAircraft && aircraftData[selectedAircraft].performance.fuelConsumption.map(setting => (
+                      {selectedAircraft && aircraftList[selectedAircraft].performance.fuelConsumption.map(setting => (
                         <SelectItem
                           key={setting.powerSetting}
                           value={setting.powerSetting}
@@ -445,7 +485,7 @@ const WeightBalanceCalculator: React.FC = () => {
                           <NumberInput
                             value={inputs.fuelAmount}
                             min={0}
-                            max={selectedAircraft ? getMaxFuel(aircraftData[selectedAircraft]) : 0}
+                            max={selectedAircraft ? getMaxFuel(aircraftList[selectedAircraft]) : 0}
                             onChange={(e) => handleInputChange('fuelAmount', e.toString())}
                             className="flex-1 bg-background"
                           />
@@ -466,20 +506,20 @@ const WeightBalanceCalculator: React.FC = () => {
                         {/* Fuel level indicator */}
                         <div className="space-y-1">
                           <div className="flex justify-between text-sm text-gray-500">
-                            <span>{getFuelLevelLabel(inputs.fuelAmount, aircraftData[selectedAircraft])}</span>
-                            <span>{Math.round((inputs.fuelAmount / getMaxFuel(aircraftData[selectedAircraft])) * 100)}%</span>
+                            <span>{getFuelLevelLabel(inputs.fuelAmount, aircraftList[selectedAircraft])}</span>
+                            <span>{Math.round((inputs.fuelAmount / getMaxFuel(aircraftList[selectedAircraft])) * 100)}%</span>
                           </div>
                           <Progress
-                            value={(inputs.fuelAmount / getMaxFuel(aircraftData[selectedAircraft])) * 100}
+                            value={(inputs.fuelAmount / getMaxFuel(aircraftList[selectedAircraft])) * 100}
                             className="h-2"
-                            indicatorClassName={getFuelLevelColor(inputs.fuelAmount, aircraftData[selectedAircraft])}
+                            indicatorClassName={getFuelLevelColor(inputs.fuelAmount, aircraftList[selectedAircraft])}
                           />
                         </div>
 
                         <div className="flex space-x-2">
                           <Button
                             type="button"
-                            variant={inputs.fuelAmount === aircraftData[selectedAircraft].stations.fuel.standardLiters ? 'default' : 'outline'}
+                            variant={inputs.fuelAmount === aircraftList[selectedAircraft].stations.fuel.standardLiters ? 'default' : 'outline'}
                             size="sm"
                             className="flex-1"
                             onClick={() => handleQuickFuelSelect('standard')}
@@ -488,7 +528,7 @@ const WeightBalanceCalculator: React.FC = () => {
                           </Button>
                           <Button
                             type="button"
-                            variant={inputs.fuelAmount === aircraftData[selectedAircraft].stations.fuel.maxLiters ? 'default' : 'outline'}
+                            variant={inputs.fuelAmount === aircraftList[selectedAircraft].stations.fuel.maxLiters ? 'default' : 'outline'}
                             size="sm"
                             className="flex-1"
                             onClick={() => handleQuickFuelSelect('full')}
@@ -499,7 +539,7 @@ const WeightBalanceCalculator: React.FC = () => {
                       </div>
                       <FormMessage>
                                                 Max
-                                                fuel: {getMaxFuel(aircraftData[selectedAircraft]).toFixed(1)} {inputs.fuelUnit}
+                                                fuel: {getMaxFuel(aircraftList[selectedAircraft]).toFixed(1)} {inputs.fuelUnit}
                       </FormMessage>
                     </FormItem>
                     <FormItem>
@@ -554,7 +594,7 @@ const WeightBalanceCalculator: React.FC = () => {
                                                 Landing fuel ({results.landing.fuelRemaining.toFixed(1)} L) is below the
                                                 recommended
                                                 45-minute reserve
-                                                ({aircraftData[selectedAircraft].performance.reserveFuel.recommendedLiters} L).
+                                                ({aircraftList[selectedAircraft].performance.reserveFuel.recommendedLiters} L).
                                                 Increase fuel load or reduce flight time.
                       </AlertDescription>
                     </Alert>
@@ -565,11 +605,11 @@ const WeightBalanceCalculator: React.FC = () => {
                       <ul className="list-disc pl-5">
                         <li>Starting fuel: {inputs.fuelAmount.toFixed(1)} {inputs.fuelUnit}</li>
                         <li>Taxi
-                                                    fuel: {aircraftData[selectedAircraft].performance.taxiFuel.liters.toFixed(1)} L
+                                                    fuel: {aircraftList[selectedAircraft].performance.taxiFuel.liters.toFixed(1)} L
                         </li>
                         <li>Trip fuel: {calculateTripFuel().toFixed(1)} L</li>
                         <li>Reserve
-                                                    required: {aircraftData[selectedAircraft].performance.reserveFuel.recommendedLiters} L
+                                                    required: {aircraftList[selectedAircraft].performance.reserveFuel.recommendedLiters} L
                         </li>
                         <li>Remaining at landing: {results.landing.fuelRemaining.toFixed(1)} L
                         </li>
@@ -584,7 +624,7 @@ const WeightBalanceCalculator: React.FC = () => {
               <div className="h-full min-h-[400px]">
                 {selectedAircraft && (
                   <CGEnvelopeVisualization
-                    envelopePoints={aircraftData[selectedAircraft].envelope.points}
+                    envelopePoints={aircraftList[selectedAircraft].envelope.points}
                     takeoffPoint={results ? {
                       cg: results.takeoff.cg,
                       weight: results.takeoff.totalWeight
@@ -593,7 +633,7 @@ const WeightBalanceCalculator: React.FC = () => {
                       cg: results.landing.cg,
                       weight: results.landing.totalWeight
                     } : undefined}
-                    limits={aircraftData[selectedAircraft].envelope.limits}
+                    limits={aircraftList[selectedAircraft].envelope.limits}
                   />
                 )}
               </div>
@@ -602,18 +642,17 @@ const WeightBalanceCalculator: React.FC = () => {
         </Card>
         {selectedAircraft && (
           <AircraftInfoBox
-            emptyWeight={aircraftData[selectedAircraft].basicEmptyWeight}
-            mtow={aircraftData[selectedAircraft].mtow}
-            maxBaggage={aircraftData[selectedAircraft].maxBaggage}
-            maxFuelLiters={aircraftData[selectedAircraft].stations.fuel.maxLiters}
-            maxDemoCrosswind={aircraftData[selectedAircraft].performance.maxDemoCrosswind}
-            stallSpeedClean={aircraftData[selectedAircraft].performance.stallSpeedClean}
-            stallSpeedLanding={aircraftData[selectedAircraft].performance.stallSpeedLanding}
-            bestClimbSpeed={aircraftData[selectedAircraft].performance.bestClimbSpeed}
-            bestGlideSpeed={aircraftData[selectedAircraft].performance.bestGlideSpeed}
-            approachSpeedNormal={aircraftData[selectedAircraft].performance.approachSpeedNormal}
-            speedUnit={aircraftData[selectedAircraft].performance.speedUnit}
-            aircraftType={selectedAircraft}
+            emptyWeight={aircraftList[selectedAircraft].basicEmptyWeight}
+            mtow={aircraftList[selectedAircraft].mtow}
+            maxBaggage={aircraftList[selectedAircraft].maxBaggage}
+            maxFuelLiters={aircraftList[selectedAircraft].stations.fuel.maxLiters}
+            maxDemoCrosswind={aircraftList[selectedAircraft].performance.maxDemoCrosswind}
+            stallSpeedClean={aircraftList[selectedAircraft].performance.stallSpeedClean}
+            stallSpeedLanding={aircraftList[selectedAircraft].performance.stallSpeedLanding}
+            bestClimbSpeed={aircraftList[selectedAircraft].performance.bestClimbSpeed}
+            bestGlideSpeed={aircraftList[selectedAircraft].performance.bestGlideSpeed}
+            approachSpeedNormal={aircraftList[selectedAircraft].performance.approachSpeedNormal}
+            speedUnit={aircraftList[selectedAircraft].performance.speedUnit}
           />
         )}
 
