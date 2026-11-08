@@ -729,7 +729,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
           <SafetyDisclaimer/>
         </div>
 
-        <aside className="lg:sticky lg:top-4">
+        <aside className="lg:sticky lg:top-24">
           <ResultsPanel
             results={results}
             aircraft={aircraft}
