@@ -2,7 +2,6 @@
   "name": "weight-balance-calculator",
   "version": "0.1.0",
   "homepage": "/weight-balance",
-  "proxy": "http://localhost:8080",
   "private": true,
   "type": "module",
   "dependencies": {

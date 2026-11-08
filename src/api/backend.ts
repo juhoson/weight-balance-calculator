@@ -11,7 +11,8 @@ import type {
 } from '../types/airframeImport';
 import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
 
-// Empty = same origin; in development package.json's "proxy" forwards /api to the backend.
+// The backend's address: set at build time for production, from .env.development for npm start.
+// Empty = same origin.
 const API_BASE = process.env.REACT_APP_API_URL ?? '';
 
 export class ApiError extends Error {

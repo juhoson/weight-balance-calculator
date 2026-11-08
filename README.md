@@ -57,7 +57,9 @@ npm install
 npm start
 ```
 
-The application will be available at `http://localhost:3000`
+The application will be available at `http://localhost:3000`. It calls the backend at
+`http://localhost:8080` (set in `.env.development`); run weight-balance-backend locally for the aircraft
+list, sign-in and weather. The backend allows `http://localhost:3000` by default (CORS).
 
 ## Technologies Used
 
