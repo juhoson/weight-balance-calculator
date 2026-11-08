@@ -22,7 +22,8 @@ const AircraftBackground: React.FC<AircraftBackgroundProps> = ({selectedAircraft
       'PA28-181 (SE-GLC)': '/weight-balance/images/SE-GLC.jpg',
       'PA28-161 (SE-KML)': '/weight-balance/images/se-kml.jpg',
       'PA28-161 (HB-OJI)': '/weight-balance/images/hb_oji.jpg',
-      'TB9 (SE-KBH)': '/weight-balance/images/SE-KBH.jpg'
+      'TB9 (F-GKVK)': '/weight-balance/images/F-GKVK.jpg',
+      'PA28-140 (SE-ILO)': '/weight-balance/images/SE-ILO.jpg'
     } as const;
 
     return (aircraft: string) => imagePaths[aircraft as keyof typeof imagePaths] || '';

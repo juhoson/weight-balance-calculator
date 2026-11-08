@@ -343,7 +343,7 @@ export const aircraftData: Record<string, AircraftData> = {
     type: 'Diamond DA40 NG',
     basicEmptyWeight: 924,
     armAftDatum: 2.456,
-    mtow: 1280,
+    mtow: 1310,
     maxBaggage: 45,
     stations: {
       pilotFront: {arm: 2.30, maxWeight: 340},
@@ -360,13 +360,13 @@ export const aircraftData: Record<string, AircraftData> = {
       points: [
         {cg: 2.40, weight: 940},
         {cg: 2.40, weight: 1080},
-        {cg: 2.46, weight: 1280},
-        {cg: 2.53, weight: 1280},
+        {cg: 2.46, weight: 1310},
+        {cg: 2.53, weight: 1310},
         {cg: 2.53, weight: 940},
         {cg: 2.40, weight: 940}
       ],
       limits: {
-        maxWeight: 1280,
+        maxWeight: 1310,
         minWeight: 900,
         forwardCG: 2.38,
         aftCG: 2.54
@@ -380,9 +380,9 @@ export const aircraftData: Record<string, AircraftData> = {
       approachSpeedNormal: 77,
       speedUnit: 'KIAS',
       fuelConsumption: [
-        {powerSetting: '55%', litersPerHour: 15, speed: 96, speedUnit: 'KIAS'},
-        {powerSetting: '65%', litersPerHour: 19, speed: 113, speedUnit: 'KIAS'},
-        {powerSetting: '75%', litersPerHour: 25, speed: 125, speedUnit: 'KIAS'}
+        {powerSetting: '55%', litersPerHour: 15, speed: 104, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 19, speed: 118, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 25, speed: 131, speedUnit: 'KIAS'}
       ],
       taxiFuel: {
         liters: 4,
@@ -624,37 +624,40 @@ export const aircraftData: Record<string, AircraftData> = {
       }
     }
   },
-  'TB9 (SE-KBH)': {
+  'TB9 (F-GKVK)': {
     type: 'SOCATA TB9 Tampico',
     basicEmptyWeight: 652,
-    armAftDatum: 1.12,
+    armAftDatum: 0.954,
     mtow: 1060,
-    maxBaggage: 40,
+    maxBaggage: 65,
     stations: {
-      pilotFront: {arm: 1.09, maxWeight: 340},
-      passengerRear: {arm: 1.745, maxWeight: 340},
-      baggage: {arm: 2.29, maxWeight: 40},
+      pilotFront: {arm: 1.153, maxWeight: 340},
+      passengerRear: {arm: 2.034, maxWeight: 340},
+      baggage: {arm: 2.598, maxWeight: 65},
       fuel: {
-        arm: 1.395,
+        arm: 1.074,
         weightPerLiter: 0.72,
         maxLiters: 152,
         standardLiters: 120
       }
     },
     envelope: {
+      // From POH Section 2 Limitations. Datum: front face of firewall.
+      // Forward limit: 0.974 m at ≤970 kg, 1.050 m at 1060 kg (straight line).
+      // Aft limit: 1.205 m at all weights.
       points: [
-        {cg: 1.035, weight: 652},
-        {cg: 1.035, weight: 900},
-        {cg: 1.05, weight: 1060},
-        {cg: 1.355, weight: 1060},
-        {cg: 1.355, weight: 652},
-        {cg: 1.035, weight: 652}
+        {cg: 0.974, weight: 652},
+        {cg: 0.974, weight: 970},
+        {cg: 1.050, weight: 1060},
+        {cg: 1.205, weight: 1060},
+        {cg: 1.205, weight: 652},
+        {cg: 0.974, weight: 652}
       ],
       limits: {
         maxWeight: 1060,
-        minWeight: 650,
-        forwardCG: 1.035,
-        aftCG: 1.355
+        minWeight: 652,
+        forwardCG: 0.974,
+        aftCG: 1.205
       }
     },
     performance: {
@@ -666,9 +669,9 @@ export const aircraftData: Record<string, AircraftData> = {
       approachSpeedNormal: 80,
       speedUnit: 'KIAS',
       fuelConsumption: [
-        {powerSetting: '55%', litersPerHour: 19, speed: 113, speedUnit: 'KIAS'},
-        {powerSetting: '65%', litersPerHour: 24, speed: 120, speedUnit: 'KIAS'},
-        {powerSetting: '75%', litersPerHour: 29, speed: 128, speedUnit: 'KIAS'}
+        {powerSetting: '55%', litersPerHour: 27, speed: 113, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 32, speed: 120, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 37, speed: 128, speedUnit: 'KIAS'}
       ],
       taxiFuel: {
         liters: 3,
@@ -677,6 +680,64 @@ export const aircraftData: Record<string, AircraftData> = {
       reserveFuel: {
         minimumMinutes: 45,
         recommendedLiters: 14
+      }
+    }
+  },
+  'PA28-140 (SE-ILO)': {
+    type: 'Piper PA-28-140 Cherokee',
+    basicEmptyWeight: 627,
+    armAftDatum: 2.176,
+    mtow: 975,
+    maxBaggage: 45,
+    stations: {
+      pilotFront: {arm: 2.177, maxWeight: 340},
+      passengerRear: {arm: 2.972, maxWeight: 340},
+      baggage: {arm: 3.386, maxWeight: 45},
+      fuel: {
+        arm: 2.413,
+        weightPerLiter: 0.71,
+        maxLiters: 180,
+        standardLiters: 136
+      }
+    },
+    envelope: {
+      // From Piper PA-28-140 TCDS. Datum: 78.4 in forward of main spar.
+      // Forward limit: 78.7 in (1.999 m) at ≤862 kg, 82.0 in (2.083 m) at 975 kg.
+      // Aft limit: 93.0 in (2.362 m) at all weights.
+      points: [
+        {cg: 1.999, weight: 627},
+        {cg: 1.999, weight: 862},
+        {cg: 2.083, weight: 975},
+        {cg: 2.362, weight: 975},
+        {cg: 2.362, weight: 627},
+        {cg: 1.999, weight: 627}
+      ],
+      limits: {
+        maxWeight: 975,
+        minWeight: 627,
+        forwardCG: 1.999,
+        aftCG: 2.362
+      }
+    },
+    performance: {
+      maxDemoCrosswind: 17,
+      stallSpeedClean: 55,
+      stallSpeedLanding: 49,
+      bestClimbSpeed: 76,
+      approachSpeedNormal: 65,
+      speedUnit: 'KIAS',
+      fuelConsumption: [
+        {powerSetting: '55%', litersPerHour: 25, speed: 88, speedUnit: 'KIAS'},
+        {powerSetting: '65%', litersPerHour: 30, speed: 95, speedUnit: 'KIAS'},
+        {powerSetting: '75%', litersPerHour: 35, speed: 100, speedUnit: 'KIAS'}
+      ],
+      taxiFuel: {
+        liters: 3.5,
+        timeMinutes: 10
+      },
+      reserveFuel: {
+        minimumMinutes: 45,
+        recommendedLiters: 16
       }
     }
   },
