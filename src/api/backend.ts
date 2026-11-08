@@ -9,7 +9,7 @@ import type {
   ImportResult,
   StandardTypeResponse,
 } from '../types/airframeImport';
-import type { AirportInfo, NearbyAirport, RouteWeather } from '../types/route';
+import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
 
 // Empty = same origin; in development package.json's "proxy" forwards /api to the backend.
 const API_BASE = process.env.REACT_APP_API_URL ?? '';
@@ -104,7 +104,41 @@ export function nearestAirports(lat: number, lon: number): Promise<NearbyAirport
   return request<NearbyAirport[]>(`/api/airports/nearest?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`);
 }
 
-/** METAR/TAF for departure, arrival and stations about every 100 NM between them. Public. */
-export function fetchRouteWeather(from: string, to: string): Promise<RouteWeather> {
-  return request<RouteWeather>(`/api/weather/route?${new URLSearchParams({ from, to })}`);
+/** METAR/TAF for departure, waypoints, arrival and stations about every 100 NM along each leg. Public. */
+export function fetchRouteWeather(from: string, to: string, via: string[] = []): Promise<RouteWeather> {
+  const params = new URLSearchParams({ from, to });
+  if (via.length > 0) params.set('via', via.join(','));
+  return request<RouteWeather>(`/api/weather/route?${params}`);
+}
+
+/** The signed-in user's saved routes. */
+export function listRoutes(): Promise<SavedRoute[]> {
+  return request<SavedRoute[]>('/api/routes');
+}
+
+export function createRoute(name: string, airports: string[]): Promise<SavedRoute> {
+  return request<SavedRoute>('/api/routes', { method: 'POST', body: JSON.stringify({ name, airports }) });
+}
+
+export function updateRoute(id: number, name: string, airports: string[]): Promise<SavedRoute> {
+  return request<SavedRoute>(`/api/routes/${id}`, { method: 'PUT', body: JSON.stringify({ name, airports }) });
+}
+
+export function deleteRoute(id: number): Promise<void> {
+  return request<void>(`/api/routes/${id}`, { method: 'DELETE' });
+}
+
+/** Turns on the share link (keeps an existing one). */
+export function shareRoute(id: number): Promise<SavedRoute> {
+  return request<SavedRoute>(`/api/routes/${id}/share`, { method: 'POST' });
+}
+
+/** Turns the share link off; it stops working. */
+export function unshareRoute(id: number): Promise<SavedRoute> {
+  return request<SavedRoute>(`/api/routes/${id}/share`, { method: 'DELETE' });
+}
+
+/** A route shared by link. Public. */
+export function fetchSharedRoute(token: string): Promise<SharedRoute> {
+  return request<SharedRoute>(`/api/shared-routes/${encodeURIComponent(token)}`);
 }

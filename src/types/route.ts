@@ -56,10 +56,12 @@ export interface Taf {
   validTo: string | null;
 }
 
-export type RouteRole = 'DEPARTURE' | 'ENROUTE' | 'ARRIVAL';
+export type RouteRole = 'DEPARTURE' | 'WAYPOINT' | 'ENROUTE' | 'ARRIVAL';
 
 export interface RoutePoint {
   role: RouteRole;
+  /** The airport this point is (departure, waypoint, arrival); null en route. */
+  airportCode?: string | null;
   alongTrackNm: number;
   /** Where the weather comes from: the airport itself (0 NM) or the nearest reporting station. */
   station: { code: string; name: string; distanceNm: number } | null;
@@ -67,12 +69,40 @@ export interface RoutePoint {
   taf: Taf | null;
 }
 
+export interface RouteLeg {
+  from: string;
+  to: string;
+  distanceNm: number;
+  trueCourseDeg: number;
+}
+
 export interface RouteWeather {
   departure: AirportInfo;
+  waypoints?: AirportInfo[];
   arrival: AirportInfo;
+  legs?: RouteLeg[];
+  /** Total over all legs. */
   distanceNm: number;
+  /** Of the first leg. */
   trueCourseDeg: number;
   points: RoutePoint[];
   /** False when aviationweather.gov could not be reached. */
   weatherAvailable: boolean;
+}
+
+/** A route the signed-in user saved: departure, any waypoints, arrival. */
+export interface SavedRoute {
+  id: number;
+  name: string;
+  airports: string[];
+  /** Set when shared by link. */
+  shareToken: string | null;
+  updatedAt: string;
+}
+
+/** What anyone with a share link sees. */
+export interface SharedRoute {
+  name: string;
+  airports: string[];
+  sharedBy: string;
 }

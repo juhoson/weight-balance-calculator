@@ -133,7 +133,7 @@ it('a club aircraft starts from the club\'s home airfield', async () => {
   ]);
   localStorage.setItem('hideGenericAircraft.v1.7', 'true');
   render(<WeightBalanceCalculator />);
-  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSX', 'ESSX'));
+  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSX', 'ESSX', []));
   expect(await screen.findByText(/Västerås Flygklubb's home airfield/)).toBeInTheDocument();
   expect(await screen.findByText(/Local flight from/)).toBeInTheDocument();
 });
@@ -152,4 +152,23 @@ it('a trip sets the flight time from distance and cruise speed and shows the fue
   fireEvent.click(screen.getByRole('button', { name: '10 minutes longer' }));
   expect(screen.getByDisplayValue('1:50')).toBeInTheDocument();
   expect(await screen.findByText(/Set by you/)).toBeInTheDocument();
+});
+
+it('a route with a waypoint asks for weather via it and counts all legs', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', via: ['ESCF'], auto: false }));
+  mockedRoute.mockResolvedValue({
+    ...routeWeather(essx, esgg, 200),
+    waypoints: [{ ...esgg, code: 'ESCF', name: 'Malmen', runways: [] }],
+    legs: [
+      { from: 'ESSX', to: 'ESCF', distanceNm: 80, trueCourseDeg: 200 },
+      { from: 'ESCF', to: 'ESGG', distanceNm: 120, trueCourseDeg: 250 },
+    ],
+  });
+  render(<WeightBalanceCalculator />);
+  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSX', 'ESGG', ['ESCF']));
+  expect(await screen.findByText(/From the route: 200 NM at 107 kt, no wind, 2 legs/)).toBeInTheDocument();
+  expect(screen.getByText(/ESSX → ESCF: 80 NM, 200° true/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Waypoint 1')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Remove waypoint 1' }));
+  await waitFor(() => expect(mockedRoute).toHaveBeenLastCalledWith('ESSX', 'ESGG', []));
 });

@@ -23,6 +23,7 @@ import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
+import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
 import {nearestAirports} from '../api/backend';
@@ -489,7 +490,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   // ---- Route: departure/arrival, weather, and the flight time of a trip -----------------------
   const [route, setRouteState] = React.useState<PlannedRoute>(loadRoute);
   const setRoute = React.useCallback((r: PlannedRoute) => { setRouteState(r); saveRoute(r); }, []);
-  const weather = useRouteWeather(route.from, route.to);
+  const weather = useRouteWeather(route.from, route.to, route.via);
   const [locating, setLocating] = React.useState(false);
   const [locationError, setLocationError] = React.useState<string | null>(null);
   const [locatedCode, setLocatedCode] = React.useState<string | null>(null);
@@ -500,7 +501,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   // A club aircraft starts from the club's airfield, unless the pilot picked the airports themselves.
   React.useEffect(() => {
     if (homeAirport && (route.auto || !route.from) && route.from !== homeAirport) {
-      setRoute({from: homeAirport, to: homeAirport, auto: true});
+      setRoute({from: homeAirport, to: homeAirport, via: [], auto: true});
     }
   }, [homeAirport, route.auto, route.from, setRoute]);
 
@@ -512,7 +513,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       const [nearest] = await nearestAirports(pos.lat, pos.lon);
       if (nearest) {
         setLocatedCode(nearest.airport.code);
-        setRoute({from: nearest.airport.code, to: nearest.airport.code, auto: true});
+        setRoute({from: nearest.airport.code, to: nearest.airport.code, via: [], auto: true});
       }
     } catch (e) {
       if (!quiet) setLocationError(e instanceof Error ? e.message : 'Could not find the nearest airport.');
@@ -530,12 +531,14 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
 
   // A trip (arrival differs from departure) sets the flight time from distance and cruise speed,
   // until the pilot sets the time themselves.
-  const trip = weather.data && weather.data.departure.code !== weather.data.arrival.code ? weather.data : null;
+  // A trip goes somewhere: a different arrival, or via waypoints (a round trip).
+  const trip = weather.data && weather.data.distanceNm > 0 ? weather.data : null;
   const cruise = aircraftList[selectedAircraft]?.performance.fuelConsumption.find(f => f.powerSetting === inputs.powerSetting);
   const cruiseKt = cruise ? Math.round(cruise.speedUnit === 'MPH' ? cruise.speed * MPH_TO_KT : cruise.speed) : 0;
   const routeMinutes = trip ? flightMinutes(trip.distanceNm, cruiseKt) : 0;
   const [manualTime, setManualTime] = React.useState(false);
-  React.useEffect(() => { setManualTime(false); }, [route.from, route.to]);
+  const viaKey = route.via.join(',');
+  React.useEffect(() => { setManualTime(false); }, [route.from, route.to, viaKey]);
   React.useEffect(() => {
     if (routeMinutes > 0 && !manualTime) {
       setInputs(prev => (prev.flightTime === routeMinutes ? prev : {...prev, flightTime: routeMinutes}));
@@ -552,6 +555,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   return (
     <>
       <DisclaimerModal open={!disclaimerAccepted} onAccept={handleDisclaimerAccept}/>
+
+      <div className="mb-5 empty:hidden print:hidden">
+        <SharedRouteBanner signedIn={userId !== null} onUse={setRoute}/>
+      </div>
 
       <form onSubmit={handleSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] lg:items-start">
         <div className="space-y-5 print:hidden">
@@ -623,6 +630,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               onUseLocation={() => locateNearest(false)}
               locating={locating}
               locationError={locationError}
+              signedIn={userId !== null}
               defaultNote={route.from && route.from === homeAirport && homeClub ? `${homeClub}'s home airfield`
                 : route.from && route.from === locatedCode ? 'Nearest airport to your location' : null}
             />
@@ -711,7 +719,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                     {manualTime
                       ? <>Set by you. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline"
                         onClick={() => setManualTime(false)}>Use the route time ({fmtTime(routeMinutes)})</button></>
-                      : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind.</>}
+                      : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>}
                   </p>
                 )}
               </div>
@@ -729,7 +737,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             fuelUnit={inputs.fuelUnit}
             tripFuel={calculateTripFuel()}
             powerSetting={inputs.powerSetting}
-            routeLabel={trip ? `${trip.departure.code} → ${trip.arrival.code} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
+            routeLabel={trip ? `${[trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code].join(' → ')} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
           />
         </aside>
       </form>

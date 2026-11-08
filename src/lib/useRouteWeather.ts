@@ -10,7 +10,8 @@ export interface RouteWeatherState {
 }
 
 /** Route weather for two airport codes; refetched when they change or on refresh(). */
-export function useRouteWeather(from: string, to: string): RouteWeatherState {
+export function useRouteWeather(from: string, to: string, via: string[] = []): RouteWeatherState {
+  const viaKey = via.join(',');
   const [data, setData] = React.useState<RouteWeather | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -26,7 +27,7 @@ export function useRouteWeather(from: string, to: string): RouteWeatherState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchRouteWeather(from, to)
+    fetchRouteWeather(from, to, viaKey ? viaKey.split(',') : [])
       .then(r => { if (!cancelled) setData(r); })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -35,7 +36,7 @@ export function useRouteWeather(from: string, to: string): RouteWeatherState {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [from, to, generation]);
+  }, [from, to, viaKey, generation]);
 
   return { data, loading, error, refresh };
 }

@@ -11,7 +11,7 @@ const CATEGORY_STYLE: Record<FlightCategory, string> = {
   LIFR: 'bg-fuchsia-700 text-white',
 };
 
-const ROLE_LABEL = { DEPARTURE: 'Departure', ENROUTE: 'En route', ARRIVAL: 'Arrival' } as const;
+const ROLE_LABEL = { DEPARTURE: 'Departure', WAYPOINT: 'Waypoint', ENROUTE: 'En route', ARRIVAL: 'Arrival' } as const;
 
 /** METARs older than this are flagged. */
 const STALE_MINUTES = 90;
@@ -50,7 +50,7 @@ const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindK
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {ROLE_LABEL[point.role]}{point.role === 'ENROUTE' ? ` · ${Math.round(point.alongTrackNm)} NM` : ''}
+            {ROLE_LABEL[point.role]}{point.role === 'ENROUTE' || point.role === 'WAYPOINT' ? ` · ${Math.round(point.alongTrackNm)} NM` : ''}
           </p>
           <p className="truncate text-sm font-semibold">
             {airport ? `${airport.code} · ${airport.name}` : station ? `${station.code} · ${station.name.trim()}` : '–'}
