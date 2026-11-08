@@ -110,3 +110,17 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Safety Notice
 
 This tool is for reference only. Always verify weight and balance calculations against official aircraft documentation before flight.
+## Deploy
+
+The app is served from https://songer.se/weight-balance/ (Loopia) and talks to the backend on
+Railway (see weight-balance-backend's README).
+
+```bash
+REACT_APP_API_URL=https://backend-production-b553.up.railway.app npm run build
+FTP_HOST=... FTP_USER=... FTP_PASSWORD=... npm run deploy   # same FTP account as cellarmate-home/.env
+```
+
+`npm run deploy` backs up the live files to `backups/<timestamp>/` first, uploads `build/`, removes
+stale files, and never publishes files in `public/` that aren't tracked in git. Add `--dry-run`
+(`node scripts/deploy-ftp.mjs --dry-run`) to see what would change. To roll back, upload a backup
+folder's contents to `/songer.se/public_html/weight-balance`.
