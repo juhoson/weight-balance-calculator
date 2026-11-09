@@ -9,6 +9,14 @@ import type {
   ImportResult,
   StandardTypeResponse,
 } from '../types/airframeImport';
+import type {
+  AdminAccess,
+  ClubRole,
+  InviteRequest,
+  InviteResponse,
+  MemberView,
+  PasswordLinkResponse,
+} from '../types/admin';
 import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
 
 // The backend's address: set at build time for production, from .env.development for npm start.
@@ -142,4 +150,47 @@ export function unshareRoute(id: number): Promise<SavedRoute> {
 /** A route shared by link. Public. */
 export function fetchSharedRoute(token: string): Promise<SharedRoute> {
   return request<SharedRoute>(`/api/shared-routes/${encodeURIComponent(token)}`);
+}
+
+/** What the signed-in user may administer (nothing, for most). */
+export function fetchAdminAccess(): Promise<AdminAccess> {
+  return request<AdminAccess>('/api/admin/access');
+}
+
+/** Members the signed-in admin manages, optionally searched and/or of one club. */
+export function listMembers(query?: string, clubId?: number): Promise<MemberView[]> {
+  const params = new URLSearchParams();
+  if (query?.trim()) params.set('q', query.trim());
+  if (clubId !== undefined) params.set('clubId', String(clubId));
+  const qs = params.toString();
+  return request<MemberView[]>(`/api/admin/users${qs ? `?${qs}` : ''}`);
+}
+
+export function inviteMember(body: InviteRequest): Promise<InviteResponse> {
+  return request<InviteResponse>('/api/admin/invites', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** A password reset link, or the invite again for someone who never finished signing up. */
+export function sendPasswordLink(userId: number): Promise<PasswordLinkResponse> {
+  return request<PasswordLinkResponse>(`/api/admin/users/${userId}/password-link`, { method: 'POST' });
+}
+
+export function setMemberDisabled(userId: number, disabled: boolean): Promise<MemberView> {
+  return request<MemberView>(`/api/admin/users/${userId}/${disabled ? 'disable' : 'enable'}`, { method: 'POST' });
+}
+
+export async function deleteMember(userId: number): Promise<void> {
+  await request<void>(`/api/admin/users/${userId}`, { method: 'DELETE' });
+}
+
+/** Adds to the club or changes the role there (site admins). */
+export function setClubRole(clubId: number, userId: number, role: ClubRole): Promise<MemberView> {
+  return request<MemberView>(`/api/admin/clubs/${clubId}/members/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeFromClub(clubId: number, userId: number): Promise<MemberView> {
+  return request<MemberView>(`/api/admin/clubs/${clubId}/members/${userId}`, { method: 'DELETE' });
 }

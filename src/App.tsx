@@ -8,12 +8,17 @@ import {Button} from './components/ui/Button';
 import AccountMenu from './components/auth/AccountMenu';
 import SignedOutNotice from './components/auth/SignedOutNotice';
 import ResetPasswordDialog from './components/auth/ResetPasswordDialog';
+import AdminPage from './components/admin/AdminPage';
+import {useAdminAccess} from './lib/useAdminAccess';
 
-type View = 'calculator' | 'add-aircraft';
+type View = 'calculator' | 'add-aircraft' | 'admin';
 
 function App() {
   const [view, setView] = React.useState<View>('calculator');
   const [addedRegistration, setAddedRegistration] = React.useState<string | null>(null);
+  const adminAccess = useAdminAccess();
+  // Signing out (or losing admin rights) leaves the admin page.
+  const shown: View = view === 'admin' && !adminAccess ? 'calculator' : view;
 
   return (
     <ThemeProvider defaultTheme="system">
@@ -31,21 +36,31 @@ function App() {
             </div>
             <nav className="flex flex-wrap items-center gap-2" aria-label="Main">
               <Button
-                variant={view === 'calculator' ? 'default' : 'outline'}
+                variant={shown === 'calculator' ? 'default' : 'outline'}
                 size="sm"
-                aria-current={view === 'calculator' ? 'page' : undefined}
+                aria-current={shown === 'calculator' ? 'page' : undefined}
                 onClick={() => setView('calculator')}
               >
                 Calculator
               </Button>
               <Button
-                variant={view === 'add-aircraft' ? 'default' : 'outline'}
+                variant={shown === 'add-aircraft' ? 'default' : 'outline'}
                 size="sm"
-                aria-current={view === 'add-aircraft' ? 'page' : undefined}
+                aria-current={shown === 'add-aircraft' ? 'page' : undefined}
                 onClick={() => setView('add-aircraft')}
               >
                 Add aircraft
               </Button>
+              {adminAccess && (
+                <Button
+                  variant={shown === 'admin' ? 'default' : 'outline'}
+                  size="sm"
+                  aria-current={shown === 'admin' ? 'page' : undefined}
+                  onClick={() => setView('admin')}
+                >
+                  Admin
+                </Button>
+              )}
               <AccountMenu />
               <ThemeToggle />
             </nav>
@@ -54,12 +69,12 @@ function App() {
         <main className="mx-auto max-w-7xl px-4 py-5 sm:py-6">
           <SignedOutNotice />
           <ResetPasswordDialog />
-          {view === 'calculator'
-            ? <WeightBalanceCalculator preferredRegistration={addedRegistration} />
-            : <AddAircraftPage onDone={registration => {
-              setAddedRegistration(registration ?? null);
-              setView('calculator');
-            }} />}
+          {shown === 'admin' && adminAccess && <AdminPage access={adminAccess} />}
+          {shown === 'calculator' && <WeightBalanceCalculator preferredRegistration={addedRegistration} />}
+          {shown === 'add-aircraft' && <AddAircraftPage onDone={registration => {
+            setAddedRegistration(registration ?? null);
+            setView('calculator');
+          }} />}
           <footer className="mt-6 text-center text-xs text-muted-foreground">
             Aircraft data based on manufacturer specifications. Always verify with actual aircraft documentation.
             Model photos from Wikimedia Commons, credited on each photo.
