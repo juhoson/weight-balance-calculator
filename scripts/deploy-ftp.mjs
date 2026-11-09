@@ -3,22 +3,40 @@
 //
 //   FTP_HOST=... FTP_USER=... FTP_PASSWORD=... npm run deploy
 //
-// Optional: FTP_REMOTE_DIR (default /songer.se/public_html/weight-balance), FTP_INSECURE=1 for plain FTP.
+// Options:
+//   --dry-run        connect and show what would change, change nothing
+//   --no-backup      skip downloading the files that are about to be replaced or removed
+//   --force          upload every file, even unchanged ones
+// Env: FTP_REMOTE_DIR (default /songer.se/public_html/weight-balance), FTP_INSECURE=1 for plain FTP,
+//      FTP_DELAY_MS pause between transfers (default 250).
 //
-// 1. Backs up the live directory to backups/<timestamp>/ (restore by uploading it back).
-// 2. Uploads build/, skipping files that come from public/ but are not tracked in git, so
-//    documents lying around in public/ are never published by accident.
-// 3. Removes remote files that are not part of the new build (old hashed bundles).
+// The host's firewall blocks IPs that open many connections in a short time, and every FTP list,
+// download and upload opens a new data connection. So this script keeps transfers to a minimum:
+//
+// 1. Reads a manifest of content hashes from the last deploy (MANIFEST below) and uploads only
+//    files that are new or changed, or missing on the server. Without a manifest it uploads all.
+// 2. Backs up only the live files it is about to overwrite or remove, to backups/<timestamp>/
+//    (roll back by uploading that folder's contents back).
+// 3. Uploads assets first and index.html last, so the live page never points at missing bundles,
+//    then removes remote files that are not part of the new build (old hashed bundles).
+// 4. Never publishes files in public/ that aren't tracked in git, and pauses between transfers.
 
 import { Client } from 'basic-ftp';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const { FTP_HOST, FTP_USER, FTP_PASSWORD } = process.env;
 const REMOTE_DIR = process.env.FTP_REMOTE_DIR ?? '/songer.se/public_html/weight-balance';
+const DELAY_MS = Number(process.env.FTP_DELAY_MS ?? 250);
 const BUILD_DIR = path.resolve('build');
+const MANIFEST = '.deploy-manifest.json';
 const DRY_RUN = process.argv.includes('--dry-run');
+const NO_BACKUP = process.argv.includes('--no-backup');
+const FORCE = process.argv.includes('--force');
 
 if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
   console.error('Set FTP_HOST, FTP_USER and FTP_PASSWORD.');
@@ -41,8 +59,8 @@ function listLocal(dir, base = dir) {
 const tracked = new Set(execFileSync('git', ['ls-files', 'public'], { encoding: 'utf8' })
   .split('\n').filter(Boolean).map(f => f.replace(/^public\//, '')));
 const publicFiles = fs.existsSync('public') ? new Set(listLocal('public')) : new Set();
-const toUpload = listLocal(BUILD_DIR).filter(f => {
-  if (f === '.DS_Store' || f.endsWith('/.DS_Store')) return false;
+const localFiles = listLocal(BUILD_DIR).filter(f => {
+  if (f === '.DS_Store' || f.endsWith('/.DS_Store') || f === MANIFEST) return false;
   if (publicFiles.has(f) && !tracked.has(f)) {
     console.log(`skip (not tracked in git): public/${f}`);
     return false;
@@ -50,10 +68,16 @@ const toUpload = listLocal(BUILD_DIR).filter(f => {
   return true;
 });
 
+const hashOf = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(BUILD_DIR, file))).digest('hex');
+const manifest = Object.fromEntries(localFiles.map(f => [f, hashOf(f)]));
+
 const client = new Client(60_000);
+const remote = file => path.posix.join(REMOTE_DIR, file);
+const pause = () => (DELAY_MS > 0 ? sleep(DELAY_MS) : undefined);
 
 async function listRemote(dir, base = dir) {
   const entries = await client.list(dir);
+  await pause();
   const files = [];
   for (const entry of entries) {
     if (entry.name === '.' || entry.name === '..') continue;
@@ -64,6 +88,20 @@ async function listRemote(dir, base = dir) {
   return files;
 }
 
+/** The manifest from the last deploy, or null if there is none (or it is unreadable). */
+async function readRemoteManifest() {
+  const chunks = [];
+  const sink = new Writable({ write(chunk, _encoding, done) { chunks.push(chunk); done(); } });
+  try {
+    await client.downloadTo(sink, remote(MANIFEST));
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return null;
+  } finally {
+    await pause();
+  }
+}
+
 try {
   await client.access({
     host: FTP_HOST, user: FTP_USER, password: FTP_PASSWORD,
@@ -71,27 +109,53 @@ try {
   });
   console.log(`Connected to ${FTP_HOST} (${process.env.FTP_INSECURE ? 'FTP' : 'FTPS'}), target ${REMOTE_DIR}`);
 
-  const remoteBefore = await listRemote(REMOTE_DIR);
-  const backupDir = path.resolve('backups', new Date().toISOString().replace(/[:.]/g, '-'));
-  if (!DRY_RUN) {
-    fs.mkdirSync(backupDir, { recursive: true });
-    await client.downloadToDir(backupDir, REMOTE_DIR);
-    console.log(`Backed up ${remoteBefore.length} live files to ${path.relative(process.cwd(), backupDir)}`);
+  const listed = await listRemote(REMOTE_DIR);
+  const remoteFiles = new Set(listed.filter(f => f !== MANIFEST));
+  const previous = !FORCE && listed.includes(MANIFEST) ? await readRemoteManifest() : null;
+  if (!previous && !FORCE) console.log('No deploy manifest on the server - uploading everything.');
+
+  const changed = localFiles.filter(f => !previous || !remoteFiles.has(f) || previous[f] !== manifest[f]);
+  // index.html last: the live page should only point at the new bundles once they are all there.
+  changed.sort((a, b) => (a === 'index.html') - (b === 'index.html'));
+  const keep = new Set(localFiles);
+  const stale = [...remoteFiles].filter(f => !keep.has(f));
+  const unchanged = localFiles.length - changed.length;
+
+  // Back up exactly what this deploy overwrites or removes.
+  const toBackUp = [...changed.filter(f => remoteFiles.has(f)), ...stale];
+  if (!DRY_RUN && !NO_BACKUP && toBackUp.length) {
+    const backupDir = path.resolve('backups', new Date().toISOString().replace(/[:.]/g, '-'));
+    for (const file of toBackUp) {
+      const target = path.join(backupDir, ...file.split('/'));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      await client.downloadTo(target, remote(file));
+      await pause();
+    }
+    console.log(`Backed up ${toBackUp.length} live files to ${path.relative(process.cwd(), backupDir)}`);
   }
 
-  console.log(`${DRY_RUN ? 'Would upload' : 'Uploading'} ${toUpload.length} files`);
-  for (const file of toUpload) {
-    if (DRY_RUN) continue;
-    await client.ensureDir(path.posix.join(REMOTE_DIR, path.posix.dirname(file)));
-    await client.uploadFrom(path.join(BUILD_DIR, file), path.posix.join(REMOTE_DIR, file));
+  console.log(`${DRY_RUN ? 'Would upload' : 'Uploading'} ${changed.length} files (${unchanged} unchanged)`);
+  const dirsDone = new Set();
+  for (const file of changed) {
+    if (DRY_RUN) { console.log(`  ${file}`); continue; }
+    const dir = path.posix.dirname(file);
+    if (!dirsDone.has(dir)) {
+      await client.ensureDir(remote(dir));
+      dirsDone.add(dir);
+    }
+    await client.uploadFrom(path.join(BUILD_DIR, file), remote(file));
+    await pause();
   }
 
-  const keep = new Set(toUpload);
-  const stale = remoteBefore.filter(f => !keep.has(f));
   console.log(`${DRY_RUN ? 'Would remove' : 'Removing'} ${stale.length} stale files`);
   for (const file of stale) {
     if (DRY_RUN) { console.log(`  ${file}`); continue; }
-    await client.remove(path.posix.join(REMOTE_DIR, file));
+    await client.remove(remote(file));
+  }
+
+  if (!DRY_RUN) {
+    // Written last, so an interrupted deploy re-uploads whatever it didn't finish next time.
+    await client.uploadFrom(Readable.from(JSON.stringify(manifest, null, 2)), remote(MANIFEST));
   }
   console.log(DRY_RUN ? 'Dry run - nothing changed.' : 'Deployed.');
 } catch (error) {

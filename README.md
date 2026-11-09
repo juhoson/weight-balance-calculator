@@ -122,7 +122,13 @@ REACT_APP_API_URL=https://backend-production-b553.up.railway.app npm run build
 FTP_HOST=... FTP_USER=... FTP_PASSWORD=... npm run deploy   # same FTP account as cellarmate-home/.env
 ```
 
-`npm run deploy` backs up the live files to `backups/<timestamp>/` first, uploads `build/`, removes
-stale files, and never publishes files in `public/` that aren't tracked in git. Add `--dry-run`
-(`node scripts/deploy-ftp.mjs --dry-run`) to see what would change. To roll back, upload a backup
-folder's contents to `/songer.se/public_html/weight-balance`.
+`npm run deploy` uploads only the files in `build/` that changed since the last deploy (it keeps
+content hashes in `.deploy-manifest.json` on the server), uploads `index.html` last, removes stale
+files, and never publishes files in `public/` that aren't tracked in git. Loopia's firewall blocks IPs
+that open many connections in a short time, so the script keeps transfers to a minimum and pauses
+`FTP_DELAY_MS` (default 250 ms) between them; avoid deploying many times in quick succession.
+
+The files it overwrites or removes are backed up to `backups/<timestamp>/` first; to roll back, upload
+that folder's contents to `/songer.se/public_html/weight-balance`. Flags (`node scripts/deploy-ftp.mjs
+<flag>`): `--dry-run` shows what would change, `--no-backup` skips the backup, `--force` uploads
+everything.
