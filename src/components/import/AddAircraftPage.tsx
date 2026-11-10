@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '../ui/Alert';
 import NumField from './NumField';
 import AircraftValuesForm from './AircraftValuesForm';
 import ImportReview from './ImportReview';
-import { fetchStandard, previewImport } from '../../api/backend';
+import { addClubAircraft, fetchStandard, previewClubAircraftEdit, previewImport, updateClubAircraft } from '../../api/backend';
 import { useAuth } from '../../api/useAuth';
 import SignInButton from '../auth/SignInButton';
 import { aircraftData } from '../../data/aircraftData';
@@ -18,9 +18,11 @@ import type {
   ImportResult,
   StandardTypeResponse,
 } from '../../types/airframeImport';
+import type { ClubOption } from '../../types/admin';
+import type { ClubAircraft, ValueChange } from '../../types/clubAircraft';
 
 type Step = 'details' | 'values' | 'review' | 'done';
-type StartFrom = 'standard' | 'builtin';
+type StartFrom = 'current' | 'standard' | 'builtin';
 
 interface Details {
   registration: string;
@@ -73,6 +75,29 @@ interface AddAircraftPageProps {
   onDone?: (registration?: string) => void;
 }
 
+/** Whose aircraft the wizard saves: the user's own, a new club aircraft, or an edit of one. */
+export type WizardMode =
+  | { kind: 'own' }
+  | { kind: 'clubAdd'; club: ClubOption }
+  | { kind: 'clubEdit'; club: ClubOption; aircraft: ClubAircraft };
+
+interface AircraftWizardProps extends AddAircraftPageProps {
+  mode?: WizardMode;
+  /** Leave without saving (club modes, on the admin page). */
+  onCancel?: () => void;
+}
+
+const EMPTY_DETAILS: Details = { registration: '', code: '', name: '', emptyWeightKg: null, emptyArmM: null, weighedOn: '' };
+
+function initialDetails(mode: WizardMode): Details {
+  if (mode.kind !== 'clubEdit') return EMPTY_DETAILS;
+  const a = mode.aircraft;
+  return {
+    registration: a.registration, code: a.spec.code, name: a.spec.name,
+    emptyWeightKg: a.emptyWeightKg, emptyArmM: a.emptyArmM, weighedOn: a.weighedOn ?? '',
+  };
+}
+
 /** Add an aircraft: details -> values (prefilled from the standard) -> review deviations -> save. */
 /** Adding aircraft needs an account: they are saved as the user's own. */
 const AddAircraftPage: React.FC<AddAircraftPageProps> = props => {
@@ -88,15 +113,17 @@ const AddAircraftPage: React.FC<AddAircraftPageProps> = props => {
       </div>
     );
   }
-  return <AddAircraftWizard {...props} />;
+  return <AircraftWizard {...props} />;
 };
 
-const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
+/** Add an aircraft (the user's own or a club's), or edit a club's: details -> values -> review -> save. */
+export const AircraftWizard: React.FC<AircraftWizardProps> = ({ onDone, onCancel, mode = { kind: 'own' } }) => {
+  const editing = mode.kind === 'clubEdit' ? mode.aircraft : null;
+  const club = mode.kind === 'own' ? null : mode.club;
   const [step, setStep] = React.useState<Step>('details');
-  const [details, setDetails] = React.useState<Details>({
-    registration: '', code: '', name: '', emptyWeightKg: null, emptyArmM: null, weighedOn: '',
-  });
-  const [startFrom, setStartFrom] = React.useState<StartFrom>('standard');
+  const [details, setDetails] = React.useState<Details>(() => initialDetails(mode));
+  const [startFrom, setStartFrom] = React.useState<StartFrom>(editing ? 'current' : 'standard');
+  const [changes, setChanges] = React.useState<ValueChange[] | undefined>(undefined);
   const [builtinKey, setBuiltinKey] = React.useState<string>(Object.keys(aircraftData)[0]);
   const [spec, setSpec] = React.useState<AircraftSpec | null>(null);
   const [loadedStandard, setLoadedStandard] = React.useState<StandardTypeResponse | null>(null);
@@ -123,6 +150,13 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
     setMessage(null);
     const code = details.code.trim();
     const name = details.name.trim();
+    if (startFrom === 'current' && editing) {
+      // Keep the values the aircraft uses now, unless already edited in this session.
+      setSpec(prev => ({ ...(prev ?? editing.spec), code, name: name || editing.spec.name }));
+      setLoadedStandard(null);
+      setStep('values');
+      return;
+    }
     if (startFrom === 'builtin') {
       const base = specFromAircraftData(builtinKey, aircraftData[builtinKey]);
       setSpec({ ...base, code, name: name || base.name });
@@ -157,7 +191,14 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
     setMessage(null);
     setBusy('preview');
     try {
-      setPreview(await previewImport(request));
+      if (editing && club) {
+        const result = await previewClubAircraftEdit(club.id, editing.id, request);
+        setPreview(result.review);
+        setChanges(result.changes);
+      } else {
+        setPreview(await previewImport(request));
+        setChanges(undefined);
+      }
       setStep('review');
       window.scrollTo({ top: 0 });
     } catch (e) {
@@ -167,9 +208,13 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
     }
   };
 
+  const saveRequest = club
+    ? (body: AirframeImportRequest) => (editing ? updateClubAircraft(club.id, editing.id, body) : addClubAircraft(club.id, body))
+    : undefined;
+
   const reset = () => {
     setStep('details');
-    setDetails({ registration: '', code: '', name: '', emptyWeightKg: null, emptyArmM: null, weighedOn: '' });
+    setDetails(EMPTY_DETAILS);
     setSpec(null);
     setLoadedStandard(null);
     setPreview(null);
@@ -191,9 +236,14 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
       {step === 'details' && (
         <div className="space-y-5">
           <div>
-            <h2 className="text-2xl font-semibold">Add an aircraft</h2>
+            <h2 className="text-2xl font-semibold">
+              {editing ? `Edit ${editing.registration}` : club ? `Add an aircraft to ${club.name}` : 'Add an aircraft'}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Enter the registration, model and the empty weight from the latest weighing report.
+              {editing
+                ? 'Change what differs, e.g. the empty weight from a new weighing report. You see exactly what changes before saving.'
+                : 'Enter the registration, model and the empty weight from the latest weighing report.'}
+              {club && !editing && ' It is shown to everyone who shows the club\'s aircraft.'}
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -218,6 +268,16 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
 
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Starting values</legend>
+            {editing && (
+              <label className="flex items-start gap-2 text-sm">
+                <input type="radio" name="start" className="mt-0.5 accent-blue-600" checked={startFrom === 'current'}
+                  onChange={() => setStartFrom('current')} />
+                <span>
+                  The values {editing.registration} uses now
+                  <span className="block text-xs text-muted-foreground">Change only what differs in the next step.</span>
+                </span>
+              </label>
+            )}
             <label className="flex items-start gap-2 text-sm">
               <input type="radio" name="start" className="mt-0.5 accent-blue-600" checked={startFrom === 'standard'}
                 onChange={() => setStartFrom('standard')} />
@@ -248,7 +308,8 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
               Looking up standard values… The first lookup of a new model asks AI and can take up to a minute.
             </p>
           )}
-          <div className="flex justify-end">
+          <div className={onCancel ? 'flex justify-between' : 'flex justify-end'}>
+            {onCancel && <Button variant="outline" onClick={onCancel} disabled={busy !== null}>Cancel</Button>}
             <Button onClick={continueFromDetails} disabled={!detailsComplete || busy !== null}>Continue</Button>
           </div>
         </div>
@@ -291,6 +352,8 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
           onBack={() => setStep('values')}
           onPreviewChanged={setPreview}
           onSaved={r => { setResult(r); setStep('done'); }}
+          saveRequest={saveRequest}
+          changes={changes}
         />
       )}
 
@@ -298,7 +361,9 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
         <div className="space-y-4">
           <Alert variant="success">
             <CheckCircle2 className="h-4 w-4" />
-            <AlertTitle>{details.registration.toUpperCase()} saved</AlertTitle>
+            <AlertTitle>
+              {details.registration.toUpperCase()} {editing ? 'updated' : 'saved'}{club ? ` for ${club.name}` : ''}
+            </AlertTitle>
             <AlertDescription>
               {result.usesStandard
                 ? 'It uses the standard values for its model.'
@@ -307,8 +372,12 @@ const AddAircraftWizard: React.FC<AddAircraftPageProps> = ({ onDone }) => {
             </AlertDescription>
           </Alert>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={reset}>Add another aircraft</Button>
-            {onDone && <Button onClick={() => onDone(details.registration.trim().toUpperCase())}>Show in calculator</Button>}
+            {!editing && <Button variant="outline" onClick={reset}>Add another aircraft</Button>}
+            {onDone && (
+              <Button onClick={() => onDone(details.registration.trim().toUpperCase())}>
+                {club ? 'Back to club aircraft' : 'Show in calculator'}
+              </Button>
+            )}
           </div>
         </div>
       )}

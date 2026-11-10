@@ -19,6 +19,7 @@ import type {
 } from '../types/admin';
 import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
 import type { ClubName, MyClub } from '../types/profile';
+import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
 
 // The backend's address: set at build time for production, from .env.development for npm start.
 // Empty = same origin.
@@ -217,4 +218,35 @@ export async function fetchClubNames(): Promise<ClubName[]> {
   } catch {
     return [];
   }
+}
+
+/** A club's aircraft, for its admins. */
+export function listClubAircraft(clubId: number): Promise<ClubAircraft[]> {
+  return request<ClubAircraft[]>(`/api/admin/clubs/${clubId}/aircraft`);
+}
+
+/** Adds an aircraft to the club; 422 until every alert is acknowledged, 409 for a registration in use. */
+export function addClubAircraft(clubId: number, body: AirframeImportRequest): Promise<ImportResult> {
+  return request<ImportResult>(`/api/admin/clubs/${clubId}/aircraft`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** What an edit would change, and how the new values compare with the standard. */
+export function previewClubAircraftEdit(clubId: number, airframeId: number, body: AirframeImportRequest): Promise<EditPreviewResponse> {
+  return request<EditPreviewResponse>(`/api/admin/clubs/${clubId}/aircraft/${airframeId}/preview`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateClubAircraft(clubId: number, airframeId: number, body: AirframeImportRequest): Promise<ImportResult> {
+  return request<ImportResult>(`/api/admin/clubs/${clubId}/aircraft/${airframeId}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export async function removeClubAircraft(clubId: number, airframeId: number): Promise<void> {
+  await request<void>(`/api/admin/clubs/${clubId}/aircraft/${airframeId}`, { method: 'DELETE' });
+}
+
+/** The club's aircraft change log, newest first. */
+export function listClubAircraftChanges(clubId: number): Promise<ChangeView[]> {
+  return request<ChangeView[]>(`/api/admin/clubs/${clubId}/aircraft-changes`);
 }

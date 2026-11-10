@@ -20,6 +20,7 @@ import type {
   Severity,
   UnacknowledgedAlertsBody,
 } from '../../types/airframeImport';
+import type { ValueChange } from '../../types/clubAircraft';
 
 interface ImportReviewProps {
   request: AirframeImportRequest;
@@ -29,6 +30,55 @@ interface ImportReviewProps {
   onSaved: (result: ImportResult) => void;
   /** The server's re-check on save found different alerts; show its version. */
   onPreviewChanged: (preview: ImportPreviewResponse) => void;
+  /** Saves the aircraft; defaults to saving it as the signed-in user's own. */
+  saveRequest?: (request: AirframeImportRequest) => Promise<ImportResult>;
+  /**
+   * When editing an aircraft others use: exactly what changes from the values in use. They are
+   * listed first and must be confirmed before saving.
+   */
+  changes?: ValueChange[];
+}
+
+/** What an edit changes from the values pilots use now, with a checkbox to confirm them. */
+function ChangesSection({ changes, confirmed, onConfirm }: {
+  changes: ValueChange[]; confirmed: boolean; onConfirm: (confirmed: boolean) => void;
+}) {
+  const value = (v: string | null, unit: string | null) => (v === null ? '–' : unit ? `${v} ${unit}` : v);
+  return (
+    <section aria-labelledby="changes-heading" className="rounded-lg border border-blue-300 p-4 dark:border-blue-800">
+      <h3 id="changes-heading" className="mb-2 text-lg font-semibold">What changes for pilots</h3>
+      {changes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nothing changes from the values in use.</p>
+      ) : (
+        <>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-muted-foreground">
+                <th className="py-1 pr-2 font-medium">Value</th>
+                <th className="py-1 pr-2 font-medium">Now</th>
+                <th className="py-1 font-medium">After saving</th>
+              </tr>
+            </thead>
+            <tbody>
+              {changes.map(c => (
+                <tr key={c.field} className="border-t border-border">
+                  <td className="py-1 pr-2">{c.label}</td>
+                  <td className="py-1 pr-2 text-muted-foreground">{value(c.from, c.unit)}</td>
+                  <td className="py-1 font-medium">{value(c.to, c.unit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <label className="mt-3 flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5 accent-blue-600" checked={confirmed}
+              onChange={e => onConfirm(e.target.checked)} />
+            I&apos;ve checked these changes against the weighing report and POH. Pilots who show this
+            aircraft will use the new values.
+          </label>
+        </>
+      )}
+    </section>
+  );
 }
 
 const SEVERITY_STYLES: Record<Severity, { badge: string; border: string; label: string }> = {
@@ -228,8 +278,12 @@ function ReferenceCard({ preview }: { preview: ImportPreviewResponse }) {
   );
 }
 
-const ImportReview: React.FC<ImportReviewProps> = ({ request, preview, onBack, onSaved, onPreviewChanged }) => {
+const ImportReview: React.FC<ImportReviewProps> = ({
+  request, preview, onBack, onSaved, onPreviewChanged, saveRequest = confirmImport, changes,
+}) => {
   const [acknowledged, setAcknowledged] = React.useState<Set<string>>(new Set());
+  const [changesConfirmed, setChangesConfirmed] = React.useState(false);
+  const changesBlocking = changes !== undefined && (changes.length === 0 || !changesConfirmed);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -258,7 +312,7 @@ const ImportReview: React.FC<ImportReviewProps> = ({ request, preview, onBack, o
     setSaving(true);
     setError(null);
     try {
-      const result = await confirmImport({ ...request, acknowledgedAlerts: Array.from(acknowledged) });
+      const result = await saveRequest({ ...request, acknowledgedAlerts: Array.from(acknowledged) });
       onSaved(result);
     } catch (e) {
       if (e instanceof ApiError && e.status === 422 && e.body && typeof e.body === 'object') {
@@ -267,7 +321,9 @@ const ImportReview: React.FC<ImportReviewProps> = ({ request, preview, onBack, o
         onPreviewChanged({ ...preview, deviations: body.deviations, alertsRequiringAcknowledgement: fields });
         setError('The final check found alerts that still need confirming. Review them below.');
       } else if (e instanceof ApiError && e.status === 409) {
-        setError(`You already have an aircraft registered as ${request.registration.toUpperCase()}.`);
+        setError(saveRequest === confirmImport
+          ? `You already have an aircraft registered as ${request.registration.toUpperCase()}.`
+          : e.message);
       } else {
         setError(e instanceof Error ? e.message : 'Saving failed.');
       }
@@ -312,6 +368,8 @@ const ImportReview: React.FC<ImportReviewProps> = ({ request, preview, onBack, o
           {request.spec.name} · empty weight {formatNumber(request.emptyWeightKg)} kg at {formatNumber(request.emptyArmM)} m
         </p>
       </div>
+
+      {changes && <ChangesSection changes={changes} confirmed={changesConfirmed} onConfirm={setChangesConfirmed} />}
 
       <ReferenceCard preview={preview} />
       {summary}
@@ -382,13 +440,16 @@ const ImportReview: React.FC<ImportReviewProps> = ({ request, preview, onBack, o
           Back to values
         </Button>
         <div className="flex flex-col items-stretch gap-1 sm:items-end">
-          <Button onClick={save} disabled={saving || remaining > 0}>
+          <Button onClick={save} disabled={saving || remaining > 0 || changesBlocking}>
             {saving ? 'Saving…' : `Save ${request.registration.toUpperCase()}`}
           </Button>
           {remaining > 0 && (
             <span className="text-xs text-muted-foreground">
               Confirm {remaining} more alert{remaining > 1 ? 's' : ''} to save
             </span>
+          )}
+          {changes !== undefined && changes.length > 0 && !changesConfirmed && remaining === 0 && (
+            <span className="text-xs text-muted-foreground">Confirm the changes above to save</span>
           )}
         </div>
       </div>

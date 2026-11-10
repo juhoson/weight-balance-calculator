@@ -8,7 +8,7 @@ import {Button} from './components/ui/Button';
 import AccountMenu from './components/auth/AccountMenu';
 import SignedOutNotice from './components/auth/SignedOutNotice';
 import ResetPasswordDialog from './components/auth/ResetPasswordDialog';
-import AdminPage from './components/admin/AdminPage';
+import AdminTabs from './components/admin/AdminTabs';
 import ProfilePage from './components/profile/ProfilePage';
 import {useAdminAccess} from './lib/useAdminAccess';
 import {useAuth} from './api/useAuth';
@@ -72,7 +72,7 @@ function App() {
         <main className="mx-auto max-w-7xl px-4 py-5 sm:py-6">
           <SignedOutNotice />
           <ResetPasswordDialog />
-          {shown === 'admin' && adminAccess && <AdminPage access={adminAccess} />}
+          {shown === 'admin' && adminAccess && <AdminTabs access={adminAccess} />}
           {shown === 'profile' && <ProfilePage />}
           {shown === 'calculator' && (
             <WeightBalanceCalculator preferredRegistration={addedRegistration} onOpenProfile={() => setView('profile')} />
