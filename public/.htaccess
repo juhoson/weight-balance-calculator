@@ -1,0 +1,9 @@
+# The backend (CORS) and Google sign-in only accept the app from https://songer.se, so send
+# http:// and www. visits there. Without this, http://songer.se/weight-balance/ loads but every
+# backend call fails with a CORS error and the Google button stays hidden.
+RewriteEngine On
+RewriteCond %{HTTPS} !=on [OR]
+RewriteCond %{HTTP_HOST} ^www\. [NC]
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https [OR]
+RewriteCond %{HTTP_HOST} ^www\. [NC]
+RewriteRule ^ https://songer.se%{REQUEST_URI} [R=301,L]
