@@ -4,6 +4,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { session } from '../../api/session';
+import { fetchClubNames } from '../../api/backend';
+import type { ClubName } from '../../types/profile';
 import GoogleSignInButton from './GoogleSignInButton';
 
 type Mode = 'signIn' | 'register' | 'forgot';
@@ -33,6 +35,8 @@ const AuthDialog: React.FC<AuthDialogProps> = ({ open, onOpenChange, initialMode
   const [error, setError] = React.useState<string | null>(null);
   const [googleAvailable, setGoogleAvailable] = React.useState(false);
   const [resetSentTo, setResetSentTo] = React.useState<string | null>(null);
+  const [clubs, setClubs] = React.useState<ClubName[]>([]);
+  const [clubId, setClubId] = React.useState('');
 
   React.useEffect(() => {
     if (open) {
@@ -44,6 +48,14 @@ const AuthDialog: React.FC<AuthDialogProps> = ({ open, onOpenChange, initialMode
   }, [open, initialMode]);
 
   const register = mode === 'register';
+
+  // The club question only needs the list once someone starts creating an account.
+  React.useEffect(() => {
+    if (!open || !register || clubs.length > 0) return;
+    let cancelled = false;
+    fetchClubNames().then(list => { if (!cancelled) setClubs(list); });
+    return () => { cancelled = true; };
+  }, [open, register, clubs.length]);
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -62,7 +74,7 @@ const AuthDialog: React.FC<AuthDialogProps> = ({ open, onOpenChange, initialMode
         return;
       }
       if (register) {
-        await session.register(email.trim(), password, displayName.trim());
+        await session.register(email.trim(), password, displayName.trim(), clubId ? Number(clubId) : undefined);
       } else {
         await session.signIn(email.trim(), password);
       }
@@ -146,6 +158,17 @@ const AuthDialog: React.FC<AuthDialogProps> = ({ open, onOpenChange, initialMode
             minLength={register ? 8 : undefined} maxLength={100}
             value={password} onChange={e => setPassword(e.target.value)} />
           {register && <p className="text-xs text-muted-foreground">At least 8 characters.</p>}
+          {register && clubs.length > 0 && (
+            <div className="space-y-1">
+              <label htmlFor="auth-club" className="text-sm font-medium">Which club do you fly with?</label>
+              <select id="auth-club" value={clubId} onChange={e => setClubId(e.target.value)}
+                className="h-10 w-full rounded-md border border-gray-300 bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">None / not listed</option>
+                {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">Shows the club&apos;s aircraft. You can change this later under Profile.</p>
+            </div>
+          )}
           {!register && (
             <button type="button" className="text-sm text-blue-600 hover:underline dark:text-blue-400"
               onClick={() => switchMode('forgot')}>

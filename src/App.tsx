@@ -9,16 +9,19 @@ import AccountMenu from './components/auth/AccountMenu';
 import SignedOutNotice from './components/auth/SignedOutNotice';
 import ResetPasswordDialog from './components/auth/ResetPasswordDialog';
 import AdminPage from './components/admin/AdminPage';
+import ProfilePage from './components/profile/ProfilePage';
 import {useAdminAccess} from './lib/useAdminAccess';
+import {useAuth} from './api/useAuth';
 
-type View = 'calculator' | 'add-aircraft' | 'admin';
+type View = 'calculator' | 'add-aircraft' | 'admin' | 'profile';
 
 function App() {
   const [view, setView] = React.useState<View>('calculator');
   const [addedRegistration, setAddedRegistration] = React.useState<string | null>(null);
   const adminAccess = useAdminAccess();
-  // Signing out (or losing admin rights) leaves the admin page.
-  const shown: View = view === 'admin' && !adminAccess ? 'calculator' : view;
+  const {user} = useAuth();
+  // Signing out (or losing admin rights) leaves the admin and profile pages.
+  const shown: View = (view === 'admin' && !adminAccess) || (view === 'profile' && !user) ? 'calculator' : view;
 
   return (
     <ThemeProvider defaultTheme="system">
@@ -61,7 +64,7 @@ function App() {
                   Admin
                 </Button>
               )}
-              <AccountMenu />
+              <AccountMenu onOpenProfile={() => setView('profile')} profileOpen={shown === 'profile'} />
               <ThemeToggle />
             </nav>
           </div>
@@ -70,7 +73,10 @@ function App() {
           <SignedOutNotice />
           <ResetPasswordDialog />
           {shown === 'admin' && adminAccess && <AdminPage access={adminAccess} />}
-          {shown === 'calculator' && <WeightBalanceCalculator preferredRegistration={addedRegistration} />}
+          {shown === 'profile' && <ProfilePage />}
+          {shown === 'calculator' && (
+            <WeightBalanceCalculator preferredRegistration={addedRegistration} onOpenProfile={() => setView('profile')} />
+          )}
           {shown === 'add-aircraft' && <AddAircraftPage onDone={registration => {
             setAddedRegistration(registration ?? null);
             setView('calculator');

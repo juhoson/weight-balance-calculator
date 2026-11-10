@@ -18,6 +18,7 @@ import type {
   PasswordLinkResponse,
 } from '../types/admin';
 import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
+import type { ClubName, MyClub } from '../types/profile';
 
 // The backend's address: set at build time for production, from .env.development for npm start.
 // Empty = same origin.
@@ -193,4 +194,27 @@ export function setClubRole(clubId: number, userId: number, role: ClubRole): Pro
 
 export function removeFromClub(clubId: number, userId: number): Promise<MemberView> {
   return request<MemberView>(`/api/admin/clubs/${clubId}/members/${userId}`, { method: 'DELETE' });
+}
+
+/** Every club, with the signed-in user's role in each (null when not a member). */
+export function fetchMyClubs(): Promise<MyClub[]> {
+  return request<MyClub[]>('/api/users/me/clubs');
+}
+
+/** Joins as a member; also shows the club's aircraft unless the user already chose some. */
+export function joinClub(clubId: number): Promise<MyClub[]> {
+  return request<MyClub[]>(`/api/users/me/clubs/${clubId}`, { method: 'PUT' });
+}
+
+export function leaveClub(clubId: number): Promise<MyClub[]> {
+  return request<MyClub[]>(`/api/users/me/clubs/${clubId}`, { method: 'DELETE' });
+}
+
+/** Club names for the registration form. Public; an empty list if they can't be loaded. */
+export async function fetchClubNames(): Promise<ClubName[]> {
+  try {
+    return await request<ClubName[]>('/api/auth/clubs');
+  } catch {
+    return [];
+  }
 }

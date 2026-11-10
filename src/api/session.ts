@@ -166,8 +166,9 @@ class Session {
     return this.start(await postAuth('google', { idToken }), 'Google sign-in failed.');
   }
 
-  async register(email: string, password: string, displayName: string): Promise<SessionUser> {
-    return this.start(await postAuth('register', { email, password, displayName }), 'Could not create the account.');
+  /** clubId: the club the user flies with, joined as a member; omit for none. */
+  async register(email: string, password: string, displayName: string, clubId?: number): Promise<SessionUser> {
+    return this.start(await postAuth('register', { email, password, displayName, clubId }), 'Could not create the account.');
   }
 
   private async start(response: Response, fallback: string): Promise<SessionUser> {

@@ -15,6 +15,7 @@ import CompanyFooter from './CompanyFooter';
 import SeatLayout from './SeatLayout';
 import AircraftSourceNotice from './AircraftSourceNotice';
 import ClubAircraftButton from './ClubAircraftDialog';
+import ClubHint from './profile/ClubHint';
 import GenericEmptyWeight from './GenericEmptyWeight';
 import AircraftPicker from './AircraftPicker';
 import AircraftHero from './AircraftHero';
@@ -108,9 +109,11 @@ const Section: React.FC<{ step: number; title: string; children: React.ReactNode
 interface WeightBalanceCalculatorProps {
   /** Select this aircraft once the database list has loaded (e.g. one just added). */
   preferredRegistration?: string | null;
+  /** Opens the profile page, where a signed-in user picks their club. */
+  onOpenProfile?: () => void;
 }
 
-const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({preferredRegistration}) => {
+const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({preferredRegistration, onOpenProfile}) => {
   const catalog = useAircraftCatalog();
   const userId = useAuth().user?.id ?? null;
   // Signed in, the generic aircraft can be hidden (remembered per user in this browser).
@@ -586,6 +589,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             <div className="flex flex-wrap items-center justify-between gap-2">
               <ClubAircraftButton onSaved={catalog.reload}/>
             </div>
+            {onOpenProfile && <ClubHint onOpenProfile={onOpenProfile}/>}
             <AircraftSourceNotice catalog={catalog} selectedMeta={selectedMeta}/>
           </Section>
 
