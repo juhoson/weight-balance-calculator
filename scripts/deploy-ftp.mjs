@@ -7,8 +7,9 @@
 //   --dry-run        connect and show what would change, change nothing
 //   --no-backup      skip downloading the files that are about to be replaced or removed
 //   --force          upload every file, even unchanged ones
-// Env: FTP_REMOTE_DIR (default /songer.se/public_html/weight-balance), FTP_INSECURE=1 for plain FTP,
-//      FTP_DELAY_MS pause between transfers (default 250).
+// Env: WB_FTP_REMOTE_DIR (default /songer.se/public_html/weight-balance), FTP_INSECURE=1 for plain FTP,
+//      FTP_DELAY_MS pause between transfers (default 250). The target deliberately isn't FTP_REMOTE_DIR:
+//      the FTP account is shared with cellarmate, whose .env sets that to one of its own folders.
 //
 // The host's firewall blocks IPs that open many connections in a short time, and every FTP list,
 // download and upload opens a new data connection. So this script keeps transfers to a minimum:
@@ -30,7 +31,7 @@ import { Readable, Writable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const { FTP_HOST, FTP_USER, FTP_PASSWORD } = process.env;
-const REMOTE_DIR = process.env.FTP_REMOTE_DIR ?? '/songer.se/public_html/weight-balance';
+const REMOTE_DIR = process.env.WB_FTP_REMOTE_DIR ?? '/songer.se/public_html/weight-balance';
 const DELAY_MS = Number(process.env.FTP_DELAY_MS ?? 250);
 const BUILD_DIR = path.resolve('build');
 const MANIFEST = '.deploy-manifest.json';
@@ -46,6 +47,29 @@ if (!fs.existsSync(path.join(BUILD_DIR, 'index.html'))) {
   console.error('No build/index.html - run npm run build first.');
   process.exit(1);
 }
+if (process.env.FTP_REMOTE_DIR) {
+  console.log(`Ignoring FTP_REMOTE_DIR (${process.env.FTP_REMOTE_DIR}); set WB_FTP_REMOTE_DIR to change the target.`);
+}
+
+/**
+ * The backend URL from .env.production, which the build bakes into the bundle. A build without it
+ * calls /api on the web host and nothing that needs the backend works, so refuse to deploy one.
+ */
+function checkBackendUrl() {
+  const env = fs.existsSync('.env.production') ? fs.readFileSync('.env.production', 'utf8') : '';
+  const url = env.match(/^REACT_APP_API_URL=(.+)$/m)?.[1]?.trim();
+  if (!url) {
+    console.error('No REACT_APP_API_URL in .env.production.');
+    process.exit(1);
+  }
+  const jsDir = path.join(BUILD_DIR, 'static', 'js');
+  const bundles = fs.existsSync(jsDir) ? fs.readdirSync(jsDir).filter(f => /^main\..*\.js$/.test(f)) : [];
+  if (!bundles.some(f => fs.readFileSync(path.join(jsDir, f), 'utf8').includes(url))) {
+    console.error(`build/ doesn't call the backend at ${url} - rebuild with npm run build.`);
+    process.exit(1);
+  }
+}
+checkBackendUrl();
 
 /** Relative paths of all files under dir. */
 function listLocal(dir, base = dir) {

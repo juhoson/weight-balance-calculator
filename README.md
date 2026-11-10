@@ -118,9 +118,13 @@ The app is served from https://songer.se/weight-balance/ (Loopia) and talks to t
 Railway (see weight-balance-backend's README).
 
 ```bash
-REACT_APP_API_URL=https://backend-production-b553.up.railway.app npm run build
+npm run build                                               # backend URL from .env.production
 FTP_HOST=... FTP_USER=... FTP_PASSWORD=... npm run deploy   # same FTP account as cellarmate-home/.env
 ```
+
+The target is `/songer.se/public_html/weight-balance`, changed with `WB_FTP_REMOTE_DIR`. The script
+ignores `FTP_REMOTE_DIR`, which cellarmate's .env sets to one of its own folders, and it refuses to
+deploy a build that doesn't call the backend in `.env.production`.
 
 `npm run deploy` uploads only the files in `build/` that changed since the last deploy (it keeps
 content hashes in `.deploy-manifest.json` on the server), uploads `index.html` last, removes stale
