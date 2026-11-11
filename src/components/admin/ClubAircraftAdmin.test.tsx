@@ -34,7 +34,7 @@ const spec = specFromAircraftData('PA28-161 (SE-KMI)', aircraftData['PA28-161 (S
 const kmi: ClubAircraft = {
   id: 5, registration: 'SE-KMI', typeKind: 'STANDARD', typeStatus: 'CURATED', verification: 'USER_CONFIRMED',
   weighedOn: '2024-03-01', emptyWeightKg: 712.5, emptyArmM: 2.18, spec: { ...spec, code: 'PA28-161' },
-  weighings: 2, shownToPilots: 3,
+  weighings: 2, shownToPilots: 3, homeAirport: null, clubHomeAirport: 'ESSX',
   lastChange: { id: 1, airframeId: 5, registration: 'SE-KMI', action: 'ADDED', summary: 'Added SE-KMI', changedBy: 'Chief', changedAt: '2026-11-01T10:00:00Z' },
 };
 const access: AdminAccess = { siteAdmin: false, clubs: [{ id: 10, name: 'Club A' }], admin: true };
@@ -50,7 +50,7 @@ it('lists the club\'s aircraft with how many pilots use them, and the change log
   const row = (await screen.findByText('SE-KMI')).closest('li') as HTMLElement;
   expect(row).toHaveTextContent('Empty 712.5 kg at 2.18 m');
   expect(row).toHaveTextContent('2 weighings on record');
-  expect(row).toHaveTextContent('Shown by 3 pilots');
+  expect(row).toHaveTextContent('Home ESSX · Shown by 3 pilots');
   expect(within(screen.getByRole('list', { name: 'Aircraft changes' })).getByText(/Added SE-KMI/)).toBeInTheDocument();
   expect(listClubAircraft).toHaveBeenCalledWith(10);
 });
@@ -104,5 +104,5 @@ it('edits from the current values and saves only after the changes are confirmed
   expect(addClubAircraft).not.toHaveBeenCalled();
 
   await user.click(screen.getByRole('button', { name: 'Back to club aircraft' }));
-  expect(await screen.findByText('Shown by 3 pilots')).toBeInTheDocument();
+  expect(await screen.findByText(/Shown by 3 pilots/)).toBeInTheDocument();
 });

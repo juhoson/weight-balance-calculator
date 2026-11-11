@@ -46,7 +46,10 @@ const AircraftRow: React.FC<{
         {a.weighedOn && <> · weighed {a.weighedOn}</>}
         {a.weighings > 1 && <span className="text-muted-foreground"> ({a.weighings} weighings on record)</span>}
       </p>
-      <p className="text-xs text-muted-foreground">Shown by {pilots(a.shownToPilots)}</p>
+      <p className="text-xs text-muted-foreground">
+        {(a.homeAirport ?? a.clubHomeAirport) && <>Home {a.homeAirport ?? a.clubHomeAirport}{a.homeAirport && ' (not the club\'s)'} · </>}
+        Shown by {pilots(a.shownToPilots)}
+      </p>
       {a.lastChange && <p className="text-xs"><ChangeLine change={a.lastChange} /></p>}
     </div>
     <div className="flex gap-1">

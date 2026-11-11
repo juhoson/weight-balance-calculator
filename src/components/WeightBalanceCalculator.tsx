@@ -635,7 +635,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               locating={locating}
               locationError={locationError}
               signedIn={userId !== null}
-              defaultNote={route.from && route.from === homeAirport && homeClub ? `${homeClub}'s home airfield`
+              defaultNote={route.from && route.from === homeAirport && metaNow?.kind === 'airframe'
+                ? (metaNow.homeAirportOwn || !homeClub ? `${metaNow.registration}'s home airfield` : `${homeClub}'s home airfield`)
                 : route.from && route.from === locatedCode ? 'Nearest airport to your location' : null}
             />
           </Section>

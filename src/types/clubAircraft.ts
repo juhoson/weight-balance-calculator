@@ -30,6 +30,9 @@ export interface ClubAircraft {
   /** Signed-in pilots who show this aircraft in their calculator. */
   shownToPilots: number;
   lastChange: ChangeView | null;
+  /** The aircraft's own home airfield; null when it uses the club's. */
+  homeAirport: string | null;
+  clubHomeAirport: string | null;
 }
 
 /** One value an edit changes, formatted for display (null when not set). */

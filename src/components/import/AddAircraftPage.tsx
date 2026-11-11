@@ -31,6 +31,8 @@ interface Details {
   emptyWeightKg: number | null;
   emptyArmM: number | null;
   weighedOn: string;
+  /** Club aircraft: its own home airfield; empty = the club's. */
+  homeAirport: string;
 }
 
 const STEPS: Array<{ id: Step; label: string }> = [
@@ -87,7 +89,9 @@ interface AircraftWizardProps extends AddAircraftPageProps {
   onCancel?: () => void;
 }
 
-const EMPTY_DETAILS: Details = { registration: '', code: '', name: '', emptyWeightKg: null, emptyArmM: null, weighedOn: '' };
+const EMPTY_DETAILS: Details = {
+  registration: '', code: '', name: '', emptyWeightKg: null, emptyArmM: null, weighedOn: '', homeAirport: '',
+};
 
 function initialDetails(mode: WizardMode): Details {
   if (mode.kind !== 'clubEdit') return EMPTY_DETAILS;
@@ -95,6 +99,7 @@ function initialDetails(mode: WizardMode): Details {
   return {
     registration: a.registration, code: a.spec.code, name: a.spec.name,
     emptyWeightKg: a.emptyWeightKg, emptyArmM: a.emptyArmM, weighedOn: a.weighedOn ?? '',
+    homeAirport: a.homeAirport ?? '',
   };
 }
 
@@ -144,6 +149,7 @@ export const AircraftWizard: React.FC<AircraftWizardProps> = ({ onDone, onCancel
     weighedOn: details.weighedOn || null,
     source: 'MANUAL',
     spec,
+    ...(club ? { homeAirport: details.homeAirport.trim().toUpperCase() || null } : {}),
   } : null;
 
   const continueFromDetails = async () => {
@@ -260,6 +266,12 @@ export const AircraftWizard: React.FC<AircraftWizardProps> = ({ onDone, onCancel
               <Input id="weighed-on" type="date" value={details.weighedOn} onChange={e => set('weighedOn', e.target.value)}
                 className="bg-background text-foreground" />
             </div>
+            {club && (
+              <TextField id="home-airport" label="Home airfield (optional)"
+                placeholder={(mode.kind === 'clubEdit' ? mode.aircraft.clubHomeAirport : null) ?? 'ICAO code'}
+                value={details.homeAirport} onChange={v => set('homeAirport', v)}
+                hint={`Where planning in it starts. Leave empty if it's based at ${club.name}'s home airfield.`} />
+            )}
             <NumField id="empty-weight" label="Basic empty weight" unit="kg" required value={details.emptyWeightKg}
               onChange={v => set('emptyWeightKg', v)} />
             <NumField id="empty-arm" label="Empty weight arm" unit="m" required value={details.emptyArmM}

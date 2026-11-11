@@ -138,6 +138,19 @@ it('a club aircraft starts from the club\'s home airfield', async () => {
   expect(await screen.findByText(/Local flight from/)).toBeInTheDocument();
 });
 
+it('a club aircraft based away from the club starts from its own airfield', async () => {
+  mockUser = pilot;
+  mockedFetch.mockResolvedValue([
+    viewFromBuiltin('PA28-161 (SE-KMI)', {
+      registration: 'OH-WOW', homeAirport: 'ESSU', club: { id: 2, name: 'Hässlö Flygförening', homeAirport: 'ESOW' },
+    }),
+  ]);
+  localStorage.setItem('hideGenericAircraft.v1.7', 'true');
+  render(<WeightBalanceCalculator />);
+  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSU', 'ESSU', []));
+  expect(await screen.findByText(/OH-WOW's home airfield/)).toBeInTheDocument();
+});
+
 it('a trip sets the flight time from distance and cruise speed and shows the fuel at landing', async () => {
   localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
   render(<WeightBalanceCalculator />);

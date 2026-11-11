@@ -5,15 +5,15 @@ const meta: Record<string, AircraftMeta> = {
   'PA28-161 (generic)': { kind: 'generic', label: 'Piper PA-28-161', code: 'PA28-161', typeStatus: 'CURATED' },
   'PA28-161 (SE-KMI)': {
     kind: 'airframe', label: 'PA28-161 (SE-KMI)', code: 'PA28-161', model: 'Piper PA-28-161 Warrior II', registration: 'SE-KMI',
-    owned: false, club: 'Västerås Flygklubb', homeAirport: 'ESSX', typeStatus: 'CURATED', verification: 'UNVERIFIED', weighedOn: null,
+    owned: false, club: 'Västerås Flygklubb', homeAirport: 'ESSX', homeAirportOwn: false, typeStatus: 'CURATED', verification: 'UNVERIFIED', weighedOn: null,
   },
   'DA40D (SE-MBC)': {
     kind: 'airframe', label: 'DA40D (SE-MBC)', code: 'DA40D', model: 'Diamond DA40 D', registration: 'SE-MBC',
-    owned: false, club: 'Hässlö Flygförening', homeAirport: 'ESOW', typeStatus: 'CURATED', verification: 'UNVERIFIED', weighedOn: null,
+    owned: false, club: 'Hässlö Flygförening', homeAirport: 'ESOW', homeAirportOwn: false, typeStatus: 'CURATED', verification: 'UNVERIFIED', weighedOn: null,
   },
   'TB9 (SE-OWN)': {
     kind: 'airframe', label: 'TB9 (SE-OWN)', code: 'TB9', model: 'SOCATA TB9', registration: 'SE-OWN',
-    owned: true, club: null, homeAirport: null, typeStatus: 'AI_SUGGESTED', verification: 'USER_CONFIRMED', weighedOn: null,
+    owned: true, club: null, homeAirport: null, homeAirportOwn: false, typeStatus: 'AI_SUGGESTED', verification: 'USER_CONFIRMED', weighedOn: null,
   },
 };
 const keys = Object.keys(meta);

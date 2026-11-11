@@ -78,6 +78,8 @@ export interface AirframeImportRequest {
   sourceDocument?: string | null;
   spec: AircraftSpec;
   acknowledgedAlerts?: string[];
+  /** Club aircraft only: its own home airfield (ICAO); empty/null = the club's. */
+  homeAirport?: string | null;
 }
 
 export interface ImportPreviewResponse {
@@ -126,6 +128,8 @@ export interface AirframeView {
   basicEmptyWeight: number;
   armAftDatum: number;
   spec: AircraftSpec;
+  /** Default departure (ICAO): the aircraft's own home airfield, else its club's. */
+  homeAirport?: string | null;
 }
 
 /**
