@@ -159,3 +159,20 @@ input::-webkit-inner-spin-button {
 * {
   @apply transition-colors duration-200;
 }
+
+/* Wind streaks in the runway wind diagram: dashes flow along each line. */
+@keyframes wind-flow {
+  to { stroke-dashoffset: -40; }
+}
+@keyframes wind-gust {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wind-streak {
+    animation: wind-flow var(--wind-duration, 2s) linear infinite;
+  }
+  .wind-streak-gusty {
+    animation: wind-flow var(--wind-duration, 2s) linear infinite, wind-gust 1.6s ease-in-out infinite;
+  }
+}

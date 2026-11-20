@@ -60,3 +60,25 @@ export function flightMinutes(distanceNm: number, speedKt: number): number {
 }
 
 export const MPH_TO_KT = 0.868976;
+
+const GRASS = /GRASS|TURF|GRS|SOD|^GRE$|^G$/i;
+
+/** Grass, turf or sod surface (OurAirports' free-text surface codes). */
+export const isGrass = (surface: string | null | undefined) => GRASS.test((surface ?? '').trim());
+
+/** Grass strips are usually closed November–March (May–September south of the equator). */
+export function isWinter(date: Date, lat: number): boolean {
+  const month = date.getMonth(); // 0 = January
+  return lat >= 0 ? month >= 10 || month <= 2 : month >= 4 && month <= 8;
+}
+
+/**
+ * Runways to pick the best one from: grass runways are left out in winter, unless the field has nothing else.
+ * `excluded` lists the grass runways left out.
+ */
+export function seasonalRunways(runways: Runway[], date: Date, lat: number): { usable: Runway[]; excluded: Runway[]; grassOnly: boolean } {
+  if (!isWinter(date, lat)) return { usable: runways, excluded: [], grassOnly: false };
+  const hard = runways.filter(r => !isGrass(r.surface));
+  if (hard.length === 0) return { usable: runways, excluded: [], grassOnly: runways.length > 0 };
+  return { usable: hard, excluded: runways.filter(r => isGrass(r.surface)), grassOnly: false };
+}
