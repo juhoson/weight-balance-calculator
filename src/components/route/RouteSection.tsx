@@ -3,13 +3,14 @@ import { ArrowDown, ArrowLeftRight, ArrowUp, Crosshair, Loader2, Plus, RefreshCw
 import AirportField from './AirportField';
 import WeatherCard from './WeatherCard';
 import SavedRoutesButton from './SavedRoutesDialog';
+import ImportFlightPlanButton, { MAX_IMPORTED_WAYPOINTS } from './ImportFlightPlanDialog';
 import { Button } from '../ui/Button';
 import type { RouteWeatherState } from '../../lib/useRouteWeather';
 import type { PlannedRoute } from '../../lib/route';
 import type { AirportInfo } from '../../types/route';
 
-/** A route may have at most this many waypoints (the backend allows 18). */
-const MAX_WAYPOINTS = 8;
+/** A route may have at most this many waypoints (the backend's limit). */
+const MAX_WAYPOINTS = MAX_IMPORTED_WAYPOINTS;
 
 interface RouteSectionProps {
   route: PlannedRoute;
@@ -51,7 +52,10 @@ const RouteSection: React.FC<RouteSectionProps> = ({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Departure, optional waypoints and arrival.</p>
-        {signedIn && <SavedRoutesButton route={route} onLoad={onChange}/>}
+        <div className="flex flex-wrap gap-2">
+          <ImportFlightPlanButton route={route} onImport={onChange}/>
+          {signedIn && <SavedRoutesButton route={route} onLoad={onChange}/>}
+        </div>
       </div>
 
       <div className="space-y-3">

@@ -111,6 +111,11 @@ export function searchAirports(query: string): Promise<AirportInfo[]> {
   return request<AirportInfo[]>(`/api/airports?${new URLSearchParams({ q: query })}`);
 }
 
+/** Airports or ICAO positions (5930N01700E) by code; unknown ones are left out. */
+export function lookupAirports(codes: string[]): Promise<AirportInfo[]> {
+  return request<AirportInfo[]>(`/api/airports/lookup?${new URLSearchParams({ codes: codes.join(',') })}`);
+}
+
 export function nearestAirports(lat: number, lon: number): Promise<NearbyAirport[]> {
   return request<NearbyAirport[]>(`/api/airports/nearest?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`);
 }

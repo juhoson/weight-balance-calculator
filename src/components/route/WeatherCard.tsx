@@ -51,7 +51,8 @@ const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindK
   const worstCross = best ? best.gustCrosswindKt : 0;
   const crossTooHigh = best !== undefined && worstCross > maxCrosswindKt;
   const ownStation = station && airport && station.code === airport.code;
-  const airportCode = point.role === 'ENROUTE' ? null : airport?.code ?? point.airportCode ?? null;
+  const isPosition = airport?.type === 'point';
+  const airportCode = point.role === 'ENROUTE' || isPosition ? null : airport?.code ?? point.airportCode ?? null;
   const notams = airportCode ? notamSource(airportCode) : null;
 
   return (
@@ -62,11 +63,11 @@ const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindK
             {ROLE_LABEL[point.role]}{point.role === 'ENROUTE' || point.role === 'WAYPOINT' ? ` · ${Math.round(point.alongTrackNm)} NM` : ''}
           </p>
           <p className="truncate text-sm font-semibold">
-            {airport ? `${airport.code} · ${airport.name}` : station ? `${station.code} · ${station.name.trim()}` : '–'}
+            {airport ? (isPosition ? `Position ${airport.name}` : `${airport.code} · ${airport.name}`) : station ? `${station.code} · ${station.name.trim()}` : '–'}
           </p>
           {station && !ownStation && airport && (
             <p className="text-xs text-muted-foreground">
-              No report of its own; weather from {station.code} ({station.name.trim()}), {station.distanceNm} NM away
+              {isPosition ? 'Weather' : 'No report of its own; weather'} from {station.code} ({station.name.trim()}), {station.distanceNm} NM away
             </p>
           )}
           {station && point.role === 'ENROUTE' && (
