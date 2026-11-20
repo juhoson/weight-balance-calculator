@@ -50,7 +50,10 @@ it('shows the reports decoded, with the raw text on request', () => {
   expect(screen.queryByText(raw)).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /Forecast \(TAF ESSA\)/ }));
-  expect(screen.getByText('Temporarily Fri 18–24Z')).toBeInTheDocument();
+  expect(screen.getByText('Active')).toBeInTheDocument();
+  expect(screen.getByText('valid until Sat 12Z · issued 1 h 0 min ago')).toBeInTheDocument();
+  expect(screen.getByText(/Temporarily Fri 18–24Z/)).toBeInTheDocument();
+  expect(screen.getByText('now')).toBeInTheDocument(); // the base period at 12Z
   expect(screen.getByText('IFR')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /Show raw METAR\/TAF/ }));

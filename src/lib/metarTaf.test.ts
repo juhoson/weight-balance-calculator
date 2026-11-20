@@ -1,4 +1,4 @@
-import { decodeMetar, decodeTaf, decodeWeather, formatUtcRange, summarise } from './metarTaf';
+import { decodeMetar, decodeTaf, decodeWeather, formatUtcRange, periodIsNow, summarise, tafStatus } from './metarTaf';
 
 describe('decodeWeather', () => {
   it.each([
@@ -109,4 +109,25 @@ it('formats UTC ranges', () => {
   expect(formatUtcRange(at(20, 12), at(20, 18))).toBe('Fri 12–18Z');
   expect(formatUtcRange(at(20, 22), at(21, 6))).toBe('Fri 22Z – Sat 06Z');
   expect(formatUtcRange(at(20, 18), at(21, 0))).toBe('Fri 18–24Z');
+});
+
+describe('tafStatus', () => {
+  const taf = decodeTaf('TAF ESSA 201100Z 2012/2112 24010KT 9999 SCT030 TEMPO 2018/2024 3000 -RA', null, new Date(Date.UTC(2026, 10, 20, 11, 5)));
+  const at = (d: number, h: number) => Date.UTC(2026, 10, d, h);
+
+  it('is not yet valid before, active during and expired after the validity', () => {
+    expect(tafStatus(taf, at(20, 11))).toEqual({ state: 'upcoming', label: 'Not yet valid', detail: 'starts Fri 12Z' });
+    expect(tafStatus(taf, at(20, 15))).toEqual({ state: 'active', label: 'Active', detail: 'valid until Sat 12Z' });
+    expect(tafStatus(taf, at(21, 12))).toEqual({ state: 'expired', label: 'Expired', detail: 'ran out Sat 12Z' });
+  });
+
+  it('knows when it was issued, and which periods are in force', () => {
+    expect(taf.issued?.toISOString()).toBe('2026-11-20T11:00:00.000Z');
+    expect(taf.periods.map(p => periodIsNow(p, at(20, 19)))).toEqual([true, true]);
+    expect(taf.periods.map(p => periodIsNow(p, at(20, 13)))).toEqual([true, false]);
+  });
+
+  it('reports a cancelled forecast', () => {
+    expect(tafStatus(decodeTaf('TAF AMD ESSA 201300Z 2012/2112 CNL'), at(20, 13)).state).toBe('cancelled');
+  });
 });

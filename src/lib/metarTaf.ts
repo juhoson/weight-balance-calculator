@@ -55,6 +55,7 @@ export interface DecodedTaf {
   amended: boolean;
   corrected: boolean;
   cancelled: boolean;
+  issued: Date | null;
   validFrom: Date | null;
   validTo: Date | null;
   periods: TafPeriod[];
@@ -319,7 +320,7 @@ function tempGroup(t: string, ref: Date): string | null {
 
 export function decodeTaf(raw: string, issuedAt: string | null = null, now: Date = new Date()): DecodedTaf {
   const tokens = raw.trim().split(/\s+/);
-  const d: DecodedTaf = { amended: false, corrected: false, cancelled: false, validFrom: null, validTo: null, periods: [], unparsed: [] };
+  const d: DecodedTaf = { amended: false, corrected: false, cancelled: false, issued: issuedAt ? new Date(issuedAt) : null, validFrom: null, validTo: null, periods: [], unparsed: [] };
   let ref = issuedAt ? new Date(issuedAt) : now;
   let i = 0;
   if (tokens[i] === 'TAF') i++;
@@ -330,7 +331,10 @@ export function decodeTaf(raw: string, issuedAt: string | null = null, now: Date
   if (/^[A-Z][A-Z0-9]{3}$/.test(tokens[i] ?? '')) i++;
   const issue = /^(\d{2})(\d{2})(\d{2})Z$/.exec(tokens[i] ?? '');
   if (issue) {
-    if (!issuedAt) ref = resolveDayHour(Number(issue[1]), Number(issue[2]), Number(issue[3]), now);
+    if (!issuedAt) {
+      ref = resolveDayHour(Number(issue[1]), Number(issue[2]), Number(issue[3]), now);
+      d.issued = ref;
+    }
     i++;
   }
   const validity = range(tokens[i] ?? '', ref);
@@ -394,6 +398,21 @@ export function decodeTaf(raw: string, issuedAt: string | null = null, now: Date
   finish();
   return d;
 }
+
+export type TafState = 'active' | 'upcoming' | 'expired' | 'cancelled' | 'unknown';
+
+/** Whether the forecast is in force at `now`, e.g. { state: 'upcoming', label: 'Not yet valid', detail: 'starts Fri 18Z' }. */
+export function tafStatus(d: DecodedTaf, now: number): { state: TafState; label: string; detail: string } {
+  if (d.cancelled) return { state: 'cancelled', label: 'Cancelled', detail: 'this forecast was cancelled' };
+  if (!d.validFrom || !d.validTo) return { state: 'unknown', label: 'Validity unknown', detail: '' };
+  if (now >= d.validTo.getTime()) return { state: 'expired', label: 'Expired', detail: `ran out ${formatUtc(d.validTo)}` };
+  if (now < d.validFrom.getTime()) return { state: 'upcoming', label: 'Not yet valid', detail: `starts ${formatUtc(d.validFrom)}` };
+  return { state: 'active', label: 'Active', detail: `valid until ${formatUtc(d.validTo)}` };
+}
+
+/** The period covers `now`. */
+export const periodIsNow = (p: TafPeriod, now: number) =>
+  !!p.from && p.from.getTime() <= now && (!p.to || now < p.to.getTime());
 
 // ---- Formatting ------------------------------------------------------------
 

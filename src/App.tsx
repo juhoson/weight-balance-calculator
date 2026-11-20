@@ -6,6 +6,7 @@ import {ThemeProvider} from './context/theme-provider';
 import {ThemeToggle} from './components/ThemeToggle';
 import {Button} from './components/ui/Button';
 import AccountMenu from './components/auth/AccountMenu';
+import ZuluClock from './components/ZuluClock';
 import SignedOutNotice from './components/auth/SignedOutNotice';
 import ResetPasswordDialog from './components/auth/ResetPasswordDialog';
 import AdminTabs from './components/admin/AdminTabs';
@@ -28,7 +29,7 @@ function App() {
       <div className="min-h-screen bg-slate-50 text-foreground dark:bg-background">
         <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur print:hidden">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 sm:gap-4">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
                 <Plane className="h-5 w-5 -rotate-45"/>
               </span>
@@ -36,6 +37,7 @@ function App() {
                 <h1 className="whitespace-nowrap text-base font-bold tracking-tight sm:text-lg">Weight &amp; Balance</h1>
                 <p className="hidden text-xs text-muted-foreground sm:block">Loading and CG for light aircraft</p>
               </div>
+              <ZuluClock/>
             </div>
             <nav className="flex flex-wrap items-center gap-2" aria-label="Main">
               <Button

@@ -2,7 +2,8 @@ import React from 'react';
 import { AlertTriangle, ChevronDown, Code, ExternalLink, FileWarning, Wind } from 'lucide-react';
 import type { AirportInfo, FlightCategory, RoutePoint } from '../../types/route';
 import { runwayWinds, seasonalRunways } from '../../lib/wind';
-import { cloudText, decodeMetar, decodeTaf, formatUtcRange, summarise } from '../../lib/metarTaf';
+import { cloudText, decodeMetar, decodeTaf, formatUtcRange, periodIsNow, summarise, type TafState, tafStatus } from '../../lib/metarTaf';
+import { useNow } from '../../lib/useNow';
 import { notamSource } from '../../lib/notam';
 import { cn } from '../../lib/utils';
 import RunwayWindDiagram from './RunwayWindDiagram';
@@ -12,6 +13,14 @@ const CATEGORY_STYLE: Record<FlightCategory, string> = {
   MVFR: 'bg-blue-600 text-white',
   IFR: 'bg-red-600 text-white',
   LIFR: 'bg-fuchsia-700 text-white',
+};
+
+const TAF_STATE_STYLE: Record<TafState, string> = {
+  active: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200',
+  upcoming: 'bg-muted text-muted-foreground',
+  expired: 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200',
+  cancelled: 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200',
+  unknown: 'bg-muted text-muted-foreground',
 };
 
 const ROLE_LABEL = { DEPARTURE: 'Departure', WAYPOINT: 'Waypoint', ENROUTE: 'En route', ARRIVAL: 'Arrival' } as const;
@@ -24,7 +33,8 @@ function age(iso: string | null, now: number): { text: string; minutes: number }
   const minutes = Math.round((now - new Date(iso).getTime()) / 60000);
   if (Number.isNaN(minutes)) return null;
   if (minutes < 60) return { text: `${Math.max(0, minutes)} min ago`, minutes };
-  return { text: `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`, minutes };
+  if (minutes < 24 * 60) return { text: `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`, minutes };
+  return { text: `${Math.floor(minutes / 1440)} d ${Math.floor((minutes % 1440) / 60)} h ago`, minutes };
 }
 
 const visibility = (m: number | null) => (m === null ? '–' : m >= 10000 ? '≥10 km' : m >= 5000 ? `${Math.round(m / 1000)} km` : `${Math.round(m / 100) * 100} m`);
@@ -35,16 +45,21 @@ interface WeatherCardProps {
   airport?: AirportInfo;
   /** Selected aircraft's maximum demonstrated crosswind, kt. */
   maxCrosswindKt: number;
+  /** Fixed time for tests; otherwise the live time, updated every 30 s. */
   now?: number;
 }
 
-const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindKt, now = Date.now() }) => {
+const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindKt, now: fixedNow }) => {
+  const liveNow = useNow(30_000);
+  const now = fixedNow ?? liveNow;
   const [showTaf, setShowTaf] = React.useState(false);
   const [showRaw, setShowRaw] = React.useState(false);
   const { metar, taf, station } = point;
   const observed = age(metar?.observedAt ?? null, now);
   const decoded = React.useMemo(() => (metar ? decodeMetar(metar.raw) : null), [metar]);
-  const forecast = React.useMemo(() => (taf ? decodeTaf(taf.raw, taf.issuedAt, new Date(now)) : null), [taf, now]);
+  const forecast = React.useMemo(() => (taf ? decodeTaf(taf.raw, taf.issuedAt, new Date(fixedNow ?? Date.now())) : null), [taf, fixedNow]);
+  const tafState = forecast ? tafStatus(forecast, now) : null;
+  const issued = age(forecast?.issued ? forecast.issued.toISOString() : null, now);
   const season = airport ? seasonalRunways(airport.runways, new Date(now), airport.lat) : null;
   const winds = airport && season ? runwayWinds(metar, season.usable) : [];
   const best = winds[0];
@@ -176,23 +191,29 @@ const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindK
             className="flex items-center gap-1 text-xs font-medium text-primary">
             <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', showTaf && 'rotate-180')}/>
             Forecast (TAF {taf.station}){forecast.validFrom ? `, ${formatUtcRange(forecast.validFrom, forecast.validTo)}` : ''}
-            {forecast.validTo && forecast.validTo.getTime() < now && <span className="text-amber-700 dark:text-amber-300"> · expired</span>}
           </button>
+          {tafState && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 pl-4 text-xs text-muted-foreground">
+              <span className={cn('rounded px-1.5 py-px text-[10px] font-bold uppercase tracking-wide', TAF_STATE_STYLE[tafState.state])}>
+                {tafState.label}
+              </span>
+              <span>{[tafState.detail, issued && `issued ${issued.text}`].filter(Boolean).join(' · ')}</span>
+            </p>
+          )}
           {showTaf && (
             <>
-              {forecast.validTo && forecast.validTo.getTime() < now && (
-                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
-                  Expired: this forecast ran out {formatUtcRange(forecast.validTo, null).replace('from ', '')}. No current TAF.
-                </p>
+              {tafState?.state === 'expired' && (
+                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">No current TAF: this one is out of date.</p>
               )}
-              {(forecast.amended || forecast.corrected || forecast.cancelled) && (
+              {(forecast.amended || forecast.corrected) && !forecast.cancelled && (
                 <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
-                  {forecast.cancelled ? 'Forecast cancelled.' : forecast.amended ? 'Amended forecast.' : 'Corrected forecast.'}
+                  {forecast.amended ? 'Amended forecast.' : 'Corrected forecast.'}
                 </p>
               )}
               <ol className="mt-1 space-y-1.5">
                 {forecast.periods.map((p, i) => (
-                  <li key={i} className={cn('flex gap-2 text-sm', (p.kind === 'TEMPO' || p.kind === 'PROB') && 'pl-3')}>
+                  <li key={i} className={cn('flex gap-2 rounded text-sm', (p.kind === 'TEMPO' || p.kind === 'PROB') && 'pl-3',
+                    periodIsNow(p, now) && 'bg-primary/10 ring-1 ring-primary/30')}>
                     <span className={cn('mt-0.5 h-fit w-12 shrink-0 rounded px-1 text-center text-[10px] font-bold',
                       p.category ? CATEGORY_STYLE[p.category] : 'bg-muted text-muted-foreground')}>
                       {p.category ?? '–'}
@@ -200,6 +221,9 @@ const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindK
                     <div className="min-w-0">
                       <p className="text-xs font-semibold">
                         {p.label}{p.from ? ` ${formatUtcRange(p.from, p.to)}` : ''}
+                        {periodIsNow(p, now) && (
+                          <span className="ml-1.5 rounded bg-primary px-1 py-px text-[9px] font-bold uppercase text-primary-foreground">now</span>
+                        )}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {[...summarise(p.changes), ...p.extras].join(' · ') || 'No change stated'}
