@@ -1,0 +1,46 @@
+# The frontend on Railway: serves the built app and passes /api/* to the backend over Railway's
+# private network, so the browser sees one site (no CORS) and the backend's public URL can be retired.
+{
+	admin off
+	# Railway's edge terminates https and sets X-Forwarded-For / -Proto. Trust it (it reaches us
+	# from a private address) so the backend still sees each visitor's IP for rate limiting.
+	servers {
+		trusted_proxies static private_ranges
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+:{$PORT:8080} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy {$BACKEND_URL:http://backend.railway.internal:8080} {
+			# Keep the visitor's https scheme (Caddy itself is reached over http), so the backend treats same-site calls as such.
+			header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+		}
+	}
+
+	# The old address: songer.se/weight-balance/... links and bookmarks land at the root.
+	@old path_regexp old ^/weight-balance(?:/(.*))?$
+	@oldWithQuery {
+		path_regexp old ^/weight-balance(?:/(.*))?$
+		expression {query} != ""
+	}
+	redir @oldWithQuery /{re.old.1}?{query} permanent
+	redir @old /{re.old.1} permanent
+
+	handle {
+		root * /srv
+		# Hashed bundles never change; everything else is checked on each visit.
+		@hashed path /static/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		header ?Cache-Control "no-cache"
+		header {
+			Strict-Transport-Security "max-age=31536000"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+		}
+		try_files {path} /index.html
+		file_server
+	}
+}

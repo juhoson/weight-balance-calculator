@@ -2,7 +2,8 @@
 // otherwise the photo of its model. Model photos are from Wikimedia Commons under free licences and
 // must be shown with their credit.
 
-const BASE = '/weight-balance/images';
+// Under the app's base path: /images on its own domain, /weight-balance/images under songer.se.
+const BASE = `${process.env.PUBLIC_URL ?? ''}/images`;
 
 export interface AircraftPhoto {
   src: string;
