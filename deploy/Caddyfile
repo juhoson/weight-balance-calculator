@@ -2,10 +2,12 @@
 # private network, so the browser sees one site (no CORS) and the backend's public URL can be retired.
 {
 	admin off
-	# Railway's edge terminates https and sets X-Forwarded-For / -Proto. Trust it (it reaches us
-	# from a private address) so the backend still sees each visitor's IP for rate limiting.
+	# Railway's edge terminates https and sets X-Forwarded-For / -Proto (replacing any the visitor
+	# sent). It reaches us from 100.64.0.0/10, which private_ranges doesn't cover: untrusted, Caddy
+	# passed the edge's own, changing address on as the client, and the backend's per-IP rate limits
+	# never triggered. Trusted, the visitor's IP stays first in X-Forwarded-For for the backend.
 	servers {
-		trusted_proxies static private_ranges
+		trusted_proxies static private_ranges 100.64.0.0/10
 		client_ip_headers X-Forwarded-For
 	}
 }
