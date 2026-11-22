@@ -1,0 +1,5 @@
+# Uploaded to songer.se/weight-balance/ (the old Loopia host) by scripts/redirect-old-site.mjs.
+# The app now lives at https://www.flightplanningtool.com (Railway), so every old link and bookmark
+# is sent there, keeping the rest of its path and query string (browsers keep the #fragment).
+RewriteEngine On
+RewriteRule ^(.*)$ https://www.flightplanningtool.com/$1 [R=301,L]
