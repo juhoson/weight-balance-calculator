@@ -31,6 +31,7 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('disclaimerAccepted', 'true');
   mockedFetch.mockReset();
+  mockedFetch.mockResolvedValue([]);
   mockedGenerics.mockReset();
   mockedGenerics.mockResolvedValue([genericFromBuiltin('PA28-161 (SE-KMI)')]);
   mockedRoute.mockReset();
@@ -76,9 +77,9 @@ it('keeps working on the built-in generic aircraft when the database is unreacha
 it('signed out: a generic aircraft takes the pilot\'s own empty weight, remembered per model', async () => {
   render(<WeightBalanceCalculator />);
   await waitFor(() => expect(mockedGenerics).toHaveBeenCalled());
-  expect(mockedFetch).not.toHaveBeenCalled();
+  expect(mockedFetch).toHaveBeenCalledWith(null);
   expect(screen.getByText(/typical values for the model, not your aircraft/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Sign in to show your club/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Sign in to choose/ })).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Empty weight (kg)'), { target: { value: '701.5' } });
   await waitFor(() => expect(emptyWeightShown()).toContain('701.5 kg'));
@@ -151,6 +152,52 @@ it('a club aircraft based away from the club starts from its own airfield', asyn
   expect(await screen.findByText(/OH-WOW's home airfield/)).toBeInTheDocument();
 });
 
+it('picking a club aircraft moves a remembered route to its home airfield, but keeps a trip from there', async () => {
+  mockUser = pilot;
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESGG', to: 'ESMS', via: [], auto: false }));
+  localStorage.setItem('hideGenericAircraft.v1.7', 'true');
+  localStorage.setItem('selectedAircraft.v1', 'PA28-161 (SE-KMI)');
+  mockedFetch.mockResolvedValue([
+    viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'Västerås Flygklubb', homeAirport: 'ESSX' } }),
+    viewFromBuiltin('DA40D (SE-MBC)', { club: { id: 2, name: 'Hässlö Flygförening', homeAirport: 'ESOW' } }),
+  ]);
+  render(<WeightBalanceCalculator />);
+  // On load the pilot's own route stays.
+  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESGG', 'ESMS', []));
+
+  const user = userEvent.setup();
+  const pick = async (text: string, reg: RegExp) => {
+    await user.click(screen.getByRole('combobox', { name: 'Aircraft' }));
+    await user.keyboard(`{Control>}a{/Control}${text}`);
+    await user.click(await screen.findByRole('option', { name: reg }));
+  };
+  await pick('mbc', /SE-MBC/);
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'SE-MBC' })).toBeInTheDocument());
+  await waitFor(() => expect(mockedRoute).toHaveBeenLastCalledWith('ESOW', 'ESOW', []));
+  expect(await screen.findByText(/Hässlö Flygförening's home airfield/)).toBeInTheDocument();
+  expect(JSON.parse(localStorage.getItem('route.v1') ?? '{}')).toMatchObject({ from: 'ESOW', to: 'ESOW', auto: true });
+});
+
+it('picking a club aircraft keeps a trip that already starts at its home airfield', async () => {
+  mockUser = pilot;
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESOW', to: 'ESGG', via: [], auto: false }));
+  localStorage.setItem('hideGenericAircraft.v1.7', 'true');
+  localStorage.setItem('selectedAircraft.v1', 'PA28-161 (SE-KMI)');
+  mockedFetch.mockResolvedValue([
+    viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'Västerås Flygklubb', homeAirport: 'ESSX' } }),
+    viewFromBuiltin('DA40D (SE-MBC)', { club: { id: 2, name: 'Hässlö Flygförening', homeAirport: 'ESOW' } }),
+  ]);
+  render(<WeightBalanceCalculator />);
+  await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESOW', 'ESGG', []));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('combobox', { name: 'Aircraft' }));
+  await user.keyboard('{Control>}a{/Control}mbc');
+  await user.click(await screen.findByRole('option', { name: /SE-MBC/ }));
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'SE-MBC' })).toBeInTheDocument());
+  expect(mockedRoute).not.toHaveBeenCalledWith('ESOW', 'ESOW', []);
+  expect(JSON.parse(localStorage.getItem('route.v1') ?? '{}')).toMatchObject({ from: 'ESOW', to: 'ESGG' });
+});
+
 it('a trip sets the flight time from distance and cruise speed and shows the fuel at landing', async () => {
   localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
   render(<WeightBalanceCalculator />);
@@ -184,4 +231,31 @@ it('a route with a waypoint asks for weather via it and counts all legs', async 
   expect(screen.getByLabelText('Waypoint 1')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Remove waypoint 1' }));
   await waitFor(() => expect(mockedRoute).toHaveBeenLastCalledWith('ESSX', 'ESGG', []));
+});
+
+describe('a club link (?club=)', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  it('signed out: lists just the club\'s aircraft and plans from its airfield', async () => {
+    window.history.replaceState(null, '', '/?club=VFK');
+    localStorage.setItem('route.v1', JSON.stringify({ from: 'ESGG', to: 'ESMS', via: [], auto: false }));
+    mockedFetch.mockResolvedValue([
+      viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'Västerås Flygklubb', homeAirport: 'ESSX', code: 'vfk' } }),
+    ]);
+    render(<WeightBalanceCalculator />);
+    expect(await screen.findByText('Västerås Flygklubb', { selector: 'strong' })).toBeInTheDocument();
+    expect(mockedFetch).toHaveBeenCalledWith('vfk');
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'SE-KMI' })).toBeInTheDocument());
+    await waitFor(() => expect(mockedRoute).toHaveBeenLastCalledWith('ESSX', 'ESSX', []));
+    expect(screen.queryByLabelText('Show generic aircraft')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Show all aircraft' })).toHaveAttribute('href', '/');
+  });
+
+  it('says so for an unknown club and offers the generic aircraft', async () => {
+    window.history.replaceState(null, '', '/?club=nope&x=1');
+    render(<WeightBalanceCalculator />);
+    expect(await screen.findByText(/No club called/)).toBeInTheDocument();
+    expect(screen.getByText(/typical values for the model/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Show all aircraft' })).toHaveAttribute('href', '/?x=1');
+  });
 });

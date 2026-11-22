@@ -171,8 +171,8 @@ const ClubAircraftButton: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   if (!user) {
     return (
       <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-        Flying a club aircraft?
-        <SignInButton variant="link" size="sm" className="h-auto p-0 text-xs" label="Sign in to show your club's aircraft"/>
+        Only want your club&apos;s aircraft, or your own?
+        <SignInButton variant="link" size="sm" className="h-auto p-0 text-xs" label="Sign in to choose"/>
       </p>
     );
   }

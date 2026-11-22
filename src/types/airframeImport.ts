@@ -112,6 +112,8 @@ export interface ClubRef {
   name: string;
   /** ICAO code of the club's airfield, the default departure. */
   homeAirport?: string | null;
+  /** What a club link names the club by (?club=vfk). */
+  code?: string | null;
 }
 
 /** An aircraft from GET /api/airframes: type values plus the current weighing. */

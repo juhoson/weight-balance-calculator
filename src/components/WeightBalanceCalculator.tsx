@@ -4,6 +4,8 @@ import {NumberInput} from './ui/NumberInput';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/Select';
 import {type AircraftData, calculateCG, calculateMoment, isWithinEnvelope} from '../data/aircraftData';
 import {useAircraftCatalog} from '../lib/useAircraftCatalog';
+import {clubFromUrl} from '../lib/clubLink';
+import ClubLinkBanner from './ClubLinkBanner';
 import {useAuth} from '../api/useAuth';
 import {getSeatLayout} from '../lib/seatLayout';
 import {FormItem, FormLabel} from './ui/Form';
@@ -114,12 +116,15 @@ interface WeightBalanceCalculatorProps {
 }
 
 const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({preferredRegistration, onOpenProfile}) => {
-  const catalog = useAircraftCatalog();
+  // A club's link (?club=vfk) lists just that club's aircraft.
+  const [clubLink] = React.useState(() => clubFromUrl());
+  const catalog = useAircraftCatalog(clubLink);
   const userId = useAuth().user?.id ?? null;
-  // Signed in, the generic aircraft can be hidden (remembered per user in this browser).
+  // The generic aircraft can be hidden (remembered per user in this browser); a club link hides them.
   const hideGenericKey = `hideGenericAircraft.v1.${userId}`;
-  const [hideGeneric, setHideGeneric] = React.useState(() => userId !== null && readFlag(hideGenericKey));
-  React.useEffect(() => { setHideGeneric(userId !== null && readFlag(hideGenericKey)); }, [userId, hideGenericKey]);
+  const [hideGenericPref, setHideGeneric] = React.useState(() => readFlag(hideGenericKey));
+  React.useEffect(() => { setHideGeneric(readFlag(hideGenericKey)); }, [hideGenericKey]);
+  const hideGeneric = hideGenericPref || clubLink !== null;
   const toggleGeneric = (hide: boolean) => {
     setHideGeneric(hide);
     try {
@@ -508,6 +513,25 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     }
   }, [homeAirport, route.auto, route.from, setRoute]);
 
+  // Picking another club aircraft plans from its home airfield, even over a route the pilot set:
+  // a remembered trip from elsewhere rarely fits the new aircraft. A trip from that airfield is kept.
+  const chooseAircraft = React.useCallback((key: string) => {
+    const meta = catalog.meta[key];
+    const home = meta?.kind === 'airframe' ? meta.homeAirport : null;
+    handleAircraftSelection(key);
+    if (key !== selectedAircraft && home && route.from !== home) {
+      setRoute({from: home, to: home, via: [], auto: true});
+    }
+  }, [catalog.meta, handleAircraftSelection, selectedAircraft, route.from, setRoute]);
+
+  // A club link plans from the club's airfield once its aircraft have loaded, like picking one.
+  const clubRouteApplied = React.useRef(false);
+  React.useEffect(() => {
+    if (!clubLink || clubRouteApplied.current || catalog.source !== 'database' || metaNow?.kind !== 'airframe') return;
+    clubRouteApplied.current = true;
+    if (homeAirport && route.from !== homeAirport) setRoute({from: homeAirport, to: homeAirport, via: [], auto: true});
+  }, [clubLink, catalog.source, metaNow, homeAirport, route.from, setRoute]);
+
   const locateNearest = React.useCallback(async (quiet = false) => {
     setLocating(true);
     setLocationError(null);
@@ -559,8 +583,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     <>
       <DisclaimerModal open={!disclaimerAccepted} onAccept={handleDisclaimerAccept}/>
 
-      <div className="mb-5 empty:hidden print:hidden">
+      <div className="mb-5 space-y-3 empty:hidden print:hidden">
         <SharedRouteBanner signedIn={userId !== null} onUse={setRoute}/>
+        {clubLink && <ClubLinkBanner code={clubLink} catalog={catalog}/>}
       </div>
 
       <form onSubmit={handleSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] lg:items-start">
@@ -568,7 +593,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
           <Section
             step={1}
             title="Aircraft"
-            aside={userId !== null && hasSpecific && (
+            aside={hasSpecific && !clubLink && (
               <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
@@ -584,11 +609,13 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               keys={Object.keys(aircraftList)}
               meta={catalog.meta}
               value={selectedAircraft}
-              onChange={handleAircraftSelection}
+              onChange={chooseAircraft}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <ClubAircraftButton onSaved={catalog.reload}/>
-            </div>
+            {!(clubLink && userId === null) && (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <ClubAircraftButton onSaved={catalog.reload}/>
+              </div>
+            )}
             {onOpenProfile && <ClubHint onOpenProfile={onOpenProfile}/>}
             <AircraftSourceNotice catalog={catalog} selectedMeta={selectedMeta}/>
           </Section>

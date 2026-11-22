@@ -86,9 +86,12 @@ export function confirmImport(body: AirframeImportRequest): Promise<ImportResult
   });
 }
 
-/** The signed-in user's own aircraft and chosen club aircraft; empty when signed out. */
-export function fetchAirframes(): Promise<AirframeView[]> {
-  return request<AirframeView[]>('/api/airframes');
+/**
+ * The signed-in user's own aircraft and chosen club aircraft; signed out, every club's aircraft.
+ * With a club code (a club link, ?club=vfk): just that club's aircraft, for anyone.
+ */
+export function fetchAirframes(club?: string | null): Promise<AirframeView[]> {
+  return request<AirframeView[]>(club ? `/api/airframes?${new URLSearchParams({ club })}` : '/api/airframes');
 }
 
 /** The generic version of each model. Public. */

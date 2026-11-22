@@ -15,20 +15,39 @@ const generics = () => [genericFromBuiltin('PA28-161 (SE-KMI)'), genericFromBuil
 beforeEach(() => {
   localStorage.clear();
   mockedAirframes.mockReset();
+  mockedAirframes.mockResolvedValue([]);
   mockedGenerics.mockReset();
   mockUser = null;
 });
 
-it('signed out: loads only the generic types, and caches them', async () => {
+it('signed out: loads the club aircraft and the generic types, and caches them', async () => {
   mockedGenerics.mockResolvedValue(generics());
+  mockedAirframes.mockResolvedValue([viewFromBuiltin('TB9 (F-GKVK)', { club: { id: 1, name: 'Club', code: 'c' } })]);
   const { result } = renderHook(() => useAircraftCatalog());
 
   expect(result.current.source).toBe('builtin'); // until the database answers
   await waitFor(() => expect(result.current.source).toBe('database'));
-  expect(Object.keys(result.current.aircraft)).toEqual(['PA28-161 (generic)', 'TB9 (generic)']);
-  expect(mockedAirframes).not.toHaveBeenCalled();
+  expect(Object.keys(result.current.aircraft).sort()).toEqual(['PA28-161 (generic)', 'TB9 (F-GKVK)', 'TB9 (generic)']);
+  expect(mockedAirframes).toHaveBeenCalledWith(null);
   expect(result.current.error).toBeNull();
+  expect(loadCachedCatalog(null)?.views).toHaveLength(1);
   expect(loadCachedCatalog(null)?.generics).toHaveLength(2);
+});
+
+it('a club link loads just that club, starts from its cached aircraft, and keeps the full cache', async () => {
+  const vfk = viewFromBuiltin('PA28-161 (SE-KMI)', { club: { id: 1, name: 'VFK', code: 'vfk' } });
+  const hff = viewFromBuiltin('DA40D (SE-MBC)', { club: { id: 2, name: 'HFF', code: 'hff' } });
+  saveCachedCatalog([vfk, hff], generics(), null);
+  mockedGenerics.mockResolvedValue(generics());
+  mockedAirframes.mockResolvedValue([vfk]);
+  const { result } = renderHook(() => useAircraftCatalog('vfk'));
+
+  expect(result.current.source).toBe('cache');
+  expect(result.current.aircraft['DA40D (SE-MBC)']).toBeUndefined();
+  expect(result.current.aircraft['PA28-161 (SE-KMI)']).toBeDefined();
+  await waitFor(() => expect(result.current.source).toBe('database'));
+  expect(mockedAirframes).toHaveBeenCalledWith('vfk');
+  expect(loadCachedCatalog(null)?.views).toHaveLength(2);
 });
 
 it('reloads on sign-in with own and club aircraft, and forgets them on sign-out', async () => {
