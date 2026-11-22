@@ -33,12 +33,12 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
           min={min}
           max={max}
           step={step}
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
           ref={ref}
           {...props}
+          className={cn(unit && 'pr-12', className)}
         />
         {unit && (
-          <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-gray-500">
+          <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-sm text-muted-foreground">
             {unit}
           </div>
         )}

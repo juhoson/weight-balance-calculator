@@ -195,20 +195,18 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, layout, onChange}) => {
           <DialogHeader>
             <DialogTitle>Enter Passenger Weight</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <NumberInput
-                value={seatWeight}
-                onChange={(e) => setSeatWeight(parseFloat(e.toString()) || 0)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleSaveWeight();
-                  }
-                }}
-                autoFocus
-                className="col-span-4"
-              />
-            </div>
+          <div className="py-4">
+            <NumberInput
+              value={seatWeight}
+              onChange={(e) => setSeatWeight(parseFloat(e.toString()) || 0)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSaveWeight();
+                }
+              }}
+              autoFocus
+              unit="kg"
+            />
           </div>
           <div className="flex justify-end">
             <button
