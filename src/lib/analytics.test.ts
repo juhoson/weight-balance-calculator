@@ -1,3 +1,6 @@
+// A module (not a global script), as the build's isolatedModules requires; the code is loaded per test below.
+export {};
+
 const SCRIPT = 'script[src="https://cloud.umami.is/script.js"]';
 
 function load(websiteId?: string): typeof import('./analytics') {
