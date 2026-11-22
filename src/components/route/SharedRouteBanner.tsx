@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { createRoute, fetchSharedRoute } from '../../api/backend';
 import { fromAirports, type PlannedRoute } from '../../lib/route';
 import type { SharedRoute } from '../../types/route';
+import { track } from '../../lib/analytics';
 
 const PARAM = 'route';
 
@@ -56,7 +57,7 @@ const SharedRouteBanner: React.FC<Props> = ({ signedIn, onUse }) => {
       </div>
       {shared && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={() => { onUse(fromAirports(shared.airports)); close(); }}>Use this route</Button>
+          <Button type="button" size="sm" onClick={() => { onUse(fromAirports(shared.airports)); track('shared-route'); close(); }}>Use this route</Button>
           {signedIn && (
             <Button type="button" variant="outline" size="sm" disabled={saving || saved}
               onClick={async () => {

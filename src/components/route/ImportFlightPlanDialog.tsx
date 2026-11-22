@@ -1,4 +1,5 @@
 import React from 'react';
+import { track } from '../../lib/analytics';
 import { AlertTriangle, Check, ClipboardPaste, Loader2, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog';
 import { Button } from '../ui/Button';
@@ -140,6 +141,7 @@ export const ImportFlightPlanDialog: React.FC<Props> = ({ route, onImport, open,
               <Button type="button" disabled={!canUse} onClick={() => {
                 if (!preview) return;
                 onImport({ from: preview.from, to: preview.to, via: usableVia, auto: false });
+                track('flight-plan-import', { waypoints: usableVia.length });
                 onOpenChange(false);
               }}>
                 Use this route

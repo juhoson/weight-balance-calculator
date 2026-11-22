@@ -31,6 +31,7 @@ import {useRouteWeather} from '../lib/useRouteWeather';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
 import {nearestAirports} from '../api/backend';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
+import {track} from '../lib/analytics';
 
 export interface CalculatorInputs {
     pilotWeight: number;
@@ -118,6 +119,7 @@ interface WeightBalanceCalculatorProps {
 const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({preferredRegistration, onOpenProfile}) => {
   // A club's link (?club=vfk) lists just that club's aircraft.
   const [clubLink] = React.useState(() => clubFromUrl());
+  React.useEffect(() => { if (clubLink) track('club-link', {club: clubLink}); }, [clubLink]);
   const catalog = useAircraftCatalog(clubLink);
   const userId = useAuth().user?.id ?? null;
   // The generic aircraft can be hidden (remembered per user in this browser); a club link hides them.
@@ -498,6 +500,18 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   // ---- Route: departure/arrival, weather, and the flight time of a trip -----------------------
   const [route, setRouteState] = React.useState<PlannedRoute>(loadRoute);
   const setRoute = React.useCallback((r: PlannedRoute) => { setRouteState(r); saveRoute(r); }, []);
+
+  // Which airfields the planner is used from: each departure once it has settled (typing an ICAO code,
+  // or the automatic home/nearest airfield replacing a remembered one, shouldn't count twice).
+  const trackedDeparture = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!route.from || route.from === trackedDeparture.current) return;
+    const timer = window.setTimeout(() => {
+      trackedDeparture.current = route.from;
+      track('departure', {airport: route.from});
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [route.from]);
   const weather = useRouteWeather(route.from, route.to, route.via);
   const [locating, setLocating] = React.useState(false);
   const [locationError, setLocationError] = React.useState<string | null>(null);
@@ -519,6 +533,12 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     const meta = catalog.meta[key];
     const home = meta?.kind === 'airframe' ? meta.homeAirport : null;
     handleAircraftSelection(key);
+    if (key !== selectedAircraft && meta) {
+      // The model and where it comes from, never the registration: an owner's own aircraft identifies them.
+      track('aircraft', meta.kind === 'airframe'
+        ? {type: meta.code, source: meta.owned ? 'own' : 'club', ...(meta.club && !meta.owned ? {club: meta.club} : {})}
+        : {type: meta.code, source: 'generic'});
+    }
     if (key !== selectedAircraft && home && route.from !== home) {
       setRoute({from: home, to: home, via: [], auto: true});
     }

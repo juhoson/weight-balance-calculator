@@ -1,5 +1,6 @@
 import { Printer } from 'lucide-react';
 import { Button } from './ui/Button';
+import { track } from '../lib/analytics';
 
 interface PrintButtonProps {
     disabled: boolean;
@@ -7,6 +8,7 @@ interface PrintButtonProps {
 
 const PrintButton: React.FC<PrintButtonProps> = ({ disabled }) => {
   const handlePrint = () => {
+    track('print');
     window.print();
   };
 
