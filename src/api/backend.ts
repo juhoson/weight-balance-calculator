@@ -17,7 +17,7 @@ import type {
   MemberView,
   PasswordLinkResponse,
 } from '../types/admin';
-import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
+import type { AirportInfo, NearbyAirport, RouteWeather, SavedRoute, SharedRoute, WindsAloft } from '../types/route';
 import type { ClubName, MyClub } from '../types/profile';
 import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
 
@@ -128,6 +128,13 @@ export function fetchRouteWeather(from: string, to: string, via: string[] = []):
   const params = new URLSearchParams({ from, to });
   if (via.length > 0) params.set('via', via.join(','));
   return request<RouteWeather>(`/api/weather/route?${params}`);
+}
+
+/** Forecast winds at a cruise altitude (ft above sea level) along each leg, hourly for two days. Public. */
+export function fetchWindsAloft(from: string, to: string, via: string[], altitudeFt: number): Promise<WindsAloft> {
+  const params = new URLSearchParams({ from, to, altitudeFt: String(altitudeFt) });
+  if (via.length > 0) params.set('via', via.join(','));
+  return request<WindsAloft>(`/api/weather/winds?${params}`);
 }
 
 /** The signed-in user's saved routes. */

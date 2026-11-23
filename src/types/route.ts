@@ -106,3 +106,23 @@ export interface SharedRoute {
   airports: string[];
   sharedBy: string;
 }
+
+/** Forecast wind at one altitude along each leg, hourly. Mirrors the backend's WindsAloft. */
+export interface WindsAloft {
+  /** False when Open-Meteo could not be reached (then no times or legs). */
+  available: boolean;
+  altitudeFt: number;
+  /** Hours (UTC, ISO) the legs' lists refer to, by index. */
+  times: string[];
+  /** In route order, matching RouteWeather's legs. */
+  legs: WindsAloftLeg[];
+}
+
+export interface WindsAloftLeg {
+  from: string;
+  to: string;
+  /** Where the wind blows from, degrees true; null: no forecast for that hour. */
+  windDirTrue: Array<number | null>;
+  windKt: Array<number | null>;
+  tempC: Array<number | null>;
+}

@@ -26,6 +26,9 @@ import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
+import WindsAloftPanel from './route/WindsAloftPanel';
+import {useCruiseAltitude, useWindsAloft, validAltitude} from '../lib/useWindsAloft';
+import {legsOf, planRoute, roundUpTo5} from '../lib/windsAloft';
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
@@ -582,7 +585,23 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const trip = weather.data && weather.data.distanceNm > 0 ? weather.data : null;
   const cruise = aircraftList[selectedAircraft]?.performance.fuelConsumption.find(f => f.powerSetting === inputs.powerSetting);
   const cruiseKt = cruise ? Math.round(cruise.speedUnit === 'MPH' ? cruise.speed * MPH_TO_KT : cruise.speed) : 0;
-  const routeMinutes = trip ? flightMinutes(trip.distanceNm, cruiseKt) : 0;
+  // With a wind forecast for the cruise altitude, each leg is timed at its groundspeed.
+  const [altitudeFt, setAltitudeFt] = useCruiseAltitude();
+  const [departure, setDeparture] = React.useState(''); // datetime-local; empty = now
+  const winds = useWindsAloft(trip, altitudeFt);
+  const windPlan = React.useMemo(() => {
+    const forecast = winds.data;
+    if (!trip || !forecast?.available || !(cruiseKt > 0) || !validAltitude(altitudeFt)) return null;
+    const legs = legsOf(trip);
+    if (forecast.legs.length !== legs.length || forecast.legs.some((l, i) => l.from !== legs[i].from || l.to !== legs[i].to)) {
+      return null; // still the previous route's winds
+    }
+    const now = Date.now();
+    const chosen = departure ? new Date(departure).getTime() : NaN;
+    return planRoute(legs, forecast, cruiseKt, new Date(Number.isNaN(chosen) || chosen < now ? now : chosen));
+  }, [trip, winds.data, cruiseKt, departure, altitudeFt]);
+  const windMinutes = windPlan?.ok ? roundUpTo5(windPlan.minutes) : 0;
+  const routeMinutes = trip ? windMinutes || flightMinutes(trip.distanceNm, cruiseKt) : 0;
   const [manualTime, setManualTime] = React.useState(false);
   const viaKey = route.via.join(',');
   React.useEffect(() => { setManualTime(false); }, [route.from, route.to, viaKey]);
@@ -686,6 +705,17 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 ? (metaNow.homeAirportOwn || !homeClub ? `${metaNow.registration}'s home airfield` : `${homeClub}'s home airfield`)
                 : route.from && route.from === locatedCode ? 'Nearest airport to your location' : null}
             />
+            {trip && cruiseKt > 0 && (
+              <WindsAloftPanel
+                altitudeFt={altitudeFt}
+                onAltitudeChange={setAltitudeFt}
+                departure={departure}
+                onDepartureChange={setDeparture}
+                winds={winds}
+                plan={windPlan}
+                tasKt={cruiseKt}
+              />
+            )}
           </Section>
 
           <Section step={4} title="Fuel and flight">
@@ -771,7 +801,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                     {manualTime
                       ? <>Set by you. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline"
                         onClick={() => setManualTime(false)}>Use the route time ({fmtTime(routeMinutes)})</button></>
-                      : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>}
+                      : windMinutes > 0 && windPlan?.ok
+                        ? <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt in the forecast wind at {altitudeFt.toLocaleString('en')} ft,
+                          average groundspeed {Math.round(trip.distanceNm / (windPlan.minutes / 60))} kt{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>
+                        : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>}
                   </p>
                 )}
               </div>
