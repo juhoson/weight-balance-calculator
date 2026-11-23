@@ -126,13 +126,13 @@ const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) 
       <caption className="sr-only">Nav log</caption>
       <thead className="text-left text-[11px] text-muted-foreground">
         <tr>
-          <th className="py-1 pr-2 font-medium">NM</th>
-          <th className="hidden py-1 pr-2 font-medium sm:table-cell" title="Magnetic course">MC</th>
-          <th className="py-1 pr-2 font-medium" title="Magnetic heading">MH</th>
-          <th className="py-1 pr-2 font-medium" title="Groundspeed">GS</th>
-          <th className="py-1 pr-2 font-medium">Time</th>
-          <th className="py-1 pr-2 font-medium" title="Arrival at the end of the segment (UTC)">ETA</th>
-          <th className="py-1 pr-2 font-medium">Wind</th>
+          <th className="py-1 pr-1.5 sm:pr-2 font-medium">NM</th>
+          <th className="hidden py-1 pr-1.5 sm:pr-2 font-medium sm:table-cell" title="Magnetic course">MC</th>
+          <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Magnetic heading">MH</th>
+          <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Groundspeed">GS</th>
+          <th className="py-1 pr-1.5 sm:pr-2 font-medium">Time</th>
+          <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Arrival at the end of the segment (UTC)">ETA</th>
+          <th className="py-1 pr-1.5 sm:pr-2 font-medium">Wind</th>
           <th className="py-1 font-medium" title="Estimated base of the lowest broken or overcast layer">Base</th>
         </tr>
       </thead>
@@ -146,13 +146,13 @@ const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) 
           </tr>
           {l.segments.map((s, j) => (
             <tr key={j} className="text-foreground">
-              <td className="whitespace-nowrap py-0.5 pr-2 text-muted-foreground">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)}</td>
-              <td className="hidden py-0.5 pr-2 sm:table-cell">{pad3(s.magneticCourse)}</td>
-              <td className="py-0.5 pr-2 font-semibold">{pad3(s.magneticHeading)}</td>
-              <td className="py-0.5 pr-2">{Math.round(s.triangle.groundSpeedKt)}</td>
-              <td className="py-0.5 pr-2">{fmtMinutes(s.minutes)}</td>
-              <td className="py-0.5 pr-2">{utc(s.arrives)}</td>
-              <td className="py-0.5 pr-2">{pad3(s.wind.fromTrue)}/{Math.round(s.wind.kt)}</td>
+              <td className="whitespace-nowrap py-0.5 pr-1.5 sm:pr-2 text-muted-foreground">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)}</td>
+              <td className="hidden py-0.5 pr-1.5 sm:pr-2 sm:table-cell">{pad3(s.magneticCourse)}</td>
+              <td className="py-0.5 pr-1.5 sm:pr-2 font-semibold">{pad3(s.magneticHeading)}</td>
+              <td className="py-0.5 pr-1.5 sm:pr-2">{Math.round(s.triangle.groundSpeedKt)}</td>
+              <td className="py-0.5 pr-1.5 sm:pr-2">{fmtMinutes(s.minutes)}</td>
+              <td className="py-0.5 pr-1.5 sm:pr-2">{utc(s.arrives)}</td>
+              <td className="py-0.5 pr-1.5 sm:pr-2">{pad3(s.wind.fromTrue)}/{Math.round(s.wind.kt)}</td>
               <td className="py-0.5">{s.cloudBaseFt === null ? '–' : ft(s.cloudBaseFt)}</td>
             </tr>
           ))}
