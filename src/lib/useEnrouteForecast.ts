@@ -1,6 +1,6 @@
 import React from 'react';
-import { fetchWindsAloft } from '../api/backend';
-import type { RouteWeather, WindsAloft } from '../types/route';
+import { fetchEnrouteForecast } from '../api/backend';
+import type { EnrouteForecast, RouteWeather } from '../types/route';
 
 export const MIN_ALTITUDE_FT = 500;
 export const MAX_ALTITUDE_FT = 18000;
@@ -28,35 +28,41 @@ export function useCruiseAltitude(): [number, (ft: number) => void] {
   return [ft, set];
 }
 
-export interface WindsAloftState {
-  data: WindsAloft | null;
+export interface EnrouteForecastState {
+  data: EnrouteForecast | null;
   loading: boolean;
   error: string | null;
 }
 
-/** Forecast winds along a trip at an altitude; waits for typing to settle before asking. */
-export function useWindsAloft(trip: RouteWeather | null, altitudeFt: number, generation = 0): WindsAloftState {
+/**
+ * The forecast along a trip at an altitude, from a departure (null = now). Asks only while
+ * `enabled` (the loading and fuel work out), and waits for typing to settle first.
+ */
+export function useEnrouteForecast(trip: RouteWeather | null, altitudeFt: number, departure: Date | null,
+  enabled: boolean): EnrouteForecastState {
   const from = trip?.departure.code ?? '';
   const to = trip?.arrival.code ?? '';
   const viaKey = (trip?.waypoints ?? []).map(w => w.code).join(',');
-  const [state, setState] = React.useState<WindsAloftState>({ data: null, loading: false, error: null });
+  // Whole minutes, so re-renders with an equal time don't ask again.
+  const departureMs = departure ? Math.floor(departure.getTime() / 60_000) * 60_000 : 0;
+  const [state, setState] = React.useState<EnrouteForecastState>({ data: null, loading: false, error: null });
 
   React.useEffect(() => {
-    if (!from || !to || !validAltitude(altitudeFt)) {
+    if (!enabled || !from || !to || !validAltitude(altitudeFt)) {
       setState({ data: null, loading: false, error: null });
       return;
     }
     let cancelled = false;
     setState(s => ({ ...s, loading: true, error: null }));
     const timer = setTimeout(() => {
-      fetchWindsAloft(from, to, viaKey ? viaKey.split(',') : [], altitudeFt)
+      fetchEnrouteForecast(from, to, viaKey ? viaKey.split(',') : [], altitudeFt, departureMs ? new Date(departureMs) : null)
         .then(data => { if (!cancelled) setState({ data, loading: false, error: null }); })
         .catch((e: unknown) => {
-          if (!cancelled) setState({ data: null, loading: false, error: e instanceof Error ? e.message : 'Could not load the winds.' });
+          if (!cancelled) setState({ data: null, loading: false, error: e instanceof Error ? e.message : 'Could not load the forecast.' });
         });
-    }, 500);
+    }, 600);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [from, to, viaKey, altitudeFt, generation]);
+  }, [enabled, from, to, viaKey, altitudeFt, departureMs]);
 
   return state;
 }

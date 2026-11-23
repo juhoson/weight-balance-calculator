@@ -2,16 +2,16 @@ import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
-import { fetchAirframes, fetchGenericTypes, fetchRouteWeather, fetchWindsAloft } from '../api/backend';
+import { fetchAirframes, fetchGenericTypes, fetchRouteWeather, fetchEnrouteForecast } from '../api/backend';
 import { esgg, essx, routeWeather } from '../lib/testRoute';
 import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/testViews';
 
 jest.mock('../api/backend', () => ({
   fetchAirframes: jest.fn(), fetchGenericTypes: jest.fn(), fetchClubs: jest.fn(), saveClubSelection: jest.fn(),
-  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(), fetchWindsAloft: jest.fn(),
+  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(), fetchEnrouteForecast: jest.fn(),
 }));
 const mockedRoute = fetchRouteWeather as jest.MockedFunction<typeof fetchRouteWeather>;
-const mockedWinds = fetchWindsAloft as jest.MockedFunction<typeof fetchWindsAloft>;
+const mockedWinds = fetchEnrouteForecast as jest.MockedFunction<typeof fetchEnrouteForecast>;
 jest.mock('./CGEnvelopeVisualization', () => () => <div data-testid="envelope" />);
 let mockUser: { id: number; email: string; displayName: string } | null = null;
 jest.mock('../api/useAuth', () => ({ useAuth: () => ({ user: mockUser, signOutReason: null }) }));
@@ -39,7 +39,7 @@ beforeEach(() => {
   mockedRoute.mockImplementation(async (from, to) => (from === to ? routeWeather(essx, essx, 0) : routeWeather(essx, esgg, 175)));
   mockUser = null;
   mockedWinds.mockReset();
-  mockedWinds.mockImplementation(async (_from, _to, _via, altitudeFt) => ({ available: false, altitudeFt, times: [], legs: [] }));
+  mockedWinds.mockImplementation(async (_from, _to, _via, altitudeFt) => ({ available: false, altitudeFt, times: [], segments: [] }));
 });
 
 const emptyWeightShown = () =>
@@ -217,28 +217,53 @@ it('a trip sets the flight time from distance and cruise speed and shows the fue
   expect(await screen.findByText(/Set by you/)).toBeInTheDocument();
 });
 
-it('times a trip in the forecast wind at the cruise altitude', async () => {
+it('times a trip segment by segment in the forecast wind at the cruise altitude', async () => {
   localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
   const first = new Date();
   first.setMinutes(0, 0, 0);
-  const times = Array.from({ length: 48 }, (_, h) => new Date(first.getTime() + h * 3600_000).toISOString());
-  mockedWinds.mockImplementation(async (from, to, _via, altitudeFt) => ({
+  const times = Array.from({ length: 12 }, (_, h) => new Date(first.getTime() + h * 3600_000).toISOString());
+  const each = <T,>(v: T) => times.map(() => v);
+  mockedWinds.mockImplementation(async (_from, _to, _via, altitudeFt) => ({
     available: true, altitudeFt, times,
-    // A 20 kt headwind on the 231° course at 3,000 ft, 30 kt higher up.
-    legs: [{ from, to, windDirTrue: times.map(() => 231), windKt: times.map(() => (altitudeFt > 3000 ? 30 : 20)), tempC: times.map(() => -4) }],
+    // 175 NM in 7 segments; a 20 kt headwind on the 231° course at 3,000 ft, 30 kt higher up.
+    segments: Array.from({ length: 7 }, (_, k) => ({
+      leg: 0, startNm: k * 25, distanceNm: 25, trueCourseDeg: 231, lat: 59 - k * 0.25, lon: 16 - k * 0.6, groundFt: 300,
+      windDirTrue: each(231), windKt: each(altitudeFt > 3000 ? 30 : 20), tempC: each(-4),
+      cloudBaseFt: each(k === 3 ? 2900 : null), freezingLevelFt: each(800),
+      layers: each([{ heightFt: 1000, cloudCover: 10 }, { heightFt: 3500, cloudCover: k === 3 ? 80 : 20 }]),
+    })),
   }));
   render(<WeightBalanceCalculator />);
   // PA28-161 at 75%: 107 kt - 20 kt = 87 kt -> 175 NM in 121 min, rounded up to 2:05.
   expect(await screen.findByText(/in the forecast wind at 3,000 ft, average groundspeed 87 kt/)).toBeInTheDocument();
   expect(screen.getByDisplayValue('2:05')).toBeInTheDocument();
-  expect(screen.getByText(/Wind 231°\/20 kt · −4 °C · head 20 kt · TH 231° \(0°\) · GS 87 kt/)).toBeInTheDocument();
-  expect(mockedWinds).toHaveBeenCalledWith('ESSX', 'ESGG', [], 3000);
+  expect(mockedWinds).toHaveBeenCalledWith('ESSX', 'ESGG', [], 3000, null);
+  const log = screen.getByRole('table', { name: 'Nav log' });
+  expect(log).toHaveTextContent(/ESSX → ESGG · 175 NM · 2:01 · var \d°E/);
+  expect(screen.getAllByText('231/20')).toHaveLength(7);
+  expect(screen.getByRole('img', { name: /Route profile, 175 NM at 3000 ft/ })).toBeInTheDocument();
+  // Cloud base 2,900 ft on one segment: the cruise is in it, above the freezing level.
+  expect(screen.getByText(/Cloud base forecast at or within 500 ft of 3,000 ft on 1 of 7 segments \(lowest ≈ 2,900 ft\)/)).toBeInTheDocument();
+  expect(screen.getByText(/Icing possible/)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Cruise altitude'), { target: { value: '5500' } });
-  await waitFor(() => expect(mockedWinds).toHaveBeenLastCalledWith('ESSX', 'ESGG', [], 5500));
+  await waitFor(() => expect(mockedWinds).toHaveBeenLastCalledWith('ESSX', 'ESGG', [], 5500, null));
   // 77 kt -> 136 min -> 2:20
   expect(await screen.findByDisplayValue('2:20')).toBeInTheDocument();
   expect(localStorage.getItem('cruiseAltitudeFt')).toBe('5500');
+});
+
+it('does not ask for the en-route forecast when the fuel does not cover the trip', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
+  render(<WeightBalanceCalculator />);
+  await screen.findByText(/From the route: 175 NM/);
+  fireEvent.change(screen.getByLabelText('Fuel amount'), { target: { value: '40' } });
+  expect(await screen.findByText(/Not enough fuel for this route even without wind/)).toBeInTheDocument();
+  await new Promise(r => setTimeout(r, 900));
+  expect(mockedWinds).not.toHaveBeenCalled();
+
+  fireEvent.change(screen.getByLabelText('Fuel amount'), { target: { value: '150' } });
+  await waitFor(() => expect(mockedWinds).toHaveBeenCalledTimes(1));
 });
 
 it('a route with a waypoint asks for weather via it and counts all legs', async () => {

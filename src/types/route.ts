@@ -107,22 +107,41 @@ export interface SharedRoute {
   sharedBy: string;
 }
 
-/** Forecast wind at one altitude along each leg, hourly. Mirrors the backend's WindsAloft. */
-export interface WindsAloft {
-  /** False when Open-Meteo could not be reached (then no times or legs). */
+/** The forecast along a route in segments of about 25 NM, hourly from the departure. Mirrors the backend's EnrouteForecast. */
+export interface EnrouteForecast {
+  /** False when Open-Meteo could not be reached (then no times or segments). */
   available: boolean;
   altitudeFt: number;
-  /** Hours (UTC, ISO) the legs' lists refer to, by index. */
+  /** Hours (UTC, ISO) the segments' lists refer to, by index. */
   times: string[];
-  /** In route order, matching RouteWeather's legs. */
-  legs: WindsAloftLeg[];
+  segments: EnrouteSegment[];
 }
 
-export interface WindsAloftLeg {
-  from: string;
-  to: string;
-  /** Where the wind blows from, degrees true; null: no forecast for that hour. */
+/** Forecast at the segment's middle; per-hour lists, null where the model has no value. */
+export interface EnrouteSegment {
+  /** Index of the route leg. */
+  leg: number;
+  /** From the departure, along the route. */
+  startNm: number;
+  distanceNm: number;
+  trueCourseDeg: number;
+  lat: number;
+  lon: number;
+  /** Model terrain: a grid-cell average, not the highest point. */
+  groundFt: number | null;
+  /** Where the wind blows from at the cruise altitude, degrees true. */
   windDirTrue: Array<number | null>;
   windKt: Array<number | null>;
   tempC: Array<number | null>;
+  /** Estimated base of the lowest broken or overcast layer; null: none. */
+  cloudBaseFt: Array<number | null>;
+  /** Lowest 0 °C height (the ground when freezing there); null: above 18,000 ft. */
+  freezingLevelFt: Array<number | null>;
+  /** Cloud cover at each pressure level from the ground up. */
+  layers: CloudLayer[][];
+}
+
+export interface CloudLayer {
+  heightFt: number;
+  cloudCover: number;
 }

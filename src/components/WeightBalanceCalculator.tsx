@@ -26,9 +26,9 @@ import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
-import WindsAloftPanel from './route/WindsAloftPanel';
-import {useCruiseAltitude, useWindsAloft, validAltitude} from '../lib/useWindsAloft';
-import {legsOf, planRoute, roundUpTo5} from '../lib/windsAloft';
+import EnroutePanel from './route/EnroutePanel';
+import {useCruiseAltitude, useEnrouteForecast, validAltitude} from '../lib/useEnrouteForecast';
+import {legsOf, planRoute, roundUpTo5} from '../lib/enroute';
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
@@ -585,23 +585,44 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const trip = weather.data && weather.data.distanceNm > 0 ? weather.data : null;
   const cruise = aircraftList[selectedAircraft]?.performance.fuelConsumption.find(f => f.powerSetting === inputs.powerSetting);
   const cruiseKt = cruise ? Math.round(cruise.speedUnit === 'MPH' ? cruise.speed * MPH_TO_KT : cruise.speed) : 0;
-  // With a wind forecast for the cruise altitude, each leg is timed at its groundspeed.
+  // With the en-route forecast, each ~25 NM segment is timed at its groundspeed in the wind
+  // forecast for when it's flown.
   const [altitudeFt, setAltitudeFt] = useCruiseAltitude();
   const [departure, setDeparture] = React.useState(''); // datetime-local; empty = now
-  const winds = useWindsAloft(trip, altitudeFt);
-  const windPlan = React.useMemo(() => {
-    const forecast = winds.data;
-    if (!trip || !forecast?.available || !(cruiseKt > 0) || !validAltitude(altitudeFt)) return null;
-    const legs = legsOf(trip);
-    if (forecast.legs.length !== legs.length || forecast.legs.some((l, i) => l.from !== legs[i].from || l.to !== legs[i].to)) {
-      return null; // still the previous route's winds
+  const departureAt = React.useMemo(() => {
+    const t = departure ? new Date(departure).getTime() : NaN;
+    return Number.isNaN(t) || t <= Date.now() ? null : new Date(t);
+  }, [departure]);
+  // Only ask for the forecast when the flight can happen: loading within limits, and enough fuel
+  // without wind. (Not with the wind: a headwind failing the fuel check would drop the forecast,
+  // which would pass the check again.)
+  const noWindMinutes = trip ? flightMinutes(trip.distanceNm, cruiseKt) : 0;
+  const plannedAircraft = aircraftList[selectedAircraft];
+  let blockedReason: string | null = null;
+  if (trip && plannedAircraft && cruise) {
+    const startLiters = inputs.fuelUnit === 'kg' ? inputs.fuelAmount / plannedAircraft.stations.fuel.weightPerLiter : inputs.fuelAmount;
+    const landingLiters = startLiters - plannedAircraft.performance.taxiFuel.liters - (cruise.litersPerHour * noWindMinutes) / 60;
+    const reserve = plannedAircraft.performance.reserveFuel.recommendedLiters;
+    if (results && !results.takeoff.isWithinLimits) {
+      blockedReason = 'The loading is outside the weight and balance limits. Fix that first; then the en-route forecast is loaded.';
+    } else if (landingLiters < reserve) {
+      blockedReason = `Not enough fuel for this route even without wind (${Math.max(0, Math.round(landingLiters))} L at landing, `
+        + `reserve ${reserve} L). Add fuel first; then the en-route forecast is loaded.`;
     }
-    const now = Date.now();
-    const chosen = departure ? new Date(departure).getTime() : NaN;
-    return planRoute(legs, forecast, cruiseKt, new Date(Number.isNaN(chosen) || chosen < now ? now : chosen));
-  }, [trip, winds.data, cruiseKt, departure, altitudeFt]);
+  }
+  const forecast = useEnrouteForecast(trip, altitudeFt, departureAt, !!trip && cruiseKt > 0 && !blockedReason);
+  const windPlan = React.useMemo(() => {
+    const data = forecast.data;
+    if (!trip || blockedReason || !data?.available || !(cruiseKt > 0) || !validAltitude(altitudeFt)) return null;
+    const legs = legsOf(trip);
+    const last = data.segments[data.segments.length - 1];
+    if (!last || last.leg !== legs.length - 1 || Math.abs(last.startNm + last.distanceNm - trip.distanceNm) > 1) {
+      return null; // still the previous route's forecast
+    }
+    return planRoute(legs, data, cruiseKt, departureAt ?? new Date());
+  }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt]);
   const windMinutes = windPlan?.ok ? roundUpTo5(windPlan.minutes) : 0;
-  const routeMinutes = trip ? windMinutes || flightMinutes(trip.distanceNm, cruiseKt) : 0;
+  const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
   const [manualTime, setManualTime] = React.useState(false);
   const viaKey = route.via.join(',');
   React.useEffect(() => { setManualTime(false); }, [route.from, route.to, viaKey]);
@@ -628,7 +649,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       </div>
 
       <form onSubmit={handleSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] lg:items-start">
-        <div className="space-y-5 print:hidden">
+        <div className="min-w-0 space-y-5 print:hidden">
           <Section
             step={1}
             title="Aircraft"
@@ -706,12 +727,13 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 : route.from && route.from === locatedCode ? 'Nearest airport to your location' : null}
             />
             {trip && cruiseKt > 0 && (
-              <WindsAloftPanel
+              <EnroutePanel
                 altitudeFt={altitudeFt}
                 onAltitudeChange={setAltitudeFt}
                 departure={departure}
                 onDepartureChange={setDeparture}
-                winds={winds}
+                blockedReason={blockedReason}
+                forecast={forecast}
                 plan={windPlan}
                 tasKt={cruiseKt}
               />
