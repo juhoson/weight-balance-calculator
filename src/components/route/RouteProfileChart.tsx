@@ -1,10 +1,12 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import type { LegPlan, SegmentPlan } from '../../lib/enroute';
+import type { LegPlan, ProfilePlan, SegmentPlan } from '../../lib/enroute';
 
 interface RouteProfileChartProps {
   legs: LegPlan[];
   altitudeFt: number;
+  /** Climb and descent; without it the cruise altitude is drawn all the way. */
+  profile?: ProfilePlan | null;
 }
 
 const HEIGHT = 240;
@@ -36,7 +38,7 @@ function useWidth<T extends HTMLElement>(fallback: number): [React.RefObject<T |
  * and the (averaged) terrain, with the wind at the cruise altitude along the top. Tap or hover a
  * segment for its details; the nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<number | null>(null);
   React.useEffect(() => {
@@ -54,7 +56,8 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt 
   if (segments.length === 0) return null;
 
   const totalNm = segments.reduce((sum, s) => Math.max(sum, s.segment.startNm + s.segment.distanceNm), 0);
-  const topFt = Math.min(20000, Math.max(6000, Math.ceil((altitudeFt + 3000) / 2000) * 2000));
+  const highest = profile ? profile.topFt : altitudeFt;
+  const topFt = Math.min(20000, Math.max(6000, Math.ceil((highest + 3000) / 2000) * 2000));
   const plotW = Math.max(100, width - M.left - M.right);
   const plotH = HEIGHT - M.top - M.bottom;
   const x = (nm: number) => M.left + (nm / totalNm) * plotW;
@@ -78,7 +81,10 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt 
   return (
     <figure className="min-w-0 space-y-2">
       <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-primary"/> Cruise {altitudeFt.toLocaleString('en')} ft</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-primary"/>
+          {profile
+            ? profile.reachesCruise ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft` : `Flight path, highest ≈ ${(Math.round(profile.topFt / 100) * 100).toLocaleString('en')} ft`
+            : `Cruise ${altitudeFt.toLocaleString('en')} ft`}</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud (darker = more)</span>
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
@@ -120,8 +126,25 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt 
           {/* Freezing level */}
           {freezingPath && <path d={freezingPath} fill="none" className="stroke-sky-600 dark:stroke-sky-400" strokeWidth={2} strokeDasharray="5 4"/>}
 
-          {/* Cruise altitude */}
-          <line x1={M.left} x2={M.left + plotW} y1={y(altitudeFt)} y2={y(altitudeFt)} className="stroke-primary" strokeWidth={2}/>
+          {/* Flight path: climb to the top of climb, cruise, descend from the top of descent to circuit altitude. */}
+          {profile ? (
+            <g>
+              <path fill="none" className="stroke-primary" strokeWidth={2} strokeLinejoin="round"
+                d={`M${x(0)},${y(profile.departureFt)}L${x(profile.tocNm)},${y(profile.topFt)}L${x(profile.todNm)},${y(profile.topFt)}L${x(totalNm)},${y(profile.arrivalFt)}`}/>
+              {(x(profile.todNm) - x(profile.tocNm) < 40
+                // Too close to label apart (a short hop): one point.
+                ? [{ nm: (profile.tocNm + profile.todNm) / 2, label: 'TOC/TOD', anchor: 'middle' as const, dx: 0 }]
+                : [{ nm: profile.tocNm, label: 'TOC', anchor: 'start' as const, dx: 4 }, { nm: profile.todNm, label: 'TOD', anchor: 'end' as const, dx: -4 }]
+              ).map(m => (
+                <g key={m.label}>
+                  <circle cx={x(m.nm)} cy={y(profile.topFt)} r={3.5} className="fill-background stroke-primary" strokeWidth={2}/>
+                  <text x={x(m.nm) + m.dx} y={y(profile.topFt) - 7} textAnchor={m.anchor} className="fill-foreground text-[10px] font-semibold">{m.label}</text>
+                </g>
+              ))}
+            </g>
+          ) : (
+            <line x1={M.left} x2={M.left + plotW} y1={y(altitudeFt)} y2={y(altitudeFt)} className="stroke-primary" strokeWidth={2}/>
+          )}
 
           {/* Waypoints */}
           {[...boundaries, totalNm].map((nm, i) => (
@@ -182,7 +205,7 @@ const Tooltip: React.FC<{ s: SegmentPlan; left: number; width: number; below: bo
       </button>
       <p className="font-medium">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)} NM · {utc(s.departs)}–{utc(s.arrives)}</p>
       <p>Wind {pad3(s.wind.fromTrue)}°/{Math.round(s.wind.kt)} kt{s.wind.tempC !== null ? ` · ${Math.round(s.wind.tempC)} °C` : ''}</p>
-      <p>MH {pad3(s.magneticHeading)}° · GS {Math.round(s.triangle.groundSpeedKt)} kt</p>
+      <p>MH {pad3(s.magneticHeading)}° · GS {Math.round(s.groundSpeedKt)} kt</p>
       <p>Cloud base {s.cloudBaseFt === null ? 'none (no broken layer)' : `≈ ${s.cloudBaseFt.toLocaleString('en')} ft`}</p>
       <p>0 °C {s.freezingLevelFt === null ? 'above 18,000 ft' : s.segment.groundFt !== null && s.freezingLevelFt <= s.segment.groundFt ? 'at the ground' : `≈ ${s.freezingLevelFt.toLocaleString('en')} ft`}</p>
     </div>

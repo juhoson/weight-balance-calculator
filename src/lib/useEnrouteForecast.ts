@@ -66,3 +66,46 @@ export function useEnrouteForecast(trip: RouteWeather | null, altitudeFt: number
 
   return state;
 }
+
+export const MIN_RATE_FPM = 100;
+export const MAX_RATE_FPM = 3000;
+const RATES_KEY = 'climbRates.v1';
+const DEFAULT_RATES = { climbFpm: 500, descentFpm: 500 };
+
+export interface ClimbRates {
+  climbFpm: number;
+  descentFpm: number;
+}
+
+export const validRate = (fpm: number) => fpm >= MIN_RATE_FPM && fpm <= MAX_RATE_FPM;
+
+function loadRates(): Record<string, ClimbRates> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RATES_KEY) ?? '{}');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Climb and descent rates from the pilot (from the POH), remembered per aircraft in this browser. */
+export function useClimbRates(aircraftKey: string): [ClimbRates, (patch: Partial<ClimbRates>) => void] {
+  const [all, setAll] = React.useState(loadRates);
+  const saved = all[aircraftKey];
+  const rates: ClimbRates = {
+    climbFpm: typeof saved?.climbFpm === 'number' ? saved.climbFpm : DEFAULT_RATES.climbFpm,
+    descentFpm: typeof saved?.descentFpm === 'number' ? saved.descentFpm : DEFAULT_RATES.descentFpm,
+  };
+  const set = React.useCallback((patch: Partial<ClimbRates>) => {
+    setAll(prev => {
+      const current = { ...DEFAULT_RATES, ...prev[aircraftKey] };
+      const next = { ...prev, [aircraftKey]: { ...current, ...patch } };
+      const valid = validRate(next[aircraftKey].climbFpm) && validRate(next[aircraftKey].descentFpm);
+      if (valid) {
+        try { localStorage.setItem(RATES_KEY, JSON.stringify(next)); } catch { /* not remembered; fine */ }
+      }
+      return next;
+    });
+  }, [aircraftKey]);
+  return [rates, set];
+}

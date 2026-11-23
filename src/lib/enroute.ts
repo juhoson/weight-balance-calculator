@@ -92,8 +92,10 @@ export interface SegmentPlan {
   variationDeg: number;
   magneticCourse: number;
   magneticHeading: number;
-  /** Unrounded. */
+  /** Unrounded; with a climb or descent in the segment, at its mix of speeds. */
   minutes: number;
+  /** Average over the segment (lower where it includes the climb). */
+  groundSpeedKt: number;
   departs: Date;
   arrives: Date;
   /** The forecast hour used for cloud and freezing level (nearest the middle of the segment). */
@@ -109,8 +111,36 @@ export interface LegPlan {
   minutes: number;
 }
 
+/** Climb at Vy from the departure field, cruise, descend at cruise speed to circuit altitude. */
+export interface VerticalProfile {
+  cruiseFt: number;
+  /** Departure field elevation. */
+  departureFt: number;
+  /** Where the descent ends: circuit altitude over the arrival field. */
+  arrivalFt: number;
+  /** Vy as true airspeed. */
+  climbTasKt: number;
+  climbFpm: number;
+  descentFpm: number;
+}
+
+export interface ProfilePlan {
+  /** The highest altitude reached: the cruise altitude, or lower when the route is too short for it. */
+  topFt: number;
+  reachesCruise: boolean;
+  departureFt: number;
+  arrivalFt: number;
+  /** Top of climb and top of descent, NM from the departure. */
+  tocNm: number;
+  todNm: number;
+  climbMinutes: number;
+  descentMinutes: number;
+  tocAt: Date;
+  todAt: Date;
+}
+
 export type RoutePlan =
-  | { ok: true; legs: LegPlan[]; segments: SegmentPlan[]; minutes: number }
+  | { ok: true; legs: LegPlan[]; segments: SegmentPlan[]; minutes: number; profile: ProfilePlan | null }
   /** No forecast for some segment at that time, or a wind the aircraft can't fly against. */
   | { ok: false; reason: 'no-forecast' | 'too-windy'; leg: RouteLeg };
 
@@ -125,7 +155,8 @@ export function legsOf(route: RouteWeather): RouteLeg[] {
  * Each segment in the forecast for the middle of the time it's flown: the wind an hour into the
  * flight is the forecast for that hour at that place.
  */
-export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: number, departure: Date): RoutePlan {
+export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: number, departure: Date,
+  vertical?: VerticalProfile): RoutePlan {
   const segments: SegmentPlan[] = [];
   let at = departure.getTime();
   for (const segment of forecast.segments) {
@@ -148,7 +179,7 @@ export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: nu
     const hour = nearestHour(forecast.times, middle);
     const variation = variationAt(segment.lat, segment.lon, departs);
     segments.push({
-      segment, ...found, minutes, departs, arrives: new Date(at + minutes * 60_000), hour,
+      segment, ...found, minutes, groundSpeedKt: found.triangle.groundSpeedKt, departs, arrives: new Date(at + minutes * 60_000), hour,
       variationDeg: variation,
       magneticCourse: toMagnetic(segment.trueCourseDeg, variation),
       magneticHeading: toMagnetic(found.triangle.headingTrue, variation),
@@ -159,12 +190,94 @@ export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: nu
     at += minutes * 60_000;
   }
   if (segments.length === 0) return { ok: false, reason: 'no-forecast', leg: legs[0] };
+  const profile = vertical ? withProfile(segments, vertical, departure) : null;
   const legPlans: LegPlan[] = legs.map((leg, i) => {
     const own = segments.filter(s => s.segment.leg === i);
     return { leg, segments: own, minutes: own.reduce((sum, s) => sum + s.minutes, 0) };
   });
-  return { ok: true, legs: legPlans, segments, minutes: segments.reduce((sum, s) => sum + s.minutes, 0) };
+  return { ok: true, legs: legPlans, segments, minutes: segments.reduce((sum, s) => sum + s.minutes, 0), profile };
 }
+
+/**
+ * Adds the climb and descent: finds the top of climb (at Vy, in each segment's wind) and the top of
+ * descent (at cruise speed, so it costs no extra time), retimes the segments the climb slows down,
+ * and lowers the top when the route is too short to reach the cruise altitude. Segments are
+ * changed in place.
+ */
+function withProfile(segments: SegmentPlan[], v: VerticalProfile, departure: Date): ProfilePlan {
+  const start = (i: number) => segments[i].segment.startNm;
+  const dist = (i: number) => segments[i].segment.distanceNm;
+  const total = start(segments.length - 1) + dist(segments.length - 1);
+  const cruiseGs = segments.map(s => s.triangle.groundSpeedKt);
+  const climbGs = segments.map((s, i) => windTriangle(s.segment.trueCourseDeg, v.climbTasKt, s.wind)?.groundSpeedKt ?? cruiseGs[i]);
+
+  // Where along the route a number of minutes at these groundspeeds ends, from the start or the end.
+  const forward = (gs: number[], minutes: number) => {
+    let t = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const m = (dist(i) / gs[i]) * 60;
+      if (t + m >= minutes) return start(i) + ((minutes - t) / 60) * gs[i];
+      t += m;
+    }
+    return total;
+  };
+  const backward = (gs: number[], minutes: number) => {
+    let t = 0;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const m = (dist(i) / gs[i]) * 60;
+      if (t + m >= minutes) return start(i) + dist(i) - ((minutes - t) / 60) * gs[i];
+      t += m;
+    }
+    return 0;
+  };
+  const tocOf = (top: number) => forward(climbGs, Math.max(0, top - v.departureFt) / v.climbFpm);
+  const todOf = (top: number) => backward(cruiseGs, Math.max(0, top - v.arrivalFt) / v.descentFpm);
+
+  let top = v.cruiseFt;
+  if (tocOf(top) > todOf(top)) {
+    // Too short: the highest altitude where the climb and the descent meet.
+    let lo = Math.min(v.cruiseFt, Math.max(v.departureFt, v.arrivalFt)), hi = v.cruiseFt;
+    for (let k = 0; k < 40; k++) {
+      const mid = (lo + hi) / 2;
+      if (tocOf(mid) <= todOf(mid)) lo = mid; else hi = mid;
+    }
+    top = lo;
+  }
+  const toc = tocOf(top), tod = Math.max(toc, todOf(top));
+
+  // Retime: the part of each segment before the top of climb is flown at the climb groundspeed.
+  let at = departure.getTime();
+  let tocAt = departure, todAt = departure;
+  segments.forEach((s, i) => {
+    const s0 = start(i), s1 = s0 + dist(i);
+    const climbPart = Math.max(0, Math.min(s1, toc) - s0);
+    const minutes = (climbPart / climbGs[i] + (dist(i) - climbPart) / cruiseGs[i]) * 60;
+    const timeAt = (nm: number) => {
+      const c = Math.max(0, Math.min(nm, toc) - s0);
+      return at + ((c / climbGs[i] + (nm - s0 - c) / cruiseGs[i]) * 60) * 60_000;
+    };
+    if (toc >= s0 && toc <= s1) tocAt = new Date(timeAt(toc));
+    if (tod >= s0 && tod <= s1) todAt = new Date(timeAt(tod));
+    s.departs = new Date(at);
+    s.minutes = minutes;
+    s.groundSpeedKt = (dist(i) / minutes) * 60;
+    at += minutes * 60_000;
+    s.arrives = new Date(at);
+  });
+  return {
+    topFt: top, reachesCruise: top >= v.cruiseFt - 1, departureFt: v.departureFt, arrivalFt: v.arrivalFt,
+    tocNm: toc, todNm: tod,
+    climbMinutes: Math.max(0, top - v.departureFt) / v.climbFpm,
+    descentMinutes: Math.max(0, top - v.arrivalFt) / v.descentFpm,
+    tocAt, todAt,
+  };
+}
+
+/** Circuit altitude: the descent ends this far above the arrival field. */
+export const CIRCUIT_HEIGHT_FT = 1000;
+
+/** True airspeed from indicated: about 2% more per 1,000 ft (rule of thumb). */
+export const trueAirspeed = (iasKt: number, altitudeFt: number) => iasKt * (1 + 0.02 * Math.max(0, altitudeFt) / 1000);
 
 /** Within this much of the cloud base counts as too close (VFR clearance from cloud). */
 export const CLOUD_MARGIN_FT = 500;

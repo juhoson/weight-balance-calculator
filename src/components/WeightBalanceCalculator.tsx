@@ -27,8 +27,8 @@ import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../li
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
 import EnroutePanel from './route/EnroutePanel';
-import {useCruiseAltitude, useEnrouteForecast, validAltitude} from '../lib/useEnrouteForecast';
-import {legsOf, planRoute, roundUpTo5} from '../lib/enroute';
+import {useClimbRates, useCruiseAltitude, useEnrouteForecast, validAltitude, validRate} from '../lib/useEnrouteForecast';
+import {CIRCUIT_HEIGHT_FT, legsOf, planRoute, roundUpTo5, trueAirspeed, type VerticalProfile} from '../lib/enroute';
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
@@ -611,6 +611,20 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     }
   }
   const forecast = useEnrouteForecast(trip, altitudeFt, departureAt, !!trip && cruiseKt > 0 && !blockedReason);
+  // Climb at Vy (the aircraft's best rate of climb) and descend at cruise speed, at the pilot's rates.
+  const [climbRates, setClimbRates] = useClimbRates(selectedAircraft);
+  const perf = plannedAircraft?.performance;
+  const vyKt = perf ? Math.round(perf.speedUnit === 'MPH' ? perf.bestClimbSpeed * MPH_TO_KT : perf.bestClimbSpeed) : 0;
+  const vertical = React.useMemo<VerticalProfile | undefined>(() => {
+    if (!trip || !(vyKt > 0) || !validRate(climbRates.climbFpm) || !validRate(climbRates.descentFpm)) return undefined;
+    const departureFt = trip.departure.elevationFt ?? 0;
+    const arrivalFt = (trip.arrival.elevationFt ?? 0) + CIRCUIT_HEIGHT_FT;
+    return {
+      cruiseFt: altitudeFt, departureFt, arrivalFt,
+      climbTasKt: trueAirspeed(vyKt, (departureFt + altitudeFt) / 2),
+      climbFpm: climbRates.climbFpm, descentFpm: climbRates.descentFpm,
+    };
+  }, [trip, vyKt, climbRates.climbFpm, climbRates.descentFpm, altitudeFt]);
   const windPlan = React.useMemo(() => {
     const data = forecast.data;
     if (!trip || blockedReason || !data?.available || !(cruiseKt > 0) || !validAltitude(altitudeFt)) return null;
@@ -619,8 +633,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     if (!last || last.leg !== legs.length - 1 || Math.abs(last.startNm + last.distanceNm - trip.distanceNm) > 1) {
       return null; // still the previous route's forecast
     }
-    return planRoute(legs, data, cruiseKt, departureAt ?? new Date());
-  }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt]);
+    return planRoute(legs, data, cruiseKt, departureAt ?? new Date(), vertical);
+  }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt, vertical]);
   const windMinutes = windPlan?.ok ? roundUpTo5(windPlan.minutes) : 0;
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
   const [manualTime, setManualTime] = React.useState(false);
@@ -736,6 +750,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 forecast={forecast}
                 plan={windPlan}
                 tasKt={cruiseKt}
+                vyKt={vyKt}
+                climbRates={climbRates}
+                onClimbRatesChange={setClimbRates}
               />
             )}
           </Section>
@@ -824,7 +841,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                       ? <>Set by you. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline"
                         onClick={() => setManualTime(false)}>Use the route time ({fmtTime(routeMinutes)})</button></>
                       : windMinutes > 0 && windPlan?.ok
-                        ? <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt in the forecast wind at {altitudeFt.toLocaleString('en')} ft,
+                        ? <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt in the forecast wind at {altitudeFt.toLocaleString('en')} ft
+                          {windPlan.profile ? `, climbing at ${vyKt} kt and ${climbRates.climbFpm} ft/min` : ''},
                           average groundspeed {Math.round(trip.distanceNm / (windPlan.minutes / 60))} kt{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>
                         : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>}
                   </p>

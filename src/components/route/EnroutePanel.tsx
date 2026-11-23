@@ -4,7 +4,9 @@ import { NumberInput } from '../ui/NumberInput';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { FormItem, FormLabel } from '../ui/Form';
-import { MAX_ALTITUDE_FT, MIN_ALTITUDE_FT, validAltitude, type EnrouteForecastState } from '../../lib/useEnrouteForecast';
+import {
+  type ClimbRates, MAX_ALTITUDE_FT, MAX_RATE_FPM, MIN_ALTITUDE_FT, MIN_RATE_FPM, validAltitude, validRate, type EnrouteForecastState,
+} from '../../lib/useEnrouteForecast';
 import { type RoutePlan, warningsOf } from '../../lib/enroute';
 import RouteProfileChart from './RouteProfileChart';
 
@@ -19,6 +21,10 @@ interface EnroutePanelProps {
   forecast: EnrouteForecastState;
   plan: RoutePlan | null;
   tasKt: number;
+  /** Best rate of climb speed, the climb is flown at. */
+  vyKt: number;
+  climbRates: ClimbRates;
+  onClimbRatesChange: (patch: Partial<ClimbRates>) => void;
 }
 
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
@@ -35,7 +41,8 @@ export function localInputValue(d: Date): string {
 
 /** Cruise altitude and departure time; the route flown in the forecast as a profile and a nav log. */
 const EnroutePanel: React.FC<EnroutePanelProps> = ({
-  altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt,
+  altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
+  onClimbRatesChange,
 }) => {
   const now = new Date();
   const maxDeparture = new Date(now.getTime() + 46 * 3600_000);
@@ -62,7 +69,18 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             {departure && <Button type="button" variant="outline" onClick={() => onDepartureChange('')}>Now</Button>}
           </div>
         </FormItem>
+        <FormItem>
+          <FormLabel htmlFor="climb-rate">Climb rate <span className="font-normal text-muted-foreground">· at Vy {vyKt} kt</span></FormLabel>
+          <NumberInput id="climb-rate" value={climbRates.climbFpm} step={50} unit="ft/min" onChange={v => onClimbRatesChange({ climbFpm: v })}/>
+        </FormItem>
+        <FormItem>
+          <FormLabel htmlFor="descent-rate">Descent rate <span className="font-normal text-muted-foreground">· at cruise speed</span></FormLabel>
+          <NumberInput id="descent-rate" value={climbRates.descentFpm} step={50} unit="ft/min" onChange={v => onClimbRatesChange({ descentFpm: v })}/>
+        </FormItem>
       </div>
+      {(!validRate(climbRates.climbFpm) || !validRate(climbRates.descentFpm))
+        ? <p className="text-xs text-red-600">Climb and descent rates between {MIN_RATE_FPM} and {ft(MAX_RATE_FPM)} ft/min; until then the plan has no climb or descent.</p>
+        : <p className="-mt-1 text-[11px] text-muted-foreground">Take the rates from your POH for today&apos;s weight; remembered for this aircraft.</p>}
 
       {blockedReason && (
         <p className="text-sm text-muted-foreground" role="status">{blockedReason}</p>
@@ -104,17 +122,51 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             </ul>
           )}
 
-          <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt}/>
+          {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
+          <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile}/>
           <NavLog plan={plan}/>
 
           <p className="text-[11px] text-muted-foreground">
-            Forecast at {ft(data?.altitudeFt ?? altitudeFt)} ft for when each segment is flown, at {tasKt} kt true airspeed.
+            Forecast at {ft(data?.altitudeFt ?? altitudeFt)} ft for when each segment is flown, at {tasKt} kt true airspeed;
+            the climb and descent use the same wind. Fuel is counted at the cruise fuel flow throughout.
             Headings are magnetic (World Magnetic Model 2025). Cloud base is estimated from the model&apos;s humidity by height.
             Model forecast from <a className="underline" href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo.com</a> (CC BY 4.0),
             not an official aviation forecast - get an official briefing before flight.
           </p>
         </>
       )}
+    </div>
+  );
+};
+
+/** Top of climb and top of descent, and a note when the route is too short for the cruise altitude. */
+const ProfileSummary: React.FC<{
+  profile: NonNullable<Extract<RoutePlan, { ok: true }>['profile']>;
+  cruiseFt: number;
+  onAltitudeChange: (ft: number) => void;
+}> = ({ profile, cruiseFt, onAltitudeChange }) => {
+  // The wind and warnings are for the cruise altitude; offer one the flight can reach.
+  const reachable = Math.max(MIN_ALTITUDE_FT, Math.floor(profile.topFt / 500) * 500);
+  return (
+    <div className="space-y-1 text-xs">
+      {!profile.reachesCruise && (
+        <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0"/>
+          <div className="space-y-1.5">
+            <p>
+            Too short to reach {ft(cruiseFt)} ft: at these rates the climb and descent meet at about {ft(Math.round(profile.topFt / 100) * 100)} ft.
+            The wind and the warnings above are for {ft(cruiseFt)} ft.
+            </p>
+            <Button type="button" size="sm" variant="outline" className="h-7 bg-background text-foreground" onClick={() => onAltitudeChange(reachable)}>
+            Use {ft(reachable)} ft
+            </Button>
+          </div>
+        </div>
+      )}
+      <p className="tabular-nums">
+        <strong>Top of climb</strong> {Math.round(profile.tocNm)} NM out, {utc(profile.tocAt)} ({fmtMinutes(profile.climbMinutes)} climbing)
+        {' · '}<strong>Top of descent</strong> {Math.round(profile.todNm)} NM out, {utc(profile.todAt)} ({fmtMinutes(profile.descentMinutes)} to circuit altitude, {ft(profile.arrivalFt)} ft)
+      </p>
     </div>
   );
 };
@@ -149,7 +201,7 @@ const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) 
               <td className="whitespace-nowrap py-0.5 pr-1.5 sm:pr-2 text-muted-foreground">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)}</td>
               <td className="hidden py-0.5 pr-1.5 sm:pr-2 sm:table-cell">{pad3(s.magneticCourse)}</td>
               <td className="py-0.5 pr-1.5 sm:pr-2 font-semibold">{pad3(s.magneticHeading)}</td>
-              <td className="py-0.5 pr-1.5 sm:pr-2">{Math.round(s.triangle.groundSpeedKt)}</td>
+              <td className="py-0.5 pr-1.5 sm:pr-2">{Math.round(s.groundSpeedKt)}</td>
               <td className="py-0.5 pr-1.5 sm:pr-2">{fmtMinutes(s.minutes)}</td>
               <td className="py-0.5 pr-1.5 sm:pr-2">{utc(s.arrives)}</td>
               <td className="py-0.5 pr-1.5 sm:pr-2">{pad3(s.wind.fromTrue)}/{Math.round(s.wind.kt)}</td>

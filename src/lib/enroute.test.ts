@@ -125,3 +125,38 @@ it('rounds flight time up to 5 minutes', () => {
   expect(roundUpTo5(75)).toBe(75);
   expect(roundUpTo5(75.2)).toBe(80);
 });
+
+describe('climb and descent', () => {
+  const calm = (k: number) => segment({ startNm: k * 50, windKt: [0, 0, 0] });
+  const vertical = { cruiseFt: 3000, departureFt: 0, arrivalFt: 1000, climbTasKt: 80, climbFpm: 500, descentFpm: 500 };
+
+  it('finds the top of climb and descent and times the climb at Vy', () => {
+    const plan = planRoute(legs, forecast([calm(0), calm(1)]), 100, new Date('2026-11-23T10:00:00Z'), vertical);
+    if (!plan.ok || !plan.profile) throw new Error('no profile');
+    const p = plan.profile;
+    expect(p.reachesCruise).toBe(true);
+    expect(p.climbMinutes).toBeCloseTo(6); // 3,000 ft at 500 ft/min
+    expect(p.tocNm).toBeCloseTo(8); // 6 min at 80 kt
+    expect(p.descentMinutes).toBeCloseTo(4); // 3,000 -> 1,000 ft at 500 ft/min
+    expect(p.todNm).toBeCloseTo(100 - 100 * 4 / 60); // 4 min at 100 kt before the end
+    expect(p.tocAt.toISOString()).toBe('2026-11-23T10:06:00.000Z');
+    // The first segment: 8 NM at 80 kt (6 min) + 42 NM at 100 kt (25.2 min); the second unchanged.
+    expect(plan.segments[0].minutes).toBeCloseTo(31.2);
+    expect(plan.segments[0].groundSpeedKt).toBeCloseTo(50 / (31.2 / 60));
+    expect(plan.segments[1].minutes).toBeCloseTo(30);
+    expect(plan.segments[1].departs.toISOString()).toBe('2026-11-23T10:31:12.000Z');
+    expect(plan.minutes).toBeCloseTo(61.2);
+  });
+
+  it('lowers the top when the route is too short for the cruise altitude', () => {
+    const short = [{ from: 'ESSX', to: 'ESOW', distanceNm: 10, trueCourseDeg: 270 }];
+    const plan = planRoute(short, forecast([segment({ distanceNm: 10, windKt: [0, 0, 0] })]), 100,
+      new Date('2026-11-23T10:00:00Z'), { ...vertical, cruiseFt: 9500 });
+    if (!plan.ok || !plan.profile) throw new Error('no profile');
+    const p = plan.profile;
+    expect(p.reachesCruise).toBe(false);
+    expect(p.topFt).toBeLessThan(9500);
+    expect(p.topFt).toBeGreaterThan(1000);
+    expect(p.tocNm).toBeCloseTo(p.todNm, 1);
+  });
+});

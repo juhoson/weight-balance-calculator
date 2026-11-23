@@ -234,12 +234,16 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
     })),
   }));
   render(<WeightBalanceCalculator />);
-  // PA28-161 at 75%: 107 kt - 20 kt = 87 kt -> 175 NM in 121 min, rounded up to 2:05.
-  expect(await screen.findByText(/in the forecast wind at 3,000 ft, average groundspeed 87 kt/)).toBeInTheDocument();
+  // PA28-161 at 75%: 107 kt - 20 kt = 87 kt -> 175 NM in 120.7 min. The climb from ESSX (33 ft) at
+  // Vy 79 kt (81 kt true) and 500 ft/min takes 5.9 min at 61 kt over the ground: +1.7 min -> 2:05.
+  expect(await screen.findByText(/in the forecast wind at 3,000 ft, climbing at 79 kt and 500 ft\/min, average groundspeed 86 kt/)).toBeInTheDocument();
+  expect(screen.getByText(/Top of climb/).parentElement).toHaveTextContent(/Top of climb 6 NM out, .* \(0:06 climbing\)/);
+  // Descent at cruise speed from 3,000 ft to ESGG's circuit altitude (506 + 1,000 ft): 3 min.
+  expect(screen.getByText(/Top of climb/).parentElement).toHaveTextContent(/Top of descent 171 NM out, .* \(0:03 to circuit altitude, 1,506 ft\)/);
   expect(screen.getByDisplayValue('2:05')).toBeInTheDocument();
   expect(mockedWinds).toHaveBeenCalledWith('ESSX', 'ESGG', [], 3000, null);
   const log = screen.getByRole('table', { name: 'Nav log' });
-  expect(log).toHaveTextContent(/ESSX → ESGG · 175 NM · 2:01 · var \d°E/);
+  expect(log).toHaveTextContent(/ESSX → ESGG · 175 NM · 2:02 · var \d°E/);
   expect(screen.getAllByText('231/20')).toHaveLength(7);
   expect(screen.getByRole('img', { name: /Route profile, 175 NM at 3000 ft/ })).toBeInTheDocument();
   // Cloud base 2,900 ft on one segment: the cruise is in it, above the freezing level.
