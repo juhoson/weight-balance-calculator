@@ -1,5 +1,5 @@
 import React from 'react';
-import { fetchEnrouteForecast } from '../api/backend';
+import { forecastAlongRoute } from './openMeteo';
 import type { EnrouteForecast, RouteWeather } from '../types/route';
 
 export const MIN_ALTITUDE_FT = 500;
@@ -35,34 +35,37 @@ export interface EnrouteForecastState {
 }
 
 /**
- * The forecast along a trip at an altitude, from a departure (null = now). Asks only while
- * `enabled` (the loading and fuel work out), and waits for typing to settle first.
+ * The forecast along a trip at an altitude, from a departure (null = now), fetched by the browser
+ * from Open-Meteo. Asks only while `enabled` (the loading and fuel work out), and waits for typing
+ * to settle first.
  */
 export function useEnrouteForecast(trip: RouteWeather | null, altitudeFt: number, departure: Date | null,
   enabled: boolean): EnrouteForecastState {
-  const from = trip?.departure.code ?? '';
-  const to = trip?.arrival.code ?? '';
-  const viaKey = (trip?.waypoints ?? []).map(w => w.code).join(',');
+  // The route's positions, as a stable key so an equal route doesn't ask again.
+  const routeKey = trip
+    ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival].map(a => `${a.code}:${a.lat}:${a.lon}`).join('|')
+    : '';
   // Whole minutes, so re-renders with an equal time don't ask again.
   const departureMs = departure ? Math.floor(departure.getTime() / 60_000) * 60_000 : 0;
   const [state, setState] = React.useState<EnrouteForecastState>({ data: null, loading: false, error: null });
 
   React.useEffect(() => {
-    if (!enabled || !from || !to || !validAltitude(altitudeFt)) {
+    if (!enabled || !routeKey || !validAltitude(altitudeFt)) {
       setState({ data: null, loading: false, error: null });
       return;
     }
     let cancelled = false;
     setState(s => ({ ...s, loading: true, error: null }));
     const timer = setTimeout(() => {
-      fetchEnrouteForecast(from, to, viaKey ? viaKey.split(',') : [], altitudeFt, departureMs ? new Date(departureMs) : null)
+      const route = routeKey.split('|').map(p => { const [code, lat, lon] = p.split(':'); return { code, lat: Number(lat), lon: Number(lon) }; });
+      forecastAlongRoute(route, altitudeFt, departureMs ? new Date(departureMs) : null)
         .then(data => { if (!cancelled) setState({ data, loading: false, error: null }); })
         .catch((e: unknown) => {
           if (!cancelled) setState({ data: null, loading: false, error: e instanceof Error ? e.message : 'Could not load the forecast.' });
         });
     }, 600);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [enabled, from, to, viaKey, altitudeFt, departureMs]);
+  }, [enabled, routeKey, altitudeFt, departureMs]);
 
   return state;
 }

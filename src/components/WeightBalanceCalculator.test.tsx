@@ -2,16 +2,20 @@ import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
-import { fetchAirframes, fetchGenericTypes, fetchRouteWeather, fetchEnrouteForecast } from '../api/backend';
+import { fetchAirframes, fetchGenericTypes, fetchRouteWeather } from '../api/backend';
+import { forecastAlongRoute } from '../lib/openMeteo';
 import { esgg, essx, routeWeather } from '../lib/testRoute';
 import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/testViews';
 
 jest.mock('../api/backend', () => ({
   fetchAirframes: jest.fn(), fetchGenericTypes: jest.fn(), fetchClubs: jest.fn(), saveClubSelection: jest.fn(),
-  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(), fetchEnrouteForecast: jest.fn(),
+  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(),
 }));
+jest.mock('../lib/openMeteo', () => ({ forecastAlongRoute: jest.fn() }));
 const mockedRoute = fetchRouteWeather as jest.MockedFunction<typeof fetchRouteWeather>;
-const mockedWinds = fetchEnrouteForecast as jest.MockedFunction<typeof fetchEnrouteForecast>;
+const mockedWinds = forecastAlongRoute as jest.MockedFunction<typeof forecastAlongRoute>;
+/** The airport codes and altitude of the last forecast asked for. */
+const lastForecast = () => { const [route, altitudeFt, departure] = mockedWinds.mock.calls[mockedWinds.mock.calls.length - 1]; return [route.map(p => p.code), altitudeFt, departure]; };
 jest.mock('./CGEnvelopeVisualization', () => () => <div data-testid="envelope" />);
 let mockUser: { id: number; email: string; displayName: string } | null = null;
 jest.mock('../api/useAuth', () => ({ useAuth: () => ({ user: mockUser, signOutReason: null }) }));
@@ -39,7 +43,7 @@ beforeEach(() => {
   mockedRoute.mockImplementation(async (from, to) => (from === to ? routeWeather(essx, essx, 0) : routeWeather(essx, esgg, 175)));
   mockUser = null;
   mockedWinds.mockReset();
-  mockedWinds.mockImplementation(async (_from, _to, _via, altitudeFt) => ({ available: false, altitudeFt, times: [], segments: [] }));
+  mockedWinds.mockImplementation(async (_route, altitudeFt) => ({ available: false, altitudeFt, times: [], segments: [] }));
 });
 
 const emptyWeightShown = () =>
@@ -223,7 +227,7 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
   first.setMinutes(0, 0, 0);
   const times = Array.from({ length: 12 }, (_, h) => new Date(first.getTime() + h * 3600_000).toISOString());
   const each = <T,>(v: T) => times.map(() => v);
-  mockedWinds.mockImplementation(async (_from, _to, _via, altitudeFt) => ({
+  mockedWinds.mockImplementation(async (_route, altitudeFt) => ({
     available: true, altitudeFt, times,
     // 175 NM in 7 segments; a 20 kt headwind on the 231° course at 3,000 ft, 30 kt higher up.
     segments: Array.from({ length: 7 }, (_, k) => ({
@@ -241,7 +245,7 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
   // Descent at cruise speed from 3,000 ft to ESGG's circuit altitude (506 + 1,000 ft): 3 min.
   expect(screen.getByText(/Top of climb/).parentElement).toHaveTextContent(/Top of descent 171 NM out, .* \(0:03 to circuit altitude, 1,506 ft\)/);
   expect(screen.getByDisplayValue('2:05')).toBeInTheDocument();
-  expect(mockedWinds).toHaveBeenCalledWith('ESSX', 'ESGG', [], 3000, null);
+  expect(lastForecast()).toEqual([['ESSX', 'ESGG'], 3000, null]);
   const log = screen.getByRole('table', { name: 'Nav log' });
   expect(log).toHaveTextContent(/ESSX → ESGG · 175 NM · 2:02 · var \d°E/);
   expect(screen.getAllByText('231/20')).toHaveLength(7);
@@ -251,7 +255,7 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
   expect(screen.getByText(/Icing possible/)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Cruise altitude'), { target: { value: '5500' } });
-  await waitFor(() => expect(mockedWinds).toHaveBeenLastCalledWith('ESSX', 'ESGG', [], 5500, null));
+  await waitFor(() => expect(lastForecast()).toEqual([['ESSX', 'ESGG'], 5500, null]));
   // 77 kt -> 136 min -> 2:20
   expect(await screen.findByDisplayValue('2:20')).toBeInTheDocument();
   expect(localStorage.getItem('cruiseAltitudeFt')).toBe('5500');
@@ -337,6 +341,28 @@ it('enforces a max landing weight below the MTOW and a max zero-fuel weight', as
   // Zero-fuel weight: 682.4 + 85 = 767.4 kg.
   expect(screen.getByText('Zero-fuel weight 767.4 kg is over the 750 kg limit.')).toBeInTheDocument();
   expect(screen.getAllByText('Outside limits').length).toBeGreaterThan(0);
+});
+
+it('a side-by-side two-seater shows two seats and ignores rear-seat weights from another aircraft', async () => {
+  const user = userEvent.setup();
+  const twoSeater = genericFromBuiltin('PA28-161 (SE-KMI)');
+  twoSeater.spec.code = 'C152';
+  twoSeater.spec.name = 'Cessna 152';
+  delete twoSeater.spec.stations.passengerRear;
+  mockedGenerics.mockResolvedValue([genericFromBuiltin('PA28-161 (SE-KMI)'), twoSeater]);
+  render(<WeightBalanceCalculator />);
+  // On the four-seater, someone in the back.
+  await user.click(await screen.findByRole('button', { name: /Rear Left/ }));
+  await user.type(screen.getByRole('dialog').querySelector('input') as HTMLInputElement, '90{Enter}');
+  const takeoffWith = () => screen.getByText(/^Takeoff [\d.]+ kg/).textContent;
+  await waitFor(() => expect(takeoffWith()).toContain('950 kg'));
+
+  await user.click(screen.getByRole('combobox', { name: 'Aircraft' }));
+  await user.click(await screen.findByRole('option', { name: /Cessna 152/ }));
+  expect(await screen.findByRole('button', { name: /Passenger/ })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Rear Left/ })).not.toBeInTheDocument();
+  // The 90 kg in the old rear seat no longer counts.
+  await waitFor(() => expect(takeoffWith()).toContain('860 kg'));
 });
 
 describe('a club link (?club=)', () => {

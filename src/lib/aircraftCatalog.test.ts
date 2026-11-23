@@ -92,6 +92,12 @@ describe('builtinCatalog', () => {
 });
 
 describe('getSeatLayout', () => {
+  it('a front row only is a side-by-side two-seater', () => {
+    expect(getSeatLayout({ stations: {} })).toBe('twoSeat');
+    expect(getSeatLayout({ stations: { passengerRear: {} } })).toBe('standard');
+    expect(getSeatLayout({ stations: { passengerBack: {} } })).toBe('tandem');
+  });
+
   it('matches the old name-based rule for every built-in aircraft', () => {
     for (const [key, a] of Object.entries(aircraftData)) {
       const expected = key.includes('PA18-150') ? 'tandem' : key.includes('PA-32') ? 'sixSeat' : 'standard';

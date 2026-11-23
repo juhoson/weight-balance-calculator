@@ -386,14 +386,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             inputs.frontPassengerWeight,
             aircraft.stations.pilotFront.arm
           ),
-          rearLeftPassenger: calculateMoment(
-            inputs.rearLeftPassengerWeight,
-            aircraft.stations.passengerRear?.arm || 0
-          ),
-          rearRightPassenger: calculateMoment(
-            inputs.rearRightPassengerWeight,
-            aircraft.stations.passengerRear?.arm || 0
-          ),
+          // A side-by-side two-seater has no rear row: rear weights left from another aircraft don't count.
+          ...(aircraft.stations.passengerRear ? {
+            rearLeftPassenger: calculateMoment(inputs.rearLeftPassengerWeight, aircraft.stations.passengerRear.arm),
+            rearRightPassenger: calculateMoment(inputs.rearRightPassengerWeight, aircraft.stations.passengerRear.arm),
+          } : {}),
           // Add back row passengers for 6-seater - use passengerBack arm if available, otherwise use passengerRear
           ...(is6Seater
             ? {
@@ -428,6 +425,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 inputs.rearRightPassengerWeight +
                 (inputs.backLeftPassengerWeight || 0) +
                 (inputs.backRightPassengerWeight || 0);
+    } else if (!aircraft.stations.passengerRear) {
+      // Side-by-side two-seater: the front passenger only
+      totalPassengerWeight = inputs.frontPassengerWeight;
     } else {
       // For standard 4-seater aircraft
       totalPassengerWeight = inputs.frontPassengerWeight +

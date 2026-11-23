@@ -76,6 +76,24 @@ const TandemLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
   </Fuselage>
 ));
 
+// Side-by-side two-seater (e.g. Cessna 152): the front row only
+const TwoSeatLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
+  <Fuselage rows={1}>
+    <div className="flex gap-3">
+      <SeatButton
+        label="Pilot"
+        weight={weights.pilotWeight}
+        onClick={() => onSeatClick('pilotWeight')}
+      />
+      <SeatButton
+        label="Passenger"
+        weight={weights.frontPassengerWeight}
+        onClick={() => onSeatClick('frontPassengerWeight')}
+      />
+    </div>
+  </Fuselage>
+));
+
 // Separate component for Standard Layout (4 seats, 2+2)
 const StandardLayout = React.memo(({weights, onSeatClick}: LayoutProps) => (
   <Fuselage rows={2}>
@@ -181,6 +199,8 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, layout, onChange}) => {
       return <TandemLayout weights={weights} onSeatClick={handleSeatClick}/>;
     } else if (is6Seater) {
       return <SixSeatLayout weights={weights} onSeatClick={handleSeatClick}/>;
+    } else if (layout === 'twoSeat') {
+      return <TwoSeatLayout weights={weights} onSeatClick={handleSeatClick}/>;
     } else {
       return <StandardLayout weights={weights} onSeatClick={handleSeatClick}/>;
     }
