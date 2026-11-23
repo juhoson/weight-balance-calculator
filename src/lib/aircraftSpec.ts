@@ -26,6 +26,7 @@ export const STATION_LABELS: Record<string, string> = {
   baggage: 'Baggage',
   baggage2: 'Baggage area 2',
   fuel: 'Fuel',
+  fuel2: 'Fuel tank 2',
 };
 
 export const SECTION_ORDER = ['Empty weight', 'Weight & CG limits', 'CG envelope', 'Loading stations', 'Performance'];

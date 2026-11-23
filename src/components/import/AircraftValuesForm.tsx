@@ -91,7 +91,7 @@ const AircraftValuesForm: React.FC<AircraftValuesFormProps> = ({ spec, onChange 
       <Section title="Loading stations">
         {Object.keys(STATION_LABELS).map(code => {
           const s = spec.stations[code];
-          const isFuel = code === 'fuel';
+          const isFuel = code === 'fuel' || code === 'fuel2';
           const required = REQUIRED_STATIONS.includes(code);
           return (
             <div key={code} className="rounded-md border border-border p-3">
@@ -115,12 +115,12 @@ const AircraftValuesForm: React.FC<AircraftValuesFormProps> = ({ spec, onChange 
                     onChange={v => edit(d => { d.stations[code].arm = num(v); })} />
                   {isFuel ? (
                     <>
-                      <NumField id="fuel-max" label="Usable fuel" unit="L" required value={s.maxLiters}
-                        onChange={v => edit(d => { d.stations.fuel.maxLiters = v; })} />
-                      <NumField id="fuel-std" label="Standard fill" unit="L" required value={s.standardLiters}
-                        onChange={v => edit(d => { d.stations.fuel.standardLiters = v; })} />
-                      <NumField id="fuel-density" label="Density" unit="kg/L" required value={s.weightPerLiter}
-                        onChange={v => edit(d => { d.stations.fuel.weightPerLiter = v; })} />
+                      <NumField id={`${code}-max`} label="Usable fuel" unit="L" required value={s.maxLiters}
+                        onChange={v => edit(d => { d.stations[code].maxLiters = v; })} />
+                      <NumField id={`${code}-std`} label="Standard fill" unit="L" required value={s.standardLiters}
+                        onChange={v => edit(d => { d.stations[code].standardLiters = v; })} />
+                      <NumField id={`${code}-density`} label="Density" unit="kg/L" required value={s.weightPerLiter}
+                        onChange={v => edit(d => { d.stations[code].weightPerLiter = v; })} />
                     </>
                   ) : (
                     <NumField id={`${code}-max`} label="Max load" unit="kg" required value={s.maxWeight}

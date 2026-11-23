@@ -365,6 +365,34 @@ it('a side-by-side two-seater shows two seats and ignores rear-seat weights from
   await waitFor(() => expect(takeoffWith()).toContain('860 kg'));
 });
 
+it('a second tank counts at its own arm, and the landing is checked whichever tank is used first', async () => {
+  const twoTanks = genericFromBuiltin('PA28-161 (SE-KMI)');
+  // A simple envelope so the numbers below are easy to follow: 2.11-2.36 m, 700-1055 kg.
+  const box = [[2.11, 700], [2.11, 1055], [2.36, 1055], [2.36, 700], [2.11, 700]].map(([cg, weight]) => ({ cg, weight }));
+  twoTanks.spec.envelope = { points: box, limits: { maxWeight: 1055, minWeight: 700, forwardCG: 2.11, aftCG: 2.36 } };
+  twoTanks.spec.stations.fuel = { ...twoTanks.spec.stations.fuel, label: 'Main tank' };
+  twoTanks.spec.stations.fuel2 = { arm: 0.10, maxLiters: 80, standardLiters: 0, weightPerLiter: 0.72, label: 'Wing tanks' };
+  // Like the DR400/180: no 55% row.
+  twoTanks.spec.performance.fuelConsumption = twoTanks.spec.performance.fuelConsumption.filter(f => f.powerSetting !== '55%');
+  mockedGenerics.mockResolvedValue([twoTanks]);
+  render(<WeightBalanceCalculator />);
+
+  const wing = await screen.findByLabelText(/Wing tanks/);
+  expect(wing).toHaveValue(null); // empty by default, like the DR400's
+  expect(screen.getByText('Main tank')).toBeInTheDocument();
+  fireEvent.change(wing, { target: { value: '20' } });
+  // Takeoff: 682.4 empty + 85 pilot + 128 L (92.16 kg) main + 20 L (14.4 kg) wing = 873.96 kg at 2.118 m.
+  await waitFor(() => expect(screen.getAllByText(/^Takeoff 874 kg · CG 2\.118 m$/).length).toBeGreaterThan(0));
+  // Landing after 42.1 L (30.31 kg): main tank first leaves the CG at 2.108 m, ahead of 2.11; wing tanks first, 2.147 m.
+  expect(await screen.findByText('Outside the envelope at landing if the main tank is used first.')).toBeInTheDocument();
+  expect(screen.getAllByText('Outside limits').length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Empty' }));
+  await waitFor(() => expect(screen.queryByText(/if the main tank is used first/)).not.toBeInTheDocument());
+  // No 55% row: the cruise power is one the aircraft has.
+  expect(screen.getByRole('combobox', { name: 'Cruise power' })).toHaveTextContent('75%');
+});
+
 describe('a club link (?club=)', () => {
   afterEach(() => window.history.replaceState(null, '', '/'));
 

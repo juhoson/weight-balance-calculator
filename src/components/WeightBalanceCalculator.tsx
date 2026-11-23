@@ -48,6 +48,8 @@ export interface CalculatorInputs {
     /** Baggage area 2, for aircraft that have one. */
     baggage2Weight?: number;
     fuelAmount: number;
+    /** The second tank, for aircraft that have one; in fuelUnit like fuelAmount. */
+    fuel2Amount?: number;
     fuelUnit: 'liters' | 'kg';
     flightTime: number;
     powerSetting: '55%' | '65%' | '75%';
@@ -182,6 +184,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       baggageWeight: 0,
       baggage2Weight: 0,
       fuelAmount: standardFuel,
+      fuel2Amount: aircraftList[selectedAircraft].stations.fuel2?.standardLiters ?? 0,
       fuelUnit: 'liters',
       flightTime: 60,
       powerSetting: '75%'
@@ -245,6 +248,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     setInputs(prev => ({
       ...prev,
       fuelAmount: standardFuel,
+      fuel2Amount: aircraftList[aircraft].stations.fuel2?.standardLiters ?? 0,
       fuelUnit: 'liters'
     }));
   }, [aircraftList]);
@@ -306,10 +310,16 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       }
     }
 
+    const fuel2 = aircraft.stations.fuel2;
+    let newFuel2 = inputs.fuel2Amount || 0;
+    if (fuel2 && inputs.fuelUnit !== unit) {
+      newFuel2 = unit === 'kg' ? newFuel2 * fuel2.weightPerLiter : newFuel2 / fuel2.weightPerLiter;
+    }
     setInputs(prev => ({
       ...prev,
       fuelUnit: unit,
-      fuelAmount: parseFloat(newFuelAmount.toFixed(1))
+      fuelAmount: parseFloat(newFuelAmount.toFixed(1)),
+      fuel2Amount: parseFloat(newFuel2.toFixed(1))
     }));
   };
 
@@ -359,13 +369,15 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     const tripFuel = calculateTripFuel();
     const totalFuelConsumed = tripFuel + aircraft.performance.taxiFuel.liters;
 
-    // Convert fuel to weight for calculations
-    const startingFuelWeight = inputs.fuelUnit === 'kg'
-      ? inputs.fuelAmount
-      : inputs.fuelAmount * aircraft.stations.fuel.weightPerLiter;
+    // Convert fuel to weight for calculations; a second tank (e.g. wing tanks) at its own arm.
+    const fuel1 = aircraft.stations.fuel, fuel2 = aircraft.stations.fuel2;
+    const tank1Weight = inputs.fuelUnit === 'kg' ? inputs.fuelAmount : inputs.fuelAmount * fuel1.weightPerLiter;
+    const tank2Weight = !fuel2 ? 0
+      : inputs.fuelUnit === 'kg' ? inputs.fuel2Amount || 0 : (inputs.fuel2Amount || 0) * fuel2.weightPerLiter;
+    const startingFuelWeight = tank1Weight + tank2Weight;
 
-    const landingFuelWeight = Math.max(0, startingFuelWeight -
-            (totalFuelConsumed * aircraft.stations.fuel.weightPerLiter));
+    const burnWeight = totalFuelConsumed * fuel1.weightPerLiter;
+    const landingFuelWeight = Math.max(0, startingFuelWeight - burnWeight);
 
     // Calculate moments and CG for takeoff
     const takeoffMoments = {
@@ -409,7 +421,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       ...(aircraft.stations.baggage2
         ? { baggage2: calculateMoment(inputs.baggage2Weight || 0, aircraft.stations.baggage2.arm) }
         : {}),
-      fuel: calculateMoment(startingFuelWeight, aircraft.stations.fuel.arm)
+      fuel: calculateMoment(tank1Weight, fuel1.arm),
+      ...(fuel2 ? { fuel2: calculateMoment(tank2Weight, fuel2.arm) } : {})
     };
 
     // Calculate total weight based on configuration
@@ -446,16 +459,33 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     const landingWeight = takeoffWeight - (startingFuelWeight - landingFuelWeight);
 
     const takeoffTotalMoment = Object.values(takeoffMoments).reduce((sum, moment) => sum + moment, 0);
-    const landingTotalMoment = Object.values({
-      ...takeoffMoments,
-      fuel: calculateMoment(landingFuelWeight, aircraft.stations.fuel.arm)
-    })
-      .reduce((sum, moment) => sum + moment, 0);
-
     const takeoffCG = calculateCG(takeoffWeight, takeoffTotalMoment);
-    const landingCG = calculateCG(landingWeight, landingTotalMoment);
 
-    const landingFuelLiters = landingFuelWeight / aircraft.stations.fuel.weightPerLiter;
+    // Landing: the fuel burned comes from one tank, then the other. Which one the pilot uses first
+    // moves the landing CG, so with two tanks both orders are checked and the worse one shown.
+    const landingCgBurning = (firstTank: 1 | 2) => {
+      const fromFirst = Math.min(burnWeight, firstTank === 1 ? tank1Weight : tank2Weight);
+      const rest = Math.max(0, burnWeight - fromFirst);
+      const left1 = firstTank === 1 ? tank1Weight - fromFirst : Math.max(0, tank1Weight - rest);
+      const left2 = firstTank === 2 ? tank2Weight - fromFirst : Math.max(0, tank2Weight - rest);
+      const moment = Object.values({
+        ...takeoffMoments,
+        fuel: calculateMoment(left1, fuel1.arm),
+        ...(fuel2 ? { fuel2: calculateMoment(left2, fuel2.arm) } : {}),
+      }).reduce((sum, m) => sum + m, 0);
+      return calculateCG(landingWeight, moment);
+    };
+    const landingOrders = fuel2 ? ([1, 2] as const) : ([1] as const);
+    const landingOptions = landingOrders.map(first => {
+      const cg = landingCgBurning(first);
+      const { forwardCG, aftCG } = aircraft.envelope.limits;
+      return { first, cg, ok: isWithinEnvelope(aircraft, landingWeight, cg), margin: Math.min(cg - forwardCG, aftCG - cg) };
+    });
+    // The failing order if there is one, otherwise the one closer to a CG limit.
+    const landingShown = [...landingOptions].sort((a, b) => Number(a.ok) - Number(b.ok) || a.margin - b.margin)[0];
+    const landingCG = landingShown.cg;
+
+    const landingFuelLiters = landingFuelWeight / fuel1.weightPerLiter;
     const hasMinimumReserve = landingFuelLiters >= aircraft.performance.reserveFuel.recommendedLiters;
 
     // Limits some POHs add to the envelope: everything but the fuel, and the landing weight.
@@ -477,6 +507,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       takeoffProblems.push(`Zero-fuel weight ${zeroFuelWeight.toFixed(1)} kg is over the ${aircraft.maxZeroFuelWeight} kg limit.`);
     }
     const landingProblems: string[] = [];
+    if (fuel2 && landingOptions.some(o => o.ok) && landingOptions.some(o => !o.ok)) {
+      const bad = landingOptions.find(o => !o.ok);
+      const name = (n: 1 | 2) => (n === 1 ? fuel1.label ?? 'main tank' : fuel2.label ?? 'second tank').toLowerCase();
+      landingProblems.push(`Outside the envelope at landing if the ${name(bad?.first ?? 1)} is used first.`);
+    }
     if (aircraft.maxLandingWeight !== undefined && landingWeight > aircraft.maxLandingWeight + 1e-9) {
       landingProblems.push(`${(landingWeight - aircraft.maxLandingWeight).toFixed(1)} kg over the ${aircraft.maxLandingWeight} kg max landing weight.`);
     }
@@ -492,7 +527,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       landing: {
         totalWeight: landingWeight,
         cg: landingCG,
-        isWithinLimits: isWithinEnvelope(aircraft, landingWeight, landingCG) && landingProblems.length === 0,
+        isWithinLimits: landingOptions.every(o => o.ok) && landingProblems.length === 0,
         problems: landingProblems,
         moments: takeoffMoments,
         fuelRemaining: landingFuelLiters,
@@ -513,6 +548,15 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       calculateWeightAndBalance();
     }
   }, [selectedAircraft, aircraftList, calculateWeightAndBalance]);
+
+  // Some aircraft lack a cruise power setting (the DR400/180 has no 55%): use one it has.
+  React.useEffect(() => {
+    const settings = aircraftList[selectedAircraft]?.performance.fuelConsumption.map(f => f.powerSetting) ?? [];
+    if (settings.length > 0 && !settings.includes(inputs.powerSetting)) {
+      const fallback = settings.includes('75%') ? '75%' : settings[settings.length - 1];
+      setInputs(prev => ({...prev, powerSetting: fallback}));
+    }
+  }, [aircraftList, selectedAircraft, inputs.powerSetting]);
 
   // When the list changes, keep the selected aircraft if it is still there; otherwise fall back to
   // the default. Once the database has answered, select a just-added aircraft if one was given.
@@ -638,7 +682,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const plannedAircraft = aircraftList[selectedAircraft];
   let blockedReason: string | null = null;
   if (trip && plannedAircraft && cruise) {
-    const startLiters = inputs.fuelUnit === 'kg' ? inputs.fuelAmount / plannedAircraft.stations.fuel.weightPerLiter : inputs.fuelAmount;
+    const totalFuel = inputs.fuelAmount + (plannedAircraft.stations.fuel2 ? inputs.fuel2Amount || 0 : 0);
+    const startLiters = inputs.fuelUnit === 'kg' ? totalFuel / plannedAircraft.stations.fuel.weightPerLiter : totalFuel;
     const landingLiters = startLiters - plannedAircraft.performance.taxiFuel.liters - (cruise.litersPerHour * noWindMinutes) / 60;
     const reserve = plannedAircraft.performance.reserveFuel.recommendedLiters;
     if (!(plannedAircraft.basicEmptyWeight > 0)) {
@@ -787,7 +832,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
 
           <Section step={4} title="Fuel and flight">
             <FormItem>
-              <FormLabel>Fuel on board</FormLabel>
+              <FormLabel>{aircraft.stations.fuel2 ? aircraft.stations.fuel.label ?? 'Main tank' : 'Fuel on board'}</FormLabel>
               <div className="flex gap-2">
                 <div className="flex-1">
                   <NumberInput
@@ -836,6 +881,14 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 </Button>
               </div>
             </FormItem>
+            {aircraft.stations.fuel2 && (
+              <SecondTank
+                tank={aircraft.stations.fuel2}
+                amount={inputs.fuel2Amount || 0}
+                unit={inputs.fuelUnit}
+                onChange={value => setInputs(prev => ({...prev, fuel2Amount: value}))}
+              />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <FormItem>
                 <FormLabel>Cruise power</FormLabel>
@@ -886,7 +939,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
           <ResultsPanel
             results={results}
             aircraft={aircraft}
-            fuelAmount={inputs.fuelAmount}
+            fuelAmount={inputs.fuelAmount + (aircraft.stations.fuel2 ? inputs.fuel2Amount || 0 : 0)}
             fuelUnit={inputs.fuelUnit}
             tripFuel={calculateTripFuel()}
             powerSetting={inputs.powerSetting}
@@ -932,7 +985,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               <p>Pilot & Front Passenger: {inputs.pilotWeight + inputs.frontPassengerWeight} kg</p>
               <p>Rear Passengers: {inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight} kg</p>
               <p>Baggage: {inputs.baggageWeight} kg{aircraft.stations.baggage2 ? `, area 2: ${inputs.baggage2Weight || 0} kg` : ''}</p>
-              <p>Fuel: {inputs.fuelAmount} {inputs.fuelUnit}</p>
+              <p>Fuel: {inputs.fuelAmount} {inputs.fuelUnit}{aircraft.stations.fuel2 ? `, ${aircraft.stations.fuel2.label ?? 'tank 2'}: ${inputs.fuel2Amount || 0} ${inputs.fuelUnit}` : ''}</p>
               <p>Flight Time: {Math.floor(inputs.flightTime / 60)}:{(inputs.flightTime % 60).toString().padStart(2, '0')} hours</p>
             </div>
           </div>
@@ -946,6 +999,30 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     </>
   );
 };
+/** A second fuel tank at its own arm (e.g. the Robin DR400's wing tanks). */
+const SecondTank: React.FC<{
+  tank: NonNullable<AircraftData['stations']['fuel2']>;
+  amount: number;
+  unit: 'liters' | 'kg';
+  onChange: (value: number) => void;
+}> = ({ tank, amount, unit, onChange }) => {
+  const max = unit === 'liters' ? tank.maxLiters : tank.maxLiters * tank.weightPerLiter;
+  const u = unit === 'liters' ? 'L' : 'kg';
+  return (
+    <FormItem>
+      <FormLabel htmlFor="fuel2">{tank.label ?? 'Second tank'} <span className="font-normal text-muted-foreground">· max {Math.round(max)} {u}</span></FormLabel>
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <NumberInput id="fuel2" value={amount} min={0} max={max} unit={u} onChange={onChange}/>
+        </div>
+        <Button type="button" variant={amount === 0 ? 'default' : 'outline'} onClick={() => onChange(0)}>Empty</Button>
+        <Button type="button" variant={Math.abs(amount - max) < 0.05 ? 'default' : 'outline'} onClick={() => onChange(Math.round(max * 10) / 10)}>Full</Button>
+      </div>
+      <p className="text-xs text-muted-foreground">At landing the CG is checked whichever tank you use first.</p>
+    </FormItem>
+  );
+};
+
 /** Baggage, with a second area and a joint limit for aircraft whose POH has them. */
 const BaggageInputs: React.FC<{
   aircraft: AircraftData;

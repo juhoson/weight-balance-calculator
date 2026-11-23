@@ -40,6 +40,8 @@ export interface StationSpec {
   maxLiters?: number | null;
   standardLiters?: number | null;
   weightPerLiter?: number | null;
+  /** What the pilot calls it, e.g. "Wing tanks"; absent = the station's usual name. */
+  label?: string | null;
 }
 
 export type Severity = 'INFO' | 'WARNING' | 'ALERT';

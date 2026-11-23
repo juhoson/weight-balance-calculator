@@ -74,7 +74,15 @@ export function toAircraftData(view: Loadable): AircraftData | null {
   const fuelConsumption = p.fuelConsumption
     .filter(f => (POWER_SETTINGS as readonly string[]).includes(f.powerSetting))
     .map(f => ({ ...f, powerSetting: f.powerSetting as PowerSetting }));
-  if (fuelConsumption.length !== POWER_SETTINGS.length) return null;
+  // Some POHs have no row for one of the settings (the DR400/180 nothing below 65%): at least one.
+  if (fuelConsumption.length === 0) return null;
+  const tank = (st: typeof s[string] | undefined) =>
+    st && isNum(st.arm) && isNum(st.maxLiters) && isNum(st.standardLiters) && isNum(st.weightPerLiter)
+      ? { arm: st.arm, maxLiters: st.maxLiters, standardLiters: st.standardLiters, weightPerLiter: st.weightPerLiter,
+        ...(st.label ? { label: st.label } : {}) }
+      : undefined;
+  const fuel2 = tank(s.fuel2);
+  if (s.fuel2 && !fuel2) return null;
 
   return {
     type: spec.name,
@@ -96,7 +104,9 @@ export function toAircraftData(view: Loadable): AircraftData | null {
         maxLiters: fuel.maxLiters,
         standardLiters: fuel.standardLiters,
         weightPerLiter: fuel.weightPerLiter,
+        ...(fuel.label ? { label: fuel.label } : {}),
       },
+      ...(fuel2 ? { fuel2 } : {}),
     },
     envelope: spec.envelope,
     performance: {

@@ -197,6 +197,13 @@ const MODEL_PHOTOS: Record<string, AircraftPhoto> = {
       sourceUrl: 'https://commons.wikimedia.org/wiki/File:Keiheuvel_Socata_TB-20_Trinidad.JPG',
     },
   },
+  DR400180: {
+    src: `${BASE}/models/DR400-180.jpg`,
+    credit: {
+      author: 'Cjp24', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0',
+      sourceUrl: 'https://commons.wikimedia.org/wiki/File:Robin_DR400-180_R%C3%A9gent,_F-GTPH.jpg',
+    },
+  },
 };
 
 /** The clubs' own photos of their aircraft, by registration. */

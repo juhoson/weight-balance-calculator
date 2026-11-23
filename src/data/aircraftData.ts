@@ -50,6 +50,16 @@ interface AircraftStations {
         maxLiters: number;
         standardLiters: number;
         weightPerLiter: number;
+        /** E.g. "Main tank", when the aircraft has a second tank. */
+        label?: string;
+    };
+    /** A second tank at its own arm (e.g. the Robin DR400's wing tanks). */
+    fuel2?: {
+        arm: number;
+        maxLiters: number;
+        standardLiters: number;
+        weightPerLiter: number;
+        label?: string;
     };
 }
 

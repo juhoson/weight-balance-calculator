@@ -39,14 +39,23 @@ describe('toCatalog', () => {
   it('leaves out aircraft the calculator cannot use', () => {
     const noBaggage = viewFromBuiltin('TB9 (F-GKVK)');
     delete noBaggage.spec.stations.baggage;
-    const no75 = viewFromBuiltin('PA28-140 (SE-ILO)');
-    no75.spec.performance.fuelConsumption = no75.spec.performance.fuelConsumption.slice(0, 2);
+    // Missing one cruise setting is fine (the DR400/180 has no 55%); missing all three is not.
+    const noCruise = viewFromBuiltin('PA28-140 (SE-ILO)');
+    noCruise.spec.performance.fuelConsumption = noCruise.spec.performance.fuelConsumption
+      .map(f => ({ ...f, powerSetting: '60%' }));
     const noFuelDensity = viewFromBuiltin('DA40D (SE-MBC)');
     noFuelDensity.spec.stations.fuel.weightPerLiter = null;
 
-    const { aircraft, skipped } = toCatalog([noBaggage, no75, noFuelDensity, viewFromBuiltin('PA28-161 (SE-GVE)')]);
+    const { aircraft, skipped } = toCatalog([noBaggage, noCruise, noFuelDensity, viewFromBuiltin('PA28-161 (SE-GVE)')]);
     expect(Object.keys(aircraft)).toEqual(['PA28-161 (SE-GVE)']);
     expect(skipped.sort()).toEqual(['F-GKVK', 'SE-ILO', 'SE-MBC']);
+  });
+
+  it('keeps an aircraft that lacks one cruise setting, with the settings it has', () => {
+    const no55 = viewFromBuiltin('PA28-140 (SE-ILO)');
+    no55.spec.performance.fuelConsumption = no55.spec.performance.fuelConsumption.filter(f => f.powerSetting !== '55%');
+    const data = toAircraftData(no55);
+    expect(data?.performance.fuelConsumption.map(f => f.powerSetting)).toEqual(['65%', '75%']);
   });
 
   it('drops optional speeds that are null instead of passing null through', () => {

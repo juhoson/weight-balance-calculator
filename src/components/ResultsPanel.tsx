@@ -140,7 +140,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
           <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Fuel className="h-4 w-4"/> Fuel plan</h3>
           {routeLabel && <p className="text-xs text-muted-foreground">{routeLabel}</p>}
           <div className="my-3">
-            <FuelTank capacityL={fuel.maxLiters} startL={startL} taxiL={aircraft.performance.taxiFuel.liters}
+            <FuelTank capacityL={fuel.maxLiters + (aircraft.stations.fuel2?.maxLiters ?? 0)} startL={startL} taxiL={aircraft.performance.taxiFuel.liters}
               tripL={tripFuel} reserveL={reserve} litersPerHour={litersPerHour} powerSetting={powerSetting}/>
           </div>
           <dl className="space-y-1 text-sm tabular-nums">
