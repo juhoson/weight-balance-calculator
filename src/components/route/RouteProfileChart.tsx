@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 import type { LegPlan, SegmentPlan } from '../../lib/enroute';
 
 interface RouteProfileChartProps {
@@ -38,6 +39,17 @@ function useWidth<T extends HTMLElement>(fallback: number): [React.RefObject<T |
 const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (active === null) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setActive(null); };
+    const onDown = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setActive(null); };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown);
+    };
+  }, [active, ref]);
   const segments = legs.flatMap(l => l.segments);
   if (segments.length === 0) return null;
 
@@ -140,21 +152,34 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt 
             <rect key={i} x={x(s.segment.startNm)} width={Math.max(1, x(s.segment.startNm + s.segment.distanceNm) - x(s.segment.startNm))}
               y={M.top - 28} height={plotH + 28} fill="transparent"
               className={active === i ? 'fill-foreground/10' : undefined}
-              onPointerEnter={() => setActive(i)} onPointerDown={() => setActive(i)}/>
+              onPointerEnter={e => { if (e.pointerType === 'mouse') setActive(i); }}
+              onPointerUp={() => setActive(a => (a === i ? null : i))}/>
           ))}
         </svg>
-        {shown && <Tooltip s={shown} left={x(shown.segment.startNm + shown.segment.distanceNm / 2)} width={width}/>}
+        {shown && (
+          <Tooltip s={shown} left={x(shown.segment.startNm + shown.segment.distanceNm / 2)} width={width}
+            // Away from the cruise line, so the flight path stays in view.
+            below={y(altitudeFt) < M.top + plotH / 2} onClose={() => setActive(null)}/>
+        )}
       </div>
     </figure>
   );
 };
 
-const Tooltip: React.FC<{ s: SegmentPlan; left: number; width: number }> = ({ s, left, width }) => {
+/** A segment's details; tap it (or its ×) to close. Sits above or below the cruise line, never on it. */
+const Tooltip: React.FC<{ s: SegmentPlan; left: number; width: number; below: boolean; onClose: () => void }> = ({
+  s, left, width, below, onClose,
+}) => {
   const w = 200;
   const clamped = Math.min(Math.max(left - w / 2, 0), Math.max(0, width - w));
   return (
-    <div role="status" style={{ left: clamped, width: w }}
-      className="pointer-events-none absolute top-8 z-10 rounded-md border border-border bg-popover p-2 text-[11px] leading-snug text-popover-foreground shadow-md tabular-nums">
+    <div role="dialog" aria-label="Segment details" style={{ left: clamped, width: w, ...(below ? { bottom: M.bottom + 2 } : { top: M.top + 2 }) }}
+      onPointerUp={e => { e.stopPropagation(); onClose(); }}
+      className="absolute z-10 cursor-pointer rounded-md border border-border bg-popover/95 p-2 pr-7 text-[11px] leading-snug text-popover-foreground shadow-md tabular-nums">
+      <button type="button" aria-label="Close segment details" onClick={onClose}
+        className="absolute right-1 top-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+        <X className="h-3.5 w-3.5"/>
+      </button>
       <p className="font-medium">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)} NM · {utc(s.departs)}–{utc(s.arrives)}</p>
       <p>Wind {pad3(s.wind.fromTrue)}°/{Math.round(s.wind.kt)} kt{s.wind.tempC !== null ? ` · ${Math.round(s.wind.tempC)} °C` : ''}</p>
       <p>MH {pad3(s.magneticHeading)}° · GS {Math.round(s.triangle.groundSpeedKt)} kt</p>

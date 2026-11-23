@@ -243,7 +243,7 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
   expect(screen.getAllByText('231/20')).toHaveLength(7);
   expect(screen.getByRole('img', { name: /Route profile, 175 NM at 3000 ft/ })).toBeInTheDocument();
   // Cloud base 2,900 ft on one segment: the cruise is in it, above the freezing level.
-  expect(screen.getByText(/Cloud base forecast at or within 500 ft of 3,000 ft on 1 of 7 segments \(lowest ≈ 2,900 ft\)/)).toBeInTheDocument();
+  expect(screen.getByText(/Cloud base forecast below or less than 500 ft above your cruise altitude \(3,000 ft\) on 1 of 7 segments \(lowest ≈ 2,900 ft\)/)).toBeInTheDocument();
   expect(screen.getByText(/Icing possible/)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Cruise altitude'), { target: { value: '5500' } });

@@ -90,7 +90,7 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
               {warnings.nearCloud.length > 0 && (
                 <li className="flex gap-2"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0"/>
-                  Cloud base forecast at or within 500 ft of {ft(altitudeFt)} ft on {warnings.nearCloud.length} of {plan.segments.length} segments
+                  Cloud base forecast below or less than 500 ft above your cruise altitude ({ft(altitudeFt)} ft) on {warnings.nearCloud.length} of {plan.segments.length} segments
                   (lowest ≈ {ft(warnings.lowestBaseFt ?? 0)} ft).</li>
               )}
               {warnings.icing.length > 0 && (
