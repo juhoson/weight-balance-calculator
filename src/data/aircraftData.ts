@@ -43,6 +43,8 @@ interface AircraftStations {
     passengerRear?: { arm: number; maxWeight: number; };  // Optional for standard layout
     passengerBack?: { arm: number; maxWeight: number; };  // Optional for tandem layout
     baggage: { arm: number; maxWeight: number; };
+    /** A second baggage area at its own arm (e.g. Cessna 172 area 2). */
+    baggage2?: { arm: number; maxWeight: number; };
     fuel: {
         arm: number;
         maxLiters: number;
@@ -57,6 +59,12 @@ export interface AircraftData {
     armAftDatum: number;
     mtow: number;
     maxBaggage: number;
+    /** All baggage areas together, when the POH limits them jointly. */
+    maxBaggageTotal?: number;
+    /** When lower than the MTOW (e.g. Cessna 182T). */
+    maxLandingWeight?: number;
+    /** Most the aircraft may weigh without usable fuel (e.g. Cirrus SR22 G6). */
+    maxZeroFuelWeight?: number;
     stations: AircraftStations;
     envelope: {
         points: Array<{ cg: number; weight: number; }>;

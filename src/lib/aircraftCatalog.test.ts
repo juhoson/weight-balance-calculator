@@ -56,6 +56,29 @@ describe('toCatalog', () => {
   });
 });
 
+describe('a second baggage area', () => {
+  it('carries area 2 and the joint limit into the calculator data', () => {
+    const v = viewFromBuiltin('PA28-161 (SE-KMI)');
+    v.spec.stations.baggage2 = { arm: 3.12, maxWeight: 22.7 };
+    v.spec.maxBaggageTotal = 54.4;
+    const data = toAircraftData(v);
+    expect(data?.stations.baggage2).toEqual({ arm: 3.12, maxWeight: 22.7 });
+    expect(data?.maxBaggageTotal).toBe(54.4);
+  });
+
+  it('has neither when the type has one area', () => {
+    const data = toAircraftData(viewFromBuiltin('PA28-161 (SE-KMI)'));
+    expect(data?.stations.baggage2).toBeUndefined();
+    expect(data?.maxBaggageTotal).toBeUndefined();
+  });
+
+  it('leaves out an aircraft whose area 2 has no limit', () => {
+    const v = viewFromBuiltin('PA28-161 (SE-KMI)');
+    v.spec.stations.baggage2 = { arm: 3.12, maxWeight: null };
+    expect(toAircraftData(v)).toBeNull();
+  });
+});
+
 describe('builtinCatalog', () => {
   it('offers one generic aircraft per model and no registrations', () => {
     const { aircraft, meta } = builtinCatalog();

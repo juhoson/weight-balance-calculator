@@ -289,6 +289,56 @@ it('a route with a waypoint asks for weather via it and counts all legs', async 
   await waitFor(() => expect(mockedRoute).toHaveBeenLastCalledWith('ESSX', 'ESGG', []));
 });
 
+it('an aircraft with two baggage areas takes both, each at its own arm, within the joint limit', async () => {
+  const generic = genericFromBuiltin('PA28-161 (SE-KMI)');
+  generic.spec.stations.baggage2 = { arm: 3.5, maxWeight: 20 };
+  generic.spec.maxBaggageTotal = 40;
+  mockedGenerics.mockResolvedValue([generic]);
+  render(<WeightBalanceCalculator />);
+  const area2 = await screen.findByLabelText(/Baggage area 2/);
+  const area1 = screen.getByLabelText(/Baggage area 1/);
+  expect(screen.getByText('Both areas together at most 40 kg.')).toBeInTheDocument();
+
+  const cgBefore = screen.getAllByText(/CG [\d.]+ m/)[0].textContent;
+  fireEvent.change(area2, { target: { value: '15' } });
+  // 15 kg at 3.5 m, aft of everything else: the CG moves aft.
+  await waitFor(() => expect(screen.getAllByText(/CG [\d.]+ m/)[0].textContent).not.toBe(cgBefore));
+  fireEvent.change(area1, { target: { value: '30' } });
+  expect(await screen.findByText('Both areas together: 45 kg, above the 40 kg joint limit.')).toBeInTheDocument();
+  // Over a baggage limit is outside limits, not just a note under the field.
+  expect(screen.getByText('Baggage 45 kg in both areas is over the 40 kg joint limit.')).toBeInTheDocument();
+  expect(screen.getAllByText('Outside limits').length).toBeGreaterThan(0);
+  fireEvent.change(area2, { target: { value: '25' } });
+  expect(screen.getByText('Above the 20 kg limit for this area.')).toBeInTheDocument();
+});
+
+it('a generic type without typical values waits for the pilot\'s own empty weight', async () => {
+  mockedGenerics.mockResolvedValue([genericFromBuiltin('PA28-161 (SE-KMI)', { typicalEmptyWeight: null, typicalEmptyArm: null })]);
+  render(<WeightBalanceCalculator />);
+  expect(await screen.findByText(/The POH gives no typical empty weight for this model/)).toBeInTheDocument();
+  expect(screen.getByText(/Enter your aircraft's empty weight and arm from its weighing report/)).toBeInTheDocument();
+  expect(screen.queryByText('Within limits', { selector: 'span' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Use typical values' })).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Empty weight (kg)'), { target: { value: '690' } });
+  fireEvent.change(screen.getByLabelText('Empty arm (m)'), { target: { value: '2.15' } });
+  expect((await screen.findAllByText('Within limits', { selector: 'span' })).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/Enter your aircraft's empty weight and arm from its weighing report/)).not.toBeInTheDocument();
+});
+
+it('enforces a max landing weight below the MTOW and a max zero-fuel weight', async () => {
+  const generic = genericFromBuiltin('PA28-161 (SE-KMI)');
+  // Typical PA28-161: 682.4 kg empty + 85 kg pilot + 128 L fuel (92.2 kg) = 859.6 kg at takeoff.
+  generic.spec.maxLandingWeight = 800;
+  generic.spec.maxZeroFuelWeight = 750;
+  mockedGenerics.mockResolvedValue([generic]);
+  render(<WeightBalanceCalculator />);
+  expect(await screen.findByText(/over the 800 kg max landing weight/)).toBeInTheDocument();
+  // Zero-fuel weight: 682.4 + 85 = 767.4 kg.
+  expect(screen.getByText('Zero-fuel weight 767.4 kg is over the 750 kg limit.')).toBeInTheDocument();
+  expect(screen.getAllByText('Outside limits').length).toBeGreaterThan(0);
+});
+
 describe('a club link (?club=)', () => {
   afterEach(() => window.history.replaceState(null, '', '/'));
 

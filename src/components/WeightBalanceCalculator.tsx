@@ -45,6 +45,8 @@ export interface CalculatorInputs {
     backRightPassengerWeight?: number;   // Added for 3rd row right passenger in 6-seater
     backPassengerWeight?: number;        // For tandem aircraft
     baggageWeight: number;
+    /** Baggage area 2, for aircraft that have one. */
+    baggage2Weight?: number;
     fuelAmount: number;
     fuelUnit: 'liters' | 'kg';
     flightTime: number;
@@ -56,12 +58,14 @@ interface CalculationResults {
         totalWeight: number;
         cg: number;
         isWithinLimits: boolean;
+        problems?: string[];
         moments: Record<string, number>;
     };
     landing: {
         totalWeight: number;
         cg: number;
         isWithinLimits: boolean;
+        problems?: string[];
         moments: Record<string, number>;
         fuelRemaining: number;
         hasMinimumReserve: boolean;
@@ -176,6 +180,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       rearRightPassengerWeight: 0,
       backPassengerWeight: 0,
       baggageWeight: 0,
+      baggage2Weight: 0,
       fuelAmount: standardFuel,
       fuelUnit: 'liters',
       flightTime: 60,
@@ -342,6 +347,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
 
     const aircraft = aircraftList[selectedAircraft];
     if (!aircraft) return;
+    if (!(aircraft.basicEmptyWeight > 0)) {
+      setResults(null); // a generic type without typical values, before the pilot enters theirs
+      return;
+    }
     const layout = getSeatLayout(aircraft);
     const isTandem = layout === 'tandem';
     const is6Seater = layout === 'sixSeat';
@@ -400,6 +409,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             : {})
         }),
       baggage: calculateMoment(inputs.baggageWeight, aircraft.stations.baggage.arm),
+      ...(aircraft.stations.baggage2
+        ? { baggage2: calculateMoment(inputs.baggage2Weight || 0, aircraft.stations.baggage2.arm) }
+        : {}),
       fuel: calculateMoment(startingFuelWeight, aircraft.stations.fuel.arm)
     };
 
@@ -427,6 +439,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             inputs.pilotWeight +
             totalPassengerWeight +
             inputs.baggageWeight +
+            (aircraft.stations.baggage2 ? inputs.baggage2Weight || 0 : 0) +
             startingFuelWeight;
 
     // Rest of the calculation remains the same
@@ -445,17 +458,42 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     const landingFuelLiters = landingFuelWeight / aircraft.stations.fuel.weightPerLiter;
     const hasMinimumReserve = landingFuelLiters >= aircraft.performance.reserveFuel.recommendedLiters;
 
+    // Limits some POHs add to the envelope: everything but the fuel, and the landing weight.
+    const takeoffProblems: string[] = [];
+    // Baggage limits are structural: over one, the loading is outside limits like any other.
+    const area1 = inputs.baggageWeight || 0;
+    const area2 = aircraft.stations.baggage2 ? inputs.baggage2Weight || 0 : 0;
+    if (area1 > aircraft.maxBaggage + 1e-9) {
+      takeoffProblems.push(`Baggage${aircraft.stations.baggage2 ? ' area 1' : ''} ${area1} kg is over its ${aircraft.maxBaggage} kg limit.`);
+    }
+    if (aircraft.stations.baggage2 && area2 > aircraft.stations.baggage2.maxWeight + 1e-9) {
+      takeoffProblems.push(`Baggage area 2 ${area2} kg is over its ${aircraft.stations.baggage2.maxWeight} kg limit.`);
+    }
+    if (aircraft.maxBaggageTotal !== undefined && area1 + area2 > aircraft.maxBaggageTotal + 1e-9) {
+      takeoffProblems.push(`Baggage ${area1 + area2} kg in both areas is over the ${aircraft.maxBaggageTotal} kg joint limit.`);
+    }
+    const zeroFuelWeight = takeoffWeight - startingFuelWeight;
+    if (aircraft.maxZeroFuelWeight !== undefined && zeroFuelWeight > aircraft.maxZeroFuelWeight + 1e-9) {
+      takeoffProblems.push(`Zero-fuel weight ${zeroFuelWeight.toFixed(1)} kg is over the ${aircraft.maxZeroFuelWeight} kg limit.`);
+    }
+    const landingProblems: string[] = [];
+    if (aircraft.maxLandingWeight !== undefined && landingWeight > aircraft.maxLandingWeight + 1e-9) {
+      landingProblems.push(`${(landingWeight - aircraft.maxLandingWeight).toFixed(1)} kg over the ${aircraft.maxLandingWeight} kg max landing weight.`);
+    }
+
     setResults({
       takeoff: {
         totalWeight: takeoffWeight,
         cg: takeoffCG,
-        isWithinLimits: isWithinEnvelope(aircraft, takeoffWeight, takeoffCG),
+        isWithinLimits: isWithinEnvelope(aircraft, takeoffWeight, takeoffCG) && takeoffProblems.length === 0,
+        problems: takeoffProblems,
         moments: takeoffMoments
       },
       landing: {
         totalWeight: landingWeight,
         cg: landingCG,
-        isWithinLimits: isWithinEnvelope(aircraft, landingWeight, landingCG),
+        isWithinLimits: isWithinEnvelope(aircraft, landingWeight, landingCG) && landingProblems.length === 0,
+        problems: landingProblems,
         moments: takeoffMoments,
         fuelRemaining: landingFuelLiters,
         hasMinimumReserve
@@ -603,7 +641,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     const startLiters = inputs.fuelUnit === 'kg' ? inputs.fuelAmount / plannedAircraft.stations.fuel.weightPerLiter : inputs.fuelAmount;
     const landingLiters = startLiters - plannedAircraft.performance.taxiFuel.liters - (cruise.litersPerHour * noWindMinutes) / 60;
     const reserve = plannedAircraft.performance.reserveFuel.recommendedLiters;
-    if (results && !results.takeoff.isWithinLimits) {
+    if (!(plannedAircraft.basicEmptyWeight > 0)) {
+      blockedReason = 'Enter your aircraft\'s empty weight first; then the en-route forecast is loaded.';
+    } else if (results && !results.takeoff.isWithinLimits) {
       blockedReason = 'The loading is outside the weight and balance limits. Fix that first; then the en-route forecast is loaded.';
     } else if (landingLiters < reserve) {
       blockedReason = `Not enough fuel for this route even without wind (${Math.max(0, Math.round(landingLiters))} L at landing, `
@@ -701,8 +741,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               <GenericEmptyWeight
                 weight={emptyOverrides[selectedAircraft]?.weight ?? catalog.aircraft[selectedAircraft].basicEmptyWeight}
                 arm={emptyOverrides[selectedAircraft]?.arm ?? catalog.aircraft[selectedAircraft].armAftDatum}
-                typicalWeight={catalog.aircraft[selectedAircraft].basicEmptyWeight}
-                typicalArm={catalog.aircraft[selectedAircraft].armAftDatum}
+                typicalWeight={selectedMeta.noTypicalEmpty ? null : catalog.aircraft[selectedAircraft].basicEmptyWeight}
+                typicalArm={selectedMeta.noTypicalEmpty ? null : catalog.aircraft[selectedAircraft].armAftDatum}
                 onChange={value => updateEmptyOverride(selectedAircraft, value)}
               />
             </div>
@@ -711,19 +751,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
           <Section step={2} title="People and baggage">
             <p className="-mt-2 text-xs text-muted-foreground">Tap a seat to enter the person&apos;s weight.</p>
             <SeatLayout weights={inputs} layout={getSeatLayout(aircraft)} onChange={handleWeightChange}/>
-            <FormItem>
-              <FormLabel htmlFor="baggage">Baggage (kg) <span className="font-normal text-muted-foreground">· max {aircraft.maxBaggage} kg</span></FormLabel>
-              <NumberInput
-                id="baggage"
-                value={inputs.baggageWeight || 0}
-                min={0}
-                placeholder="0"
-                onChange={(e) => handleInputChange('baggageWeight', e.toString())}
-              />
-              {inputs.baggageWeight > aircraft.maxBaggage && (
-                <p className="text-xs text-red-600">Above the {aircraft.maxBaggage} kg baggage limit.</p>
-              )}
-            </FormItem>
+            <BaggageInputs aircraft={aircraft} inputs={inputs} onChange={handleInputChange}/>
           </Section>
 
           <Section step={3} title="Route and weather">
@@ -862,6 +890,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             fuelUnit={inputs.fuelUnit}
             tripFuel={calculateTripFuel()}
             powerSetting={inputs.powerSetting}
+            waitingFor={aircraft.basicEmptyWeight > 0 ? null
+              : 'Enter your aircraft\'s empty weight and arm from its weighing report (under the aircraft) to see the results.'}
             routeLabel={trip ? `${[trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code].join(' → ')} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
           />
         </aside>
@@ -901,7 +931,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               <h3 className="font-semibold">Input Weights</h3>
               <p>Pilot & Front Passenger: {inputs.pilotWeight + inputs.frontPassengerWeight} kg</p>
               <p>Rear Passengers: {inputs.rearLeftPassengerWeight + inputs.rearRightPassengerWeight} kg</p>
-              <p>Baggage: {inputs.baggageWeight} kg</p>
+              <p>Baggage: {inputs.baggageWeight} kg{aircraft.stations.baggage2 ? `, area 2: ${inputs.baggage2Weight || 0} kg` : ''}</p>
               <p>Fuel: {inputs.fuelAmount} {inputs.fuelUnit}</p>
               <p>Flight Time: {Math.floor(inputs.flightTime / 60)}:{(inputs.flightTime % 60).toString().padStart(2, '0')} hours</p>
             </div>
@@ -916,4 +946,41 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     </>
   );
 };
+/** Baggage, with a second area and a joint limit for aircraft whose POH has them. */
+const BaggageInputs: React.FC<{
+  aircraft: AircraftData;
+  inputs: CalculatorInputs;
+  onChange: (field: 'baggageWeight' | 'baggage2Weight', value: string) => void;
+}> = ({ aircraft, inputs, onChange }) => {
+  const area2 = aircraft.stations.baggage2;
+  const area1Kg = inputs.baggageWeight || 0;
+  const area2Kg = area2 ? inputs.baggage2Weight || 0 : 0;
+  const total = aircraft.maxBaggageTotal;
+  return (
+    <div className="space-y-2">
+      <div className={cn('grid gap-3', area2 && 'sm:grid-cols-2')}>
+        <FormItem>
+          <FormLabel htmlFor="baggage">{area2 ? 'Baggage area 1' : 'Baggage'} (kg) <span className="font-normal text-muted-foreground">· max {aircraft.maxBaggage} kg</span></FormLabel>
+          <NumberInput id="baggage" value={area1Kg} min={0} placeholder="0" onChange={v => onChange('baggageWeight', v.toString())}/>
+          {area1Kg > aircraft.maxBaggage && <p className="text-xs text-red-600">Above the {aircraft.maxBaggage} kg limit for this area.</p>}
+        </FormItem>
+        {area2 && (
+          <FormItem>
+            <FormLabel htmlFor="baggage2">Baggage area 2 (kg) <span className="font-normal text-muted-foreground">· max {area2.maxWeight} kg</span></FormLabel>
+            <NumberInput id="baggage2" value={area2Kg} min={0} placeholder="0" onChange={v => onChange('baggage2Weight', v.toString())}/>
+            {area2Kg > area2.maxWeight && <p className="text-xs text-red-600">Above the {area2.maxWeight} kg limit for this area.</p>}
+          </FormItem>
+        )}
+      </div>
+      {area2 && total !== undefined && (
+        <p className={cn('text-xs', area1Kg + area2Kg > total ? 'text-red-600' : 'text-muted-foreground')}>
+          {area1Kg + area2Kg > total
+            ? `Both areas together: ${area1Kg + area2Kg} kg, above the ${total} kg joint limit.`
+            : `Both areas together at most ${total} kg.`}
+        </p>
+      )}
+    </div>
+  );
+};
+
 export default WeightBalanceCalculator;

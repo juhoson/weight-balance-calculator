@@ -8,8 +8,9 @@ interface GenericEmptyWeightProps {
   /** What the pilot entered, or the typical value. 0 = field cleared. */
   weight: number;
   arm: number;
-  typicalWeight: number;
-  typicalArm: number;
+  /** Null when the POH gives no typical values: the pilot's own are required. */
+  typicalWeight: number | null;
+  typicalArm: number | null;
   /** null = back to the typical values. */
   onChange: (value: { weight: number; arm: number } | null) => void;
 }
@@ -19,7 +20,8 @@ interface GenericEmptyWeightProps {
  * report. Prefilled with the model's typical values, which are only a placeholder.
  */
 const GenericEmptyWeight: React.FC<GenericEmptyWeightProps> = ({weight, arm, typicalWeight, typicalArm, onChange}) => {
-  const isTypical = weight === typicalWeight && arm === typicalArm;
+  const noTypical = typicalWeight === null || typicalArm === null;
+  const isTypical = !noTypical && weight === typicalWeight && arm === typicalArm;
   const incomplete = !(weight > 0) || !(arm > 0);
   return (
     <FormItem>
@@ -47,7 +49,12 @@ const GenericEmptyWeight: React.FC<GenericEmptyWeightProps> = ({weight, arm, typ
         </label>
       </div>
       <div className="space-y-1 text-xs" role="status">
-        {incomplete ? (
+        {incomplete && noTypical ? (
+          <p className="text-red-600">
+            The POH gives no typical empty weight for this model. Enter both values from your aircraft&apos;s latest
+            weighing report; until then nothing is calculated.
+          </p>
+        ) : incomplete ? (
           <p className="text-red-600">
             Enter both values. Until then the typical values ({typicalWeight} kg, {typicalArm} m) are used.
           </p>
@@ -60,9 +67,11 @@ const GenericEmptyWeight: React.FC<GenericEmptyWeightProps> = ({weight, arm, typ
         ) : (
           <p className="flex flex-wrap items-center gap-1 text-muted-foreground">
             Your values are remembered in this browser.
-            <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => onChange(null)}>
-              Use typical values
-            </Button>
+            {!noTypical && (
+              <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => onChange(null)}>
+                Use typical values
+              </Button>
+            )}
           </p>
         )}
       </div>

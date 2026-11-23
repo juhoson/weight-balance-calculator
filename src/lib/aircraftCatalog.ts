@@ -7,7 +7,11 @@ import type { AirframeView, GenericTypeView, StationSpec, TypeStatus, Verificati
  * aircraft data carries the typical values as the prefill.
  */
 export type AircraftMeta =
-  | { kind: 'generic'; label: string; code: string; typeStatus: TypeStatus }
+  | {
+      kind: 'generic'; label: string; code: string; typeStatus: TypeStatus;
+      /** The POH gives no typical empty weight: nothing is calculated until the pilot enters theirs. */
+      noTypicalEmpty?: boolean;
+    }
   | {
       kind: 'airframe';
       label: string;
@@ -63,7 +67,8 @@ export function toAircraftData(view: Loadable): AircraftData | null {
     st && isNum(st.arm) && isNum(st.maxWeight) ? { arm: st.arm, maxWeight: st.maxWeight } : undefined;
   const rear = seat(s.passengerRear);
   const back = seat(s.passengerBack);
-  if ((s.passengerRear && !rear) || (s.passengerBack && !back)) return null;
+  const baggage2 = seat(s.baggage2);
+  if ((s.passengerRear && !rear) || (s.passengerBack && !back) || (s.baggage2 && !baggage2)) return null;
 
   const p = spec.performance;
   const fuelConsumption = p.fuelConsumption
@@ -77,11 +82,15 @@ export function toAircraftData(view: Loadable): AircraftData | null {
     armAftDatum: view.armAftDatum,
     mtow: spec.mtow,
     maxBaggage: baggage.maxWeight,
+    ...(isNum(spec.maxBaggageTotal) ? { maxBaggageTotal: spec.maxBaggageTotal } : {}),
+    ...(isNum(spec.maxLandingWeight) ? { maxLandingWeight: spec.maxLandingWeight } : {}),
+    ...(isNum(spec.maxZeroFuelWeight) ? { maxZeroFuelWeight: spec.maxZeroFuelWeight } : {}),
     stations: {
       pilotFront: { arm: pilot.arm, maxWeight: pilot.maxWeight },
       ...(rear ? { passengerRear: rear } : {}),
       ...(back ? { passengerBack: back } : {}),
       baggage: { arm: baggage.arm, maxWeight: baggage.maxWeight },
+      ...(baggage2 ? { baggage2 } : {}),
       fuel: {
         arm: fuel.arm,
         maxLiters: fuel.maxLiters,
@@ -118,14 +127,21 @@ export function toCatalog(views: AirframeView[], generics: GenericTypeView[] = [
   const skipped: string[] = [];
 
   for (const g of generics) {
-    const data = toAircraftData({ spec: g.spec, basicEmptyWeight: g.typicalEmptyWeight, armAftDatum: g.typicalEmptyArm });
+    // Without typical values the empty weight starts at 0 and the calculator waits for the pilot's own.
+    const typicalWeight = g.typicalEmptyWeight, typicalArm = g.typicalEmptyArm;
+    const noTypicalEmpty = !isNum(typicalWeight) || !isNum(typicalArm);
+    const data = toAircraftData({
+      spec: g.spec,
+      basicEmptyWeight: noTypicalEmpty ? 0 : typicalWeight,
+      armAftDatum: noTypicalEmpty ? 0 : typicalArm,
+    });
     const key = genericKey(g.spec.code);
     if (!data || generic[key]) {
       if (!data) skipped.push(g.spec.code);
       continue;
     }
     generic[key] = data;
-    meta[key] = { kind: 'generic', label: g.spec.name, code: g.spec.code, typeStatus: g.typeStatus };
+    meta[key] = { kind: 'generic', label: g.spec.name, code: g.spec.code, typeStatus: g.typeStatus, ...(noTypicalEmpty ? { noTypicalEmpty } : {}) };
   }
 
   const sorted = [...views].sort((a, b) => Number(a.owned) - Number(b.owned)); // shared first keep the plain key

@@ -10,6 +10,8 @@ export interface LoadResult {
   totalWeight: number;
   cg: number;
   isWithinLimits: boolean;
+  /** Limits beyond the envelope that this phase breaks (max landing weight, zero-fuel weight). */
+  problems?: string[];
 }
 
 export interface CalculationSummary {
@@ -68,6 +70,7 @@ const Phase: React.FC<{ title: string; result: LoadResult; aircraft: AircraftDat
         CG <span className="font-semibold">{result.cg.toFixed(3)} m</span>
         <span className="text-xs text-muted-foreground"> ({aircraft.envelope.limits.forwardCG}–{aircraft.envelope.limits.aftCG})</span>
       </p>
+      {result.problems?.map(p => <p key={p} className="mt-1 text-xs font-medium text-red-600">{p}</p>)}
     </div>
   );
 };
@@ -81,11 +84,13 @@ interface ResultsPanelProps {
   powerSetting: string;
   /** E.g. "ESSX → ESGG · 175 NM", when the trip time comes from the route. */
   routeLabel?: string | null;
+  /** Why there are no results yet, e.g. the empty weight is missing. */
+  waitingFor?: string | null;
 }
 
 /** The outcome: overall verdict, takeoff and landing figures, the CG envelope and the fuel plan. */
 const ResultsPanel: React.FC<ResultsPanelProps> = ({
-  results, aircraft, fuelAmount, fuelUnit, tripFuel, powerSetting, routeLabel,
+  results, aircraft, fuelAmount, fuelUnit, tripFuel, powerSetting, routeLabel, waitingFor,
 }) => {
   const verdict = results ? verdictOf(results) : null;
   const reserve = aircraft.performance.reserveFuel.recommendedLiters;
@@ -94,6 +99,12 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const litersPerHour = aircraft.performance.fuelConsumption.find(f => f.powerSetting === powerSetting)?.litersPerHour ?? 0;
   return (
     <section id="results" aria-label="Results" className="space-y-4 scroll-mt-4">
+      {!results && waitingFor && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/50 bg-amber-50 p-4 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100" role="status">
+          <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-amber-600"/>
+          <p className="text-sm font-medium">{waitingFor}</p>
+        </div>
+      )}
       {results && verdict && (
         <div className={cn('flex items-start gap-3 rounded-xl border p-4', verdictStyles[verdict])} role="status">
           <VerdictIcon verdict={verdict} className="mt-0.5 h-6 w-6 shrink-0"/>

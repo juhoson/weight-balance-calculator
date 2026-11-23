@@ -25,6 +25,12 @@ export interface AircraftSpec {
     taxiFuel: { liters: number; timeMinutes: number };
     reserveFuel: { minimumMinutes: number; recommendedLiters: number };
   };
+  /** All baggage areas together, when the POH limits them jointly. */
+  maxBaggageTotal?: number | null;
+  /** When lower than the MTOW. */
+  maxLandingWeight?: number | null;
+  /** Most the aircraft may weigh without usable fuel, when the POH limits it. */
+  maxZeroFuelWeight?: number | null;
 }
 
 /** Seats and baggage use maxWeight; fuel uses maxLiters / standardLiters / weightPerLiter. */
@@ -141,8 +147,9 @@ export interface AirframeView {
 export interface GenericTypeView {
   typeId: number;
   typeStatus: TypeStatus;
-  typicalEmptyWeight: number;
-  typicalEmptyArm: number;
+  /** Null when the POH gives none: the pilot must enter their aircraft's own. */
+  typicalEmptyWeight: number | null;
+  typicalEmptyArm: number | null;
   spec: AircraftSpec;
 }
 

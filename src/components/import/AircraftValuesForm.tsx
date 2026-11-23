@@ -104,6 +104,7 @@ const AircraftValuesForm: React.FC<AircraftValuesFormProps> = ({ spec, onChange 
                         : { arm: 0, maxWeight: 0 };
                     } else {
                       delete d.stations[code];
+                      if (code === 'baggage2') d.maxBaggageTotal = null;
                     }
                   })} />
                 {STATION_LABELS[code]}
@@ -124,6 +125,10 @@ const AircraftValuesForm: React.FC<AircraftValuesFormProps> = ({ spec, onChange 
                   ) : (
                     <NumField id={`${code}-max`} label="Max load" unit="kg" required value={s.maxWeight}
                       onChange={v => edit(d => { d.stations[code].maxWeight = v; })} />
+                  )}
+                  {code === 'baggage2' && (
+                    <NumField id="baggage-total" label="Both areas together" unit="kg" value={spec.maxBaggageTotal ?? null}
+                      onChange={v => edit(d => { d.maxBaggageTotal = v; })} />
                   )}
                 </div>
               )}

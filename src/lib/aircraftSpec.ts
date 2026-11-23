@@ -11,6 +11,7 @@ export function specFromAircraftData(key: string, aircraft: AircraftData): Aircr
     stations: aircraft.stations,
     envelope: aircraft.envelope,
     performance: aircraft.performance,
+    maxBaggageTotal: aircraft.maxBaggageTotal ?? null,
   }));
 }
 
@@ -23,6 +24,7 @@ export const STATION_LABELS: Record<string, string> = {
   passengerRear: 'Rear passengers',
   passengerBack: 'Back passengers',
   baggage: 'Baggage',
+  baggage2: 'Baggage area 2',
   fuel: 'Fuel',
 };
 

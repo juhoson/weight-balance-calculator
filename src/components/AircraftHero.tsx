@@ -65,7 +65,7 @@ const AircraftHero: React.FC<AircraftHeroProps> = ({ aircraft, meta }) => {
       </div>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 p-4 sm:grid-cols-4 sm:p-5">
-        <Stat label={isGeneric ? 'Empty weight (yours)' : 'Empty weight'} value={`${aircraft.basicEmptyWeight} kg`}/>
+        <Stat label={isGeneric ? 'Empty weight (yours)' : 'Empty weight'} value={aircraft.basicEmptyWeight > 0 ? `${aircraft.basicEmptyWeight} kg` : 'Not entered'}/>
         <Stat label="Max takeoff" value={`${aircraft.mtow} kg`}/>
         <Stat label="Max fuel" value={`${aircraft.stations.fuel.maxLiters} L`}/>
         <Stat label="Max baggage" value={`${aircraft.maxBaggage} kg`}/>
