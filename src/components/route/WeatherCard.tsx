@@ -45,11 +45,13 @@ interface WeatherCardProps {
   airport?: AirportInfo;
   /** Selected aircraft's maximum demonstrated crosswind, kt. */
   maxCrosswindKt: number;
+  /** A position's name on the route, e.g. WP1. */
+  label?: string;
   /** Fixed time for tests; otherwise the live time, updated every 30 s. */
   now?: number;
 }
 
-const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindKt, now: fixedNow }) => {
+const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindKt, label, now: fixedNow }) => {
   const liveNow = useNow(30_000);
   const now = fixedNow ?? liveNow;
   const [showTaf, setShowTaf] = React.useState(false);
@@ -78,7 +80,7 @@ const WeatherCard: React.FC<WeatherCardProps> = ({ point, airport, maxCrosswindK
             {ROLE_LABEL[point.role]}{point.role === 'ENROUTE' || point.role === 'WAYPOINT' ? ` · ${Math.round(point.alongTrackNm)} NM` : ''}
           </p>
           <p className="truncate text-sm font-semibold">
-            {airport ? (isPosition ? `Position ${airport.name}` : `${airport.code} · ${airport.name}`) : station ? `${station.code} · ${station.name.trim()}` : '–'}
+            {airport ? (isPosition ? `${label ?? 'Position'} · ${airport.name}` : `${airport.code} · ${airport.name}`) : station ? `${station.code} · ${station.name.trim()}` : '–'}
           </p>
           {station && !ownStation && airport && (
             <p className="text-xs text-muted-foreground">

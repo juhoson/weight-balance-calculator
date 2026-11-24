@@ -30,3 +30,20 @@ export function parsePosition(code: string): { lat: number; lon: number } | null
   if (lat > 90 || lon > 180) return null;
   return { lat: m[4] === 'S' ? -lat : lat, lon: m[8] === 'W' ? -lon : lon };
 }
+
+/** 59°12′N 017°34′E (with seconds when the code has them). */
+export function positionText(code: string): string | null {
+  const m = ICAO.exec(code.trim().toUpperCase().replace('/', ''));
+  if (!m || !parsePosition(code)) return null;
+  const part = (d: string, mm: string | undefined, ss: string | undefined, h: string) => `${d}°${mm ?? '00'}′${ss ? `${ss}″` : ''}${h}`;
+  return `${part(m[1], m[2], m[3], m[4])} ${part(m[5], m[6], m[7], m[8])}`;
+}
+
+/** The route as "ESSX → WP1 → ESGG". */
+export const routeChain = (codes: string[]) => routeLabels(codes).join(' → ');
+
+/** What each route point is called: an airport its code, a position WP1, WP2, … in order. */
+export function routeLabels(codes: string[]): string[] {
+  let n = 0;
+  return codes.map(c => (parsePosition(c) ? `WP${++n}` : c));
+}

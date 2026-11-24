@@ -38,6 +38,7 @@ import {type AltitudeHold, CIRCUIT_HEIGHT_FT, cruiseTas, legsOf, levelAt, type P
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import type {RouteWeather} from '../types/route';
+import {routeChain} from '../lib/routePoint';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
 import {nearestAirports} from '../api/backend';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
@@ -1092,7 +1093,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             powerSetting={inputs.powerSetting}
             waitingFor={aircraft.basicEmptyWeight > 0 ? null
               : 'Enter your aircraft\'s empty weight and arm from its weighing report (under the aircraft) to see the results.'}
-            routeLabel={trip ? `${[trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code].join(' → ')} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
+            routeLabel={trip ? `${routeChain([trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code])} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
           />
         </aside>
       </form>

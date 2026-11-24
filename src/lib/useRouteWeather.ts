@@ -1,12 +1,20 @@
 import React from 'react';
 import { fetchRouteWeather } from '../api/backend';
 import type { RouteWeather } from '../types/route';
+import { routeLabels } from './routePoint';
 
 export interface RouteWeatherState {
   data: RouteWeather | null;
   loading: boolean;
   error: string | null;
   refresh: () => void;
+}
+
+/** Legs between positions are named WP1, WP2, … as everywhere else, not by the position's code. */
+function withNames(r: RouteWeather): RouteWeather {
+  const labels = routeLabels([r.departure, ...(r.waypoints ?? []), r.arrival].map(a => a.code));
+  if (!r.legs || r.legs.length !== labels.length - 1) return r;
+  return { ...r, legs: r.legs.map((l, i) => ({ ...l, from: labels[i], to: labels[i + 1] })) };
 }
 
 /** Route weather for two airport codes; refetched when they change or on refresh(). */
@@ -28,7 +36,7 @@ export function useRouteWeather(from: string, to: string, via: string[] = []): R
     setLoading(true);
     setError(null);
     fetchRouteWeather(from, to, viaKey ? viaKey.split(',') : [])
-      .then(r => { if (!cancelled) setData(r); })
+      .then(r => { if (!cancelled) setData(withNames(r)); })
       .catch((e: unknown) => {
         if (cancelled) return;
         setData(null);

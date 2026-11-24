@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, Loader2, Share2, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { createRoute, fetchSharedRoute } from '../../api/backend';
+import { routeChain } from '../../lib/routePoint';
 import { altitudesOf, altitudesText, fromAirports, type PlannedRoute, type RouteAltitudes } from '../../lib/route';
 import type { SharedRoute } from '../../types/route';
 import { track } from '../../lib/analytics';
@@ -53,7 +54,7 @@ const SharedRouteBanner: React.FC<Props> = ({ signedIn, onUse }) => {
           <>
             <p className="text-sm font-semibold">{shared.name}</p>
             <p className="text-xs text-muted-foreground">
-              {shared.airports.join(' → ')}{altitudesText(altitudesOf(shared)) && ` · ${altitudesText(altitudesOf(shared))}`} · shared by {shared.sharedBy}
+              {routeChain(shared.airports)}{altitudesText(altitudesOf(shared)) && ` · ${altitudesText(altitudesOf(shared))}`} · shared by {shared.sharedBy}
             </p>
           </>
         )}

@@ -210,6 +210,10 @@ input::-webkit-inner-spin-button {
   cursor: grab;
 }
 .route-map .route-map-insert:hover { opacity: 1; }
+.route-map .route-map-code {
+  color: #64748b;
+  font-size: 11px;
+}
 .route-map .route-map-remove {
   margin-top: 6px;
   padding: 2px 8px;

@@ -2,7 +2,7 @@ import React from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { AIRSPACE_TILE_URL, fetchMapStatus, fetchPointInfo, type MapStatus, nearestAirports } from '../../api/backend';
-import { parsePosition, positionCode } from '../../lib/routePoint';
+import { parsePosition, positionCode, positionText, routeLabels } from '../../lib/routePoint';
 import { pointInfoHtml } from '../../lib/frequencies';
 
 export interface MapAirport {
@@ -159,13 +159,21 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
       } catch {
         // No airport list: the position it is.
       }
-      return { code, name: `Position ${code}`, ...exact };
+      return { code, name: positionText(code) ?? code, ...exact };
     };
 
+    const labels = routeLabels(shown.map(a => a.code));
+    // A position: "WP1" with where it is; an airport: its code and name.
+    const info = (a: MapAirport, i: number) => {
+      const where = positionText(a.code);
+      return where
+        ? `<strong>${labels[i]}</strong><br>${where}<br><span class="route-map-code">${escapeHtml(a.code)}</span>`
+        : a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : `<strong>${escapeHtml(a.code)}</strong>`;
+    };
     shown.forEach((a, i) => {
       const end = i === 0 || i === shown.length - 1;
       const label = <T extends L.Layer>(m: T): T => {
-        m.bindTooltip(a.code, { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' });
+        m.bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' });
         return m;
       };
       if (end || !editable) {
@@ -174,7 +182,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
           // A tap on an airport shows its name, not the airspace lookup.
           bubblingMouseEvents: false,
         }))
-          .bindPopup(a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : escapeHtml(a.code))
+          .bindPopup(info(a, i))
           .addTo(group);
         return;
       }
@@ -185,7 +193,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
       });
       label(marker);
       const popup = document.createElement('div');
-      popup.innerHTML = a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : `<strong>${escapeHtml(a.code)}</strong>`;
+      popup.innerHTML = info(a, i);
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'route-map-remove';

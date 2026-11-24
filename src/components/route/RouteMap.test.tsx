@@ -66,9 +66,11 @@ test('waypoints can be moved, added and removed on the map', async () => {
   expect(await screen.findByText(/Drag a waypoint to move it/)).toBeInTheDocument();
   await waitFor(() => expect(container.querySelectorAll('.route-map-waypoint')).toHaveLength(1));
   expect(container.querySelectorAll('.route-map-insert')).toHaveLength(2); // one per leg
+  expect(screen.getByText('WP1')).toBeInTheDocument(); // a position is named, not its code
 
   fireEvent.click(container.querySelector('.route-map-waypoint') as HTMLElement);
-  fireEvent.click(await screen.findByRole('button', { name: 'Remove waypoint' }));
+  expect(await screen.findByText('59°30′N 017°20′E')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Remove waypoint' }));
   expect(onChange).toHaveBeenCalledWith([]);
   // Drawn without it straight away, before the new route has loaded.
   await waitFor(() => expect(container.querySelectorAll('.route-map-waypoint')).toHaveLength(0));

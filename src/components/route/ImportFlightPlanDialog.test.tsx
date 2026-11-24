@@ -19,7 +19,7 @@ it('previews the pasted route and uses it, leaving out what it cannot place', as
   fireEvent.change(screen.getByLabelText('Flight plan or route'), { target: { value: 'ESSX DCT 5930N01700E DCT TROSA DCT ESSA' } });
   fireEvent.click(screen.getByRole('button', { name: /Read plan/ }));
 
-  expect(await screen.findByText('position 59°30′N 017°00′E')).toBeInTheDocument();
+  expect(await screen.findByText('WP1, position 59°30′N 017°00′E')).toBeInTheDocument();
   expect(mockedLookup).toHaveBeenCalledWith(['ESSX', '5930N01700E', 'ESSA']);
   expect(screen.getByText('TROSA')).toBeInTheDocument();
   expect(screen.getByText(/named point/)).toBeInTheDocument();

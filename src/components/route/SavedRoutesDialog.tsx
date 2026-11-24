@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { createRoute, deleteRoute, listRoutes, shareRoute, unshareRoute } from '../../api/backend';
+import { routeChain } from '../../lib/routePoint';
 import { altitudesOf, altitudesText, fromAirports, type PlannedRoute, type RouteAltitudes, routeAirports, shareUrl } from '../../lib/route';
 import type { SavedRoute } from '../../types/route';
 
@@ -15,7 +16,7 @@ interface Props {
   onLoad: (route: PlannedRoute, altitudes?: RouteAltitudes) => void;
 }
 
-const chain = (codes: string[]) => codes.join(' → ');
+const chain = routeChain;
 
 /** Save the current route, and load, share or delete saved ones. Signed in only. */
 export const SavedRoutesDialog: React.FC<Props & { open: boolean; onOpenChange: (open: boolean) => void }> = ({

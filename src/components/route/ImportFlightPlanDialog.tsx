@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { lookupAirports } from '../../api/backend';
 import { parseFlightPlan } from '../../lib/flightPlan';
 import type { PlannedRoute } from '../../lib/route';
+import { routeLabels } from '../../lib/routePoint';
 import type { AirportInfo } from '../../types/route';
 
 /** The backend takes at most this many waypoints. */
@@ -71,10 +72,11 @@ export const ImportFlightPlanDialog: React.FC<Props> = ({ route, onImport, open,
   const canUse = preview && preview.found.has(preview.from) && preview.found.has(preview.to)
     && usableVia.length <= MAX_IMPORTED_WAYPOINTS;
 
-  const describe = (code: string) => {
+  const labels = preview ? routeLabels([preview.from, ...preview.via, preview.to]) : [];
+  const describe = (code: string, i: number) => {
     const a = preview?.found.get(code);
     if (!a) return <span className="text-red-700 dark:text-red-300">not found</span>;
-    return <span className="text-muted-foreground">{a.type === 'point' ? `position ${a.name}` : a.name}</span>;
+    return <span className="text-muted-foreground">{a.type === 'point' ? `${labels[i]}, position ${a.name}` : a.name}</span>;
   };
 
   return (
@@ -104,7 +106,7 @@ export const ImportFlightPlanDialog: React.FC<Props> = ({ route, onImport, open,
                     : <X className="h-3.5 w-3.5 shrink-0 self-center text-red-600"/>}
                   <span className="w-28 shrink-0 font-mono text-xs font-semibold">{code}</span>
                   <span className="min-w-0 truncate text-xs">
-                    {describe(code)}
+                    {describe(code, i)}
                     {i === 0 && !preview.fromPlan.from && ' (current departure)'}
                     {i === all.length - 1 && !preview.fromPlan.to && ' (current arrival)'}
                   </span>

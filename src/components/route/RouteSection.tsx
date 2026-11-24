@@ -9,6 +9,7 @@ import { lazyWithReload } from '../../lib/lazyWithReload';
 import type { RouteWeatherState } from '../../lib/useRouteWeather';
 import type { PlannedRoute, RouteAltitudes } from '../../lib/route';
 import type { AirportInfo } from '../../types/route';
+import { positionText, routeChain, routeLabels } from '../../lib/routePoint';
 
 // Leaflet (~150 kB) loads only once there is a route to show.
 const RouteMap = lazyWithReload(() => import('./RouteMap'));
@@ -44,6 +45,14 @@ const RouteSection: React.FC<RouteSectionProps> = ({
     if (data) [data.departure, ...(data.waypoints ?? []), data.arrival].forEach(a => m.set(a.code, a));
     return m;
   }, [data]);
+  // Positions are WP1, WP2, … in route order.
+  const viaLabels = routeLabels(route.via);
+  const named = new Map<string, string>();
+  route.via.forEach((c, i) => { if (viaLabels[i] !== c) named.set(c, viaLabels[i]); });
+  const nameOf = (code: string) => {
+    const where = positionText(code);
+    return where ? `${named.get(code) ?? 'Position'} · ${where}` : known.get(code)?.name;
+  };
   const set = (patch: Partial<PlannedRoute>) => onChange({ ...route, ...patch, auto: false });
   const setVia = (via: string[]) => set({ via });
   const move = (i: number, by: number) => {
@@ -81,7 +90,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
             {route.via.map((code, i) => (
               <li key={`${code}-${i}`} className="flex items-end gap-1">
                 <div className="flex-1">
-                  <AirportField label={`Waypoint ${i + 1}`} value={code} valueName={known.get(code)?.name}
+                  <AirportField label={`Waypoint ${i + 1}`} value={code} valueName={nameOf(code)}
                     onChange={c => setVia(route.via.map((v, j) => (j === i ? c : v)))}/>
                 </div>
                 <Button type="button" variant="ghost" size="icon" aria-label={`Move waypoint ${i + 1} up`}
@@ -123,7 +132,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
           : (
             <div className="text-sm">
               <p>
-                <strong>{[data.departure.code, ...(data.waypoints ?? []).map(w => w.code), data.arrival.code].join(' → ')}</strong>:
+                <strong>{routeChain([data.departure.code, ...(data.waypoints ?? []).map(w => w.code), data.arrival.code])}</strong>:
                 {' '}{Math.round(data.distanceNm)} NM (straight legs)
               </p>
               {legs.length > 1
@@ -165,6 +174,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
                 airport={p.airportCode ? known.get(p.airportCode)
                   : p.role === 'DEPARTURE' ? data.departure : p.role === 'ARRIVAL' ? data.arrival : undefined}
                 maxCrosswindKt={maxCrosswindKt}
+                label={p.airportCode ? named.get(p.airportCode) : undefined}
               />
             ))}
           <p className="text-[11px] text-muted-foreground">
