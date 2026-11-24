@@ -1,5 +1,7 @@
 // The planned route (departure/arrival), remembered in this browser.
 
+import type { AltitudeChange } from '../types/route';
+
 export interface PlannedRoute {
   from: string;
   to: string;
@@ -68,4 +70,25 @@ export function fromAirports(codes: string[]): PlannedRoute {
 /** The share link for a token, pointing at this app. */
 export function shareUrl(token: string): string {
   return `${window.location.origin}${window.location.pathname}?route=${encodeURIComponent(token)}`;
+}
+
+/** The cruise altitude and the stretches at another altitude, saved and shared with a route. */
+export interface RouteAltitudes {
+  cruiseAltitudeFt: number | null;
+  altitudeChanges: AltitudeChange[];
+}
+
+/** From a saved or shared route; routes saved before altitudes were have none. */
+export function altitudesOf(r: { cruiseAltitudeFt?: number | null; altitudeChanges?: AltitudeChange[] | null }): RouteAltitudes {
+  return {
+    cruiseAltitudeFt: typeof r.cruiseAltitudeFt === 'number' ? r.cruiseAltitudeFt : null,
+    altitudeChanges: (r.altitudeChanges ?? []).map(c => ({ fromNm: c.fromNm, toNm: c.toNm, ft: c.ft, ...(c.note ? { note: c.note } : {}) })),
+  };
+}
+
+/** "4,500 ft, 2 altitude changes"; empty without a cruise altitude. */
+export function altitudesText(a: RouteAltitudes): string {
+  if (a.cruiseAltitudeFt === null) return '';
+  const n = a.altitudeChanges.length;
+  return `${a.cruiseAltitudeFt.toLocaleString('en')} ft${n ? `, ${n} altitude change${n === 1 ? '' : 's'}` : ''}`;
 }

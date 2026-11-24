@@ -7,7 +7,7 @@ import ImportFlightPlanButton, { MAX_IMPORTED_WAYPOINTS } from './ImportFlightPl
 import { Button } from '../ui/Button';
 import { lazyWithReload } from '../../lib/lazyWithReload';
 import type { RouteWeatherState } from '../../lib/useRouteWeather';
-import type { PlannedRoute } from '../../lib/route';
+import type { PlannedRoute, RouteAltitudes } from '../../lib/route';
 import type { AirportInfo } from '../../types/route';
 
 // Leaflet (~150 kB) loads only once there is a route to show.
@@ -19,6 +19,9 @@ const MAX_WAYPOINTS = MAX_IMPORTED_WAYPOINTS;
 interface RouteSectionProps {
   route: PlannedRoute;
   onChange: (route: PlannedRoute) => void;
+  /** Saved with a route, and given back when one is loaded. */
+  altitudes?: RouteAltitudes;
+  onLoad?: (route: PlannedRoute, altitudes?: RouteAltitudes) => void;
   weather: RouteWeatherState;
   maxCrosswindKt: number;
   onUseLocation: () => void;
@@ -33,7 +36,7 @@ const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 
 /** Departure, waypoints and arrival, and the weather at each and along the way. */
 const RouteSection: React.FC<RouteSectionProps> = ({
-  route, onChange, weather, maxCrosswindKt, onUseLocation, locating, locationError, defaultNote, signedIn,
+  route, onChange, altitudes, onLoad, weather, maxCrosswindKt, onUseLocation, locating, locationError, defaultNote, signedIn,
 }) => {
   const { data } = weather;
   const known = React.useMemo(() => {
@@ -58,7 +61,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
         <p className="text-xs text-muted-foreground">Departure, optional waypoints and arrival.</p>
         <div className="flex flex-wrap gap-2">
           <ImportFlightPlanButton route={route} onImport={onChange}/>
-          {signedIn && <SavedRoutesButton route={route} onLoad={onChange}/>}
+          {signedIn && <SavedRoutesButton route={route} altitudes={altitudes} onLoad={onLoad ?? onChange}/>}
         </div>
       </div>
 

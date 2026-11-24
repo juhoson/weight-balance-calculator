@@ -91,10 +91,21 @@ export interface RouteWeather {
 }
 
 /** A route the signed-in user saved: departure, any waypoints, arrival. */
+/** A stretch of a route flown at another altitude than the cruise. */
+export interface AltitudeChange {
+  fromNm: number;
+  toNm: number;
+  ft: number;
+  note?: string | null;
+}
+
 export interface SavedRoute {
   id: number;
   name: string;
   airports: string[];
+  /** Saved with it; missing from routes saved before altitudes were. */
+  cruiseAltitudeFt?: number | null;
+  altitudeChanges?: AltitudeChange[] | null;
   /** Set when shared by link. */
   shareToken: string | null;
   updatedAt: string;
@@ -104,6 +115,8 @@ export interface SavedRoute {
 export interface SharedRoute {
   name: string;
   airports: string[];
+  cruiseAltitudeFt?: number | null;
+  altitudeChanges?: AltitudeChange[] | null;
   sharedBy: string;
 }
 

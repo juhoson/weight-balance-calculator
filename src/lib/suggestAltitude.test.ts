@@ -1,5 +1,5 @@
-import { suggestAltitudes } from './suggestAltitude';
-import type { AirspaceCheck } from './airspace';
+import { type OkPlan, suggestAltitudes } from './suggestAltitude';
+import { type AirspaceCheck, altitudeAlongPoints } from './airspace';
 import type { EnrouteForecast, EnrouteSegment } from '../types/route';
 
 const hours = ['2026-11-23T10:00:00Z', '2026-11-23T11:00:00Z', '2026-11-23T12:00:00Z'];
@@ -68,4 +68,41 @@ it('skips an altitude the wind is too strong to fly at', () => {
   const m = forecasts();
   m.set(1500, { ...forecastAt(270, 120), altitudeFt: 1500 });
   expect(suggestAltitudes(input(m)).options.map(o => o.ft)).not.toContain(1500);
+});
+
+describe('with altitude changes', () => {
+  // 100 NM west in four 25 NM segments; a TMA from 2,500 ft over 25-75 NM.
+  const v = (ft: number) => ({ cruiseFt: ft, departureFt: 0, arrivalFt: 1000, climbTasKt: 70, climbFpm: 700, descentFpm: 500 });
+  const tma = { ...area('MID TMA'), fromNm: 25, toNm: 75, floorFt: 2500 };
+  const airspaceFor = (plan: OkPlan, ft: number): AirspaceCheck[] => {
+    const at = altitudeAlongPoints(plan.profile?.path ?? [{ nm: 0, ft }, { nm: 100, ft }]);
+    let max = 0;
+    for (let nm = 25; nm <= 75; nm += 0.5) max = Math.max(max, at(nm));
+    return [{ ...tma, status: max >= 2500 ? 'inside' : 'below' }];
+  };
+  /** Four 25 NM segments. */
+  const quarters = (f: EnrouteForecast, ft: number): EnrouteForecast => ({
+    ...f, altitudeFt: ft, segments: [0, 25, 50, 75].map(startNm => ({ ...f.segments[0], startNm, distanceNm: 25 })),
+  });
+  /** Headwind 30 kt up to 3,000 ft, a 20 kt tailwind above. */
+  function windy() {
+    const m = new Map<number, EnrouteForecast>();
+    for (let ft = 1000; ft <= 6500; ft += 500) m.set(ft, quarters(forecastAt(ft > 3000 ? 90 : 270, ft > 3000 ? 20 : 30), ft));
+    return m;
+  }
+
+  it('goes under the TMA where it is and flies the tailwind elsewhere, when that beats every single altitude', () => {
+    const s = suggestAltitudes({ legs, forecasts: windy(), tasKt: 100, departure, verticalFor: v, airspaceFor });
+    expect(s.suggested[0].enters).toEqual([]);
+    expect(s.suggested[0].ft).toBeLessThanOrEqual(2000);
+    expect(s.stepped).toMatchObject({ ft: 4500, holds: [{ fromNm: 25, toNm: 75, ft: 2000 }], enters: [] });
+    expect(s.stepped?.minutes).toBeLessThan(s.suggested[0].minutes - 2);
+  });
+
+  it('suggests none when one altitude does as well', () => {
+    const calm = new Map<number, EnrouteForecast>();
+    for (let ft = 1000; ft <= 6500; ft += 500) calm.set(ft, quarters(forecastAt(270, 10), ft));
+    const none = (): AirspaceCheck[] => [];
+    expect(suggestAltitudes({ legs, forecasts: calm, tasKt: 100, departure, verticalFor: v, airspaceFor: none }).stepped).toBeNull();
+  });
 });

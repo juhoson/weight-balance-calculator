@@ -28,7 +28,7 @@ it('saves the current route under a suggested name', async () => {
   expect(await screen.findByText('No saved routes yet.')).toBeInTheDocument();
   expect(screen.getByLabelText('Save the current route')).toHaveValue('ESSX → ESCF → ESGG');
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(mocked.create).toHaveBeenCalledWith('ESSX → ESCF → ESGG', ['ESSX', 'ESCF', 'ESGG']));
+  await waitFor(() => expect(mocked.create).toHaveBeenCalledWith('ESSX → ESCF → ESGG', ['ESSX', 'ESCF', 'ESGG'], undefined));
   expect(await screen.findByText('ESSX → ESCF → ESGG', { selector: 'p.font-semibold' })).toBeInTheDocument();
 });
 
@@ -46,10 +46,28 @@ it('loads, shares (copying the link) and deletes a saved route', async () => {
   await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringMatching(/\?route=tok123$/)));
 
   fireEvent.click(screen.getByRole('button', { name: 'Use' }));
-  expect(onLoad).toHaveBeenCalledWith({ from: 'ESSX', to: 'ESKN', via: [], auto: false });
+  expect(onLoad).toHaveBeenCalledWith({ from: 'ESSX', to: 'ESKN', via: [], auto: false }, { cruiseAltitudeFt: null, altitudeChanges: [] });
 
   fireEvent.click(screen.getByRole('button', { name: 'Delete Kaffeflyg' }));
   fireEvent.click(screen.getByRole('button', { name: 'Delete for good' }));
   await waitFor(() => expect(screen.queryByText('Kaffeflyg')).not.toBeInTheDocument());
   expect(mocked.remove).toHaveBeenCalledWith(1);
+});
+
+it('saves the cruise altitude and altitude changes with the route, and loads them back', async () => {
+  const altitudes = { cruiseAltitudeFt: 4500, altitudeChanges: [{ fromNm: 9, toNm: 41, ft: 2000, note: 'Under STOCKHOLM TMA' }] };
+  mocked.list.mockResolvedValue([{ ...saved, id: 3, name: 'Under the TMA', ...altitudes }, saved]);
+  mocked.create.mockResolvedValue({ ...saved, id: 4, name: 'ESSX → ESGG', airports: ['ESSX', 'ESGG'], ...altitudes });
+  const onLoad = jest.fn();
+  render(<SavedRoutesDialog open onOpenChange={jest.fn()} onLoad={onLoad} altitudes={altitudes}
+    route={{ from: 'ESSX', to: 'ESGG', via: [], auto: false }}/>);
+  expect(await screen.findByText('ESSX → ESKN · 4,500 ft, 1 altitude change')).toBeInTheDocument();
+  expect(screen.getByText('ESSX → ESGG · 4,500 ft, 1 altitude change')).toBeInTheDocument(); // what Save will keep
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(mocked.create).toHaveBeenCalledWith('ESSX → ESGG', ['ESSX', 'ESGG'], altitudes));
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Use' })[0]);
+  expect(onLoad).toHaveBeenCalledWith({ from: 'ESSX', to: 'ESKN', via: [], auto: false }, altitudes);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Use' })[1]); // saved before altitudes were
+  expect(onLoad).toHaveBeenLastCalledWith({ from: 'ESSX', to: 'ESKN', via: [], auto: false }, { cruiseAltitudeFt: null, altitudeChanges: [] });
 });

@@ -140,7 +140,8 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
 
           {suggestMaxFt !== undefined && onSuggestMaxChange && (
             <AltitudeSuggestions suggestions={suggestions} altitudeFt={altitudeFt} currentMinutes={plan.minutes}
-              maxFt={suggestMaxFt} onMaxChange={onSuggestMaxChange} onPick={onAltitudeChange}/>
+              maxFt={suggestMaxFt} onMaxChange={onSuggestMaxChange} onPick={ft => { onAltitudeChange(ft); onHoldsChange?.([]); }}
+              holds={holds} onPickStepped={onHoldsChange && ((ft, h) => { onAltitudeChange(ft); onHoldsChange(h); })}/>
           )}
           {onHoldsChange && (
             <AltitudeChanges holds={holds} onChange={onHoldsChange} cruiseFt={altitudeFt} missed={plan.profile?.missed ?? []}

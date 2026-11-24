@@ -38,7 +38,7 @@ import {type AltitudeHold, CIRCUIT_HEIGHT_FT, legsOf, levelAt, type PathPoint, p
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import type {RouteWeather} from '../types/route';
-import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
+import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
 import {nearestAirports} from '../api/backend';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
 import {track} from '../lib/analytics';
@@ -730,8 +730,25 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   }, [trip, vyKt, climbRates.climbFpm, climbRates.descentFpm]);
   // Stretches flown at another altitude (under or over an airspace); cleared with a new route.
   const [holds, setHolds] = React.useState<AltitudeHold[]>([]);
-  const activeHolds = React.useMemo(() => (trip ? tidyHolds(holds, trip.distanceNm) : []), [holds, trip]);
+  const activeHolds = React.useMemo(() => (trip ? tidyHolds(holds, trip.distanceNm) : holds), [holds, trip]);
   const addHold = React.useCallback((h: AltitudeHold) => setHolds(prev => [...prev, h]), []);
+  // A saved or shared route's altitude changes, set once the new route has cleared the old ones.
+  const pendingHolds = React.useRef<AltitudeHold[] | null>(null);
+  const loadRouteWithAltitudes = React.useCallback((r: PlannedRoute, altitudes?: RouteAltitudes) => {
+    // The changes are relative to the cruise altitude, so they come only with it.
+    const withCruise = altitudes?.cruiseAltitudeFt != null && validAltitude(altitudes.cruiseAltitudeFt) ? altitudes : null;
+    if (withCruise?.cruiseAltitudeFt) setAltitudeFt(withCruise.cruiseAltitudeFt);
+    const loaded = altitudes ? (withCruise?.altitudeChanges ?? []).map(c => ({ ...c, note: c.note ?? undefined })) : null;
+    const same = r.from === route.from && r.to === route.to && r.via.join() === route.via.join();
+    if (same) { if (loaded) setHolds(loaded); } else pendingHolds.current = loaded;
+    setRoute(r);
+  }, [route, setRoute, setAltitudeFt]);
+  const routeAltitudes = React.useMemo<RouteAltitudes>(() => ({
+    cruiseAltitudeFt: validAltitude(altitudeFt) ? altitudeFt : null,
+    altitudeChanges: activeHolds.map(h => ({
+      fromNm: Math.round(h.fromNm * 10) / 10, toNm: Math.round(h.toNm * 10) / 10, ft: h.ft, ...(h.note ? { note: h.note } : {}),
+    })),
+  }), [altitudeFt, activeHolds]);
   const vertical = React.useMemo(() => {
     const v = verticalFor(altitudeFt);
     return v && activeHolds.length ? { ...v, holds: activeHolds } : v;
@@ -834,7 +851,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
   const [manualTime, setManualTime] = React.useState(false);
   const viaKey = route.via.join(',');
-  React.useEffect(() => { setManualTime(false); setHolds([]); }, [route.from, route.to, viaKey]);
+  React.useEffect(() => {
+    setManualTime(false);
+    setHolds(pendingHolds.current ?? []);
+    pendingHolds.current = null;
+  }, [route.from, route.to, viaKey]);
   React.useEffect(() => {
     if (routeMinutes > 0 && !manualTime) {
       setInputs(prev => (prev.flightTime === routeMinutes ? prev : {...prev, flightTime: routeMinutes}));
@@ -853,7 +874,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       <DisclaimerModal open={!disclaimerAccepted} onAccept={handleDisclaimerAccept}/>
 
       <div className="mb-5 space-y-3 empty:hidden print:hidden">
-        <SharedRouteBanner signedIn={userId !== null} onUse={setRoute}/>
+        <SharedRouteBanner signedIn={userId !== null} onUse={loadRouteWithAltitudes}/>
         {clubLink && <ClubLinkBanner code={clubLink} catalog={catalog}/>}
       </div>
 
@@ -913,6 +934,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             <RouteSection
               route={route}
               onChange={setRoute}
+              altitudes={routeAltitudes}
+              onLoad={loadRouteWithAltitudes}
               weather={weather}
               maxCrosswindKt={aircraft.performance.maxDemoCrosswind}
               onUseLocation={() => locateNearest(false)}

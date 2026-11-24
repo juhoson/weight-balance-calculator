@@ -18,6 +18,7 @@ import type {
   PasswordLinkResponse,
 } from '../types/admin';
 import type { AirportInfo, AirspaceView, NearbyAirport, PointInfo, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
+import type { RouteAltitudes } from '../lib/route';
 import type { ClubName, MyClub } from '../types/profile';
 import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
 
@@ -178,12 +179,13 @@ export function listRoutes(): Promise<SavedRoute[]> {
   return request<SavedRoute[]>('/api/routes');
 }
 
-export function createRoute(name: string, airports: string[]): Promise<SavedRoute> {
-  return request<SavedRoute>('/api/routes', { method: 'POST', body: JSON.stringify({ name, airports }) });
+/** With the cruise altitude and the altitude changes, when given. */
+export function createRoute(name: string, airports: string[], altitudes?: RouteAltitudes): Promise<SavedRoute> {
+  return request<SavedRoute>('/api/routes', { method: 'POST', body: JSON.stringify({ name, airports, ...altitudes }) });
 }
 
-export function updateRoute(id: number, name: string, airports: string[]): Promise<SavedRoute> {
-  return request<SavedRoute>(`/api/routes/${id}`, { method: 'PUT', body: JSON.stringify({ name, airports }) });
+export function updateRoute(id: number, name: string, airports: string[], altitudes?: RouteAltitudes): Promise<SavedRoute> {
+  return request<SavedRoute>(`/api/routes/${id}`, { method: 'PUT', body: JSON.stringify({ name, airports, ...altitudes }) });
 }
 
 export function deleteRoute(id: number): Promise<void> {

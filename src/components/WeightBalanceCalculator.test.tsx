@@ -2,7 +2,7 @@ import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
-import { fetchAirframes, fetchAirspacesAlong, fetchGenericTypes, fetchRouteWeather } from '../api/backend';
+import { fetchAirframes, fetchAirspacesAlong, fetchGenericTypes, fetchRouteWeather, fetchSharedRoute } from '../api/backend';
 import { forecastAlongRoute } from '../lib/openMeteo';
 import { esgg, essx, routeWeather } from '../lib/testRoute';
 import { clearAirspaceCache } from '../lib/useAirspaces';
@@ -10,7 +10,7 @@ import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/tes
 
 jest.mock('../api/backend', () => ({
   fetchAirframes: jest.fn(), fetchGenericTypes: jest.fn(), fetchClubs: jest.fn(), saveClubSelection: jest.fn(),
-  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(), fetchAirspacesAlong: jest.fn(),
+  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(), fetchAirspacesAlong: jest.fn(), fetchSharedRoute: jest.fn(),
   ApiError: jest.requireActual('../api/backend').ApiError,
 }));
 jest.mock('../lib/openMeteo', () => ({ ...jest.requireActual('../lib/openMeteo'), forecastAlongRoute: jest.fn() }));
@@ -509,4 +509,31 @@ it('flies a stretch at another altitude, in that altitude\'s wind', async () => 
 
   fireEvent.click(within(changes).getByRole('button', { name: 'Remove change 1' }));
   await waitFor(() => expect(screen.getAllByText('231/20')).toHaveLength(7));
+});
+
+it('a shared route brings its cruise altitude and altitude changes', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESSX', auto: false }));
+  window.history.replaceState(null, '', '/?route=tok123');
+  (fetchSharedRoute as jest.MockedFunction<typeof fetchSharedRoute>).mockResolvedValue({
+    name: 'Under the TMA', airports: ['ESSX', 'ESGG'], sharedBy: 'Juho', cruiseAltitudeFt: 4500,
+    altitudeChanges: [{ fromNm: 9, toNm: 41, ft: 2000, note: 'Under STOCKHOLM TMA' }],
+  });
+  const first = new Date();
+  first.setMinutes(0, 0, 0);
+  const times = Array.from({ length: 12 }, (_, h) => new Date(first.getTime() + h * 3600_000).toISOString());
+  const each = <T,>(v: T) => times.map(() => v);
+  mockedWinds.mockImplementation(async (_route, altitudeFt) => ({
+    available: true, altitudeFt, times,
+    segments: Array.from({ length: 7 }, (_, k) => ({
+      leg: 0, startNm: k * 25, distanceNm: 25, trueCourseDeg: 231, lat: 59 - k * 0.25, lon: 16 - k * 0.6, groundFt: 300,
+      windDirTrue: each(231), windKt: each(20), tempC: each(5), cloudBaseFt: each(null), freezingLevelFt: each(null), layers: each([]),
+    })),
+  }));
+  render(<WeightBalanceCalculator />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Use this route' }));
+  await waitFor(() => expect(screen.getByLabelText('Cruise altitude')).toHaveValue(4500));
+  const changes = await screen.findByRole('region', { name: 'Altitude changes along the route' });
+  expect(within(changes).getByLabelText('Change 1 altitude')).toHaveValue(2000);
+  expect(within(changes).getByText('Under STOCKHOLM TMA')).toBeInTheDocument();
+  window.history.replaceState(null, '', '/');
 });

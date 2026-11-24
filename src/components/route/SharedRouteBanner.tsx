@@ -2,7 +2,7 @@ import React from 'react';
 import { Check, Loader2, Share2, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { createRoute, fetchSharedRoute } from '../../api/backend';
-import { fromAirports, type PlannedRoute } from '../../lib/route';
+import { altitudesOf, altitudesText, fromAirports, type PlannedRoute, type RouteAltitudes } from '../../lib/route';
 import type { SharedRoute } from '../../types/route';
 import { track } from '../../lib/analytics';
 
@@ -21,7 +21,8 @@ function clearParam() {
 
 interface Props {
   signedIn: boolean;
-  onUse: (route: PlannedRoute) => void;
+  /** With the shared cruise altitude and altitude changes, when it has them. */
+  onUse: (route: PlannedRoute, altitudes?: RouteAltitudes) => void;
 }
 
 /** Shown when the page was opened from a share link (?route=token): use the route, or save a copy. */
@@ -51,19 +52,21 @@ const SharedRouteBanner: React.FC<Props> = ({ signedIn, onUse }) => {
         {shared && (
           <>
             <p className="text-sm font-semibold">{shared.name}</p>
-            <p className="text-xs text-muted-foreground">{shared.airports.join(' → ')} · shared by {shared.sharedBy}</p>
+            <p className="text-xs text-muted-foreground">
+              {shared.airports.join(' → ')}{altitudesText(altitudesOf(shared)) && ` · ${altitudesText(altitudesOf(shared))}`} · shared by {shared.sharedBy}
+            </p>
           </>
         )}
       </div>
       {shared && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={() => { onUse(fromAirports(shared.airports)); track('shared-route'); close(); }}>Use this route</Button>
+          <Button type="button" size="sm" onClick={() => { onUse(fromAirports(shared.airports), altitudesOf(shared)); track('shared-route'); close(); }}>Use this route</Button>
           {signedIn && (
             <Button type="button" variant="outline" size="sm" disabled={saving || saved}
               onClick={async () => {
                 setSaving(true);
                 try {
-                  await createRoute(shared.name, shared.airports);
+                  await createRoute(shared.name, shared.airports, altitudesOf(shared));
                   setSaved(true);
                 } catch (e: unknown) {
                   setError(e instanceof Error ? e.message : 'Could not save the route.');

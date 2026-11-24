@@ -4,19 +4,22 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { createRoute, deleteRoute, listRoutes, shareRoute, unshareRoute } from '../../api/backend';
-import { fromAirports, type PlannedRoute, routeAirports, shareUrl } from '../../lib/route';
+import { altitudesOf, altitudesText, fromAirports, type PlannedRoute, type RouteAltitudes, routeAirports, shareUrl } from '../../lib/route';
 import type { SavedRoute } from '../../types/route';
 
 interface Props {
   route: PlannedRoute;
-  onLoad: (route: PlannedRoute) => void;
+  /** The cruise altitude and the altitude changes, saved with the route. */
+  altitudes?: RouteAltitudes;
+  /** With the saved altitudes, when the route has them. */
+  onLoad: (route: PlannedRoute, altitudes?: RouteAltitudes) => void;
 }
 
 const chain = (codes: string[]) => codes.join(' → ');
 
 /** Save the current route, and load, share or delete saved ones. Signed in only. */
 export const SavedRoutesDialog: React.FC<Props & { open: boolean; onOpenChange: (open: boolean) => void }> = ({
-  route, onLoad, open, onOpenChange,
+  route, altitudes, onLoad, open, onOpenChange,
 }) => {
   const [routes, setRoutes] = React.useState<SavedRoute[] | null>(null);
   const [name, setName] = React.useState('');
@@ -78,13 +81,15 @@ export const SavedRoutesDialog: React.FC<Props & { open: boolean; onOpenChange: 
             e.preventDefault();
             if (!canSave || !name.trim()) return;
             run('save', async () => {
-              const saved = await createRoute(name.trim(), current);
+              const saved = await createRoute(name.trim(), current, altitudes);
               setRoutes(prev => [...(prev ?? []), saved].sort((a, b) => a.name.localeCompare(b.name)));
             });
           }}
         >
           <label htmlFor="route-name" className="text-sm font-medium">Save the current route</label>
-          <p className="text-xs text-muted-foreground">{canSave ? chain(current) : 'Choose a departure and an arrival first.'}</p>
+          <p className="text-xs text-muted-foreground">
+            {canSave ? chain(current) + (altitudes && altitudesText(altitudes) ? ` · ${altitudesText(altitudes)}` : '') : 'Choose a departure and an arrival first.'}
+          </p>
           <div className="flex gap-2">
             <Input id="route-name" value={name} maxLength={100} onChange={e => setName(e.target.value)}
               placeholder="Name, e.g. Coffee flight to Skavsta" className="bg-background" disabled={!canSave}/>
@@ -105,9 +110,11 @@ export const SavedRoutesDialog: React.FC<Props & { open: boolean; onOpenChange: 
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{r.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{chain(r.airports)}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {chain(r.airports)}{altitudesText(altitudesOf(r)) && ` · ${altitudesText(altitudesOf(r))}`}
+                    </p>
                   </div>
-                  <Button type="button" size="sm" onClick={() => { onLoad(fromAirports(r.airports)); onOpenChange(false); }}>
+                  <Button type="button" size="sm" onClick={() => { onLoad(fromAirports(r.airports), altitudesOf(r)); onOpenChange(false); }}>
                     Use
                   </Button>
                 </div>
@@ -168,14 +175,14 @@ export const SavedRoutesDialog: React.FC<Props & { open: boolean; onOpenChange: 
   );
 };
 
-const SavedRoutesButton: React.FC<Props> = ({ route, onLoad }) => {
+const SavedRoutesButton: React.FC<Props> = ({ route, altitudes, onLoad }) => {
   const [open, setOpen] = React.useState(false);
   return (
     <>
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Bookmark className="mr-1 h-4 w-4"/> Saved routes
       </Button>
-      <SavedRoutesDialog route={route} onLoad={onLoad} open={open} onOpenChange={setOpen}/>
+      <SavedRoutesDialog route={route} altitudes={altitudes} onLoad={onLoad} open={open} onOpenChange={setOpen}/>
     </>
   );
 };
