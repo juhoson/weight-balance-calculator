@@ -27,7 +27,8 @@ import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../li
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
 import AirspacePanel from './route/AirspacePanel';
-import { altitudeAlong, checkCrossings, crossingsAlong, type PathProfile, stillAirProfile } from '../lib/airspace';
+import { altitudeAlong, checkCrossings, type Crossing, crossingsAlong, type PathProfile, stillAirProfile } from '../lib/airspace';
+import { avoidOptions, type AvoidHandler, crossingContext, withEffects } from '../lib/avoidAirspace';
 import { useAirspaces } from '../lib/useAirspaces';
 import EnroutePanel from './route/EnroutePanel';
 import { swedenControlAlong } from '../lib/swedenControl';
@@ -35,6 +36,7 @@ import {useClimbRates, useCruiseAltitude, useEnrouteForecast, validAltitude, val
 import {CIRCUIT_HEIGHT_FT, legsOf, planRoute, roundUpTo5, trueAirspeed, type VerticalProfile} from '../lib/enroute';
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
+import type {RouteWeather} from '../types/route';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, saveRoute} from '../lib/route';
 import {nearestAirports} from '../api/backend';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
@@ -121,6 +123,16 @@ const Section: React.FC<{ step: number; title: string; children: React.ReactNode
       <div className="space-y-4">{children}</div>
     </section>
   );
+
+/**
+ * The airspace check for a flight path. AGL ceilings are placed over the highest route airport, and
+ * airspace over the arrival counts down to the runway.
+ */
+function checkPath(trip: RouteWeather, crossings: Crossing[], path: PathProfile) {
+  const groundFt = Math.max(...[trip.departure, ...(trip.waypoints ?? []), trip.arrival].map(a => a.elevationFt ?? 0));
+  return checkCrossings(crossings, altitudeAlong(path), [path.tocNm, path.todNm], groundFt,
+    { totalNm: trip.distanceNm, fieldFt: trip.arrival.elevationFt ?? 0 });
+}
 
 interface WeightBalanceCalculatorProps {
   /** Select this aircraft once the database list has loaded (e.g. one just added). */
@@ -728,9 +740,23 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
 
   // Airspace along the route, checked against the planned climb, cruise and descent.
   const airspaces = useAirspaces(trip);
+  const crossings = React.useMemo(
+    () => (trip && airspaces.data ? crossingsAlong([trip.departure, ...(trip.waypoints ?? []), trip.arrival], airspaces.data) : null),
+    [trip, airspaces.data]);
+  /** The check at another cruise altitude: no wind, for comparing (going under or over an airspace). */
+  const checkAt = React.useCallback((cruiseFt: number) => {
+    if (!trip || !crossings) return [];
+    const total = trip.distanceNm;
+    const path: PathProfile = vertical && cruiseKt > 0
+      ? stillAirProfile(total, {
+        ...vertical, cruiseFt, cruiseTasKt: cruiseKt,
+        climbTasKt: trueAirspeed(vyKt, (vertical.departureFt + cruiseFt) / 2),
+      })
+      : { departureFt: cruiseFt, arrivalFt: cruiseFt, topFt: cruiseFt, tocNm: 0, todNm: total, totalNm: total };
+    return checkPath(trip, crossings, path);
+  }, [trip, crossings, vertical, cruiseKt, vyKt]);
   const airspaceCheck = React.useMemo(() => {
-    if (!trip || !airspaces.data) return null;
-    const route = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
+    if (!trip || !crossings) return null;
     const total = trip.distanceNm;
     const fpm = `${climbRates.climbFpm} ft/min up, ${climbRates.descentFpm} ft/min down`;
     let path: PathProfile;
@@ -746,11 +772,21 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       path = { departureFt: altitudeFt, arrivalFt: altitudeFt, topFt: altitudeFt, tocNm: 0, todNm: total, totalNm: total };
       basis = `at ${altitudeFt.toLocaleString('en')} ft the whole way`;
     }
-    const groundFt = Math.max(...route.map(a => a.elevationFt ?? 0));
-    const checks = checkCrossings(crossingsAlong(route, airspaces.data), altitudeAlong(path), [path.tocNm, path.todNm], groundFt,
-      { totalNm: total, fieldFt: trip.arrival.elevationFt ?? 0 });
-    return { checks, basis };
-  }, [trip, airspaces.data, windPlan, vertical, cruiseKt, altitudeFt, climbRates.climbFpm, climbRates.descentFpm]);
+    return { checks: checkPath(trip, crossings, path), basis };
+  }, [trip, crossings, windPlan, vertical, cruiseKt, altitudeFt, climbRates.climbFpm, climbRates.descentFpm]);
+  const avoid = React.useMemo<AvoidHandler | undefined>(() => {
+    if (!trip || !airspaceCheck) return undefined;
+    const route = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
+    const legs = legsOf(trip);
+    const segments = windPlan?.ok ? windPlan.segments.map(s => s.segment) : null;
+    const airportsFt = Math.max(...route.map(a => a.elevationFt ?? 0));
+    const at = departureAt ?? new Date();
+    return {
+      altitudeFt,
+      onPick: setAltitudeFt,
+      optionsFor: c => withEffects(avoidOptions(c, crossingContext(c, route, legs, segments, airportsFt, at)), c, airspaceCheck.checks, checkAt),
+    };
+  }, [trip, airspaceCheck, windPlan, departureAt, altitudeFt, setAltitudeFt, checkAt]);
   const swedenControl = React.useMemo(
     () => (trip ? swedenControlAlong([trip.departure, ...(trip.waypoints ?? []), trip.arrival]) : []), [trip]);
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
@@ -859,10 +895,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 climbRates={climbRates}
                 onClimbRatesChange={setClimbRates}
                 airspaces={airspaceCheck?.checks}
+                avoid={avoid}
               />
             )}
             {trip && (
-              <AirspacePanel state={airspaces} checks={airspaceCheck?.checks ?? []} basis={airspaceCheck?.basis ?? ''} swedenControl={swedenControl}/>
+              <AirspacePanel state={airspaces} checks={airspaceCheck?.checks ?? []} basis={airspaceCheck?.basis ?? ''} swedenControl={swedenControl} avoid={avoid}/>
             )}
           </Section>
 

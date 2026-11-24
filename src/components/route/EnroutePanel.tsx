@@ -10,6 +10,7 @@ import {
 import { type RoutePlan, warningsOf } from '../../lib/enroute';
 import RouteProfileChart from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
+import type { AvoidHandler } from '../../lib/avoidAirspace';
 
 interface EnroutePanelProps {
   altitudeFt: number;
@@ -28,6 +29,8 @@ interface EnroutePanelProps {
   onClimbRatesChange: (patch: Partial<ClimbRates>) => void;
   /** Drawn on the profile chart. */
   airspaces?: AirspaceCheck[];
+  /** Offers going under or over an airspace tapped on the profile chart. */
+  avoid?: AvoidHandler;
 }
 
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
@@ -45,7 +48,7 @@ export function localInputValue(d: Date): string {
 /** Cruise altitude and departure time; the route flown in the forecast as a profile and a nav log. */
 const EnroutePanel: React.FC<EnroutePanelProps> = ({
   altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
-  onClimbRatesChange, airspaces,
+  onClimbRatesChange, airspaces, avoid,
 }) => {
   const now = new Date();
   const maxDeparture = new Date(now.getTime() + 46 * 3600_000);
@@ -126,7 +129,7 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
           )}
 
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
-          <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces}/>
+          <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}/>
           <NavLog plan={plan}/>
 
           <p className="text-[11px] text-muted-foreground">

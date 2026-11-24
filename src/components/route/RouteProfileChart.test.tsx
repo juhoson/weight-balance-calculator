@@ -88,3 +88,29 @@ it('a tap on an airspace box shows its limits and frequency, and the wind strip 
   fireEvent.pointerUp(columns(container)[0]);
   expect(screen.getByRole('dialog', { name: 'Segment details' })).toHaveTextContent('0–25 NM');
 });
+
+it('a tapped airspace offers going under or over it, which sets the cruise altitude', () => {
+  const tma = {
+    airspace: {
+      id: 't', name: 'STOCKHOLM TMA', type: 'TMA', icaoClass: 'C', activation: null, polygon: [],
+      lower: { ft: 2500, datum: 'MSL' as const, label: '2,500 ft MSL' }, upper: { ft: 9500, datum: 'STD' as const, label: 'FL95' },
+      frequencies: [],
+    },
+    fromNm: 10, toNm: 40, status: 'inside' as const, minFt: 3000, maxFt: 3000, floorFt: 2500, ceilingFt: 9500,
+  };
+  const onPick = jest.fn();
+  const avoid = {
+    altitudeFt: 3000, onPick,
+    optionsFor: () => [
+      { side: 'under' as const, ft: 2000, why: 'At least 500 ft below its floor (2,500 ft MSL).', stillInside: false, alsoEnters: [] },
+      { side: 'over' as const, ft: 11500, why: 'At least 500 ft above its top (FL95).', stillInside: false, alsoEnters: ['STOCKHOLM CTA'] },
+    ],
+  };
+  render(<RouteProfileChart legs={legs()} altitudeFt={3000} airspaces={[tma]} avoid={avoid}/>);
+  fireEvent.pointerUp(screen.getByRole('button', { name: 'Airspace STOCKHOLM TMA' }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('Enters STOCKHOLM CTA instead.');
+  fireEvent.pointerUp(screen.getByRole('button', { name: /Go under: 2,000 ft/ })); // a tap in the details doesn't close them first
+  fireEvent.click(screen.getByRole('button', { name: /Go under: 2,000 ft/ }));
+  expect(onPick).toHaveBeenCalledWith(2000);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});

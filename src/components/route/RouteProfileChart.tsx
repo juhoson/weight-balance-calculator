@@ -4,6 +4,8 @@ import type { LegPlan, ProfilePlan, SegmentPlan } from '../../lib/enroute';
 import { adviceFor, type AirspaceCheck } from '../../lib/airspace';
 import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import { SEVERITY_STYLE } from './AirspacePanel';
+import { type AvoidHandler, canAvoid } from '../../lib/avoidAirspace';
+import AvoidAirspace from './AvoidAirspace';
 
 interface RouteProfileChartProps {
   legs: LegPlan[];
@@ -12,6 +14,8 @@ interface RouteProfileChartProps {
   profile?: ProfilePlan | null;
   /** Airspace under the route, drawn as boxes from floor to ceiling. */
   airspaces?: AirspaceCheck[];
+  /** Offers going under or over a tapped airspace. */
+  avoid?: AvoidHandler;
 }
 
 const HEIGHT = 240;
@@ -47,7 +51,7 @@ type Active = { kind: 'segment'; i: number } | { kind: 'airspace'; ids: number[]
  * segment (the wind strip along the top always works) for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [] }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<Active | null>(null);
   React.useEffect(() => {
@@ -256,7 +260,8 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
             below={y(altitudeFt) < M.top + plotH / 2} onClose={() => setActive(null)}/>
         )}
         {active?.kind === 'airspace' && (
-          <AirspaceTooltip checks={active.ids.map(i => boxes[i].c)} left={active.x} width={width} below={active.below} onClose={() => setActive(null)}/>
+          <AirspaceTooltip checks={active.ids.map(i => boxes[i].c)} left={active.x} width={width} below={active.below} onClose={() => setActive(null)}
+            avoid={avoid && { ...avoid, onPick: ft => { setActive(null); avoid.onPick(ft); } }}/>
         )}
       </div>
     </figure>
@@ -293,10 +298,10 @@ const activation = (a: AirspaceCheck['airspace']['activation']) =>
   a === 'NOTAM' ? ' Active by NOTAM.' : a === 'request' ? ' Active on request.' : a === 'demand' ? ' Active on demand.' : '';
 
 /** The airspaces under a tap: where they start and end, and who to call. */
-const AirspaceTooltip: React.FC<{ checks: AirspaceCheck[]; left: number; width: number; below: boolean; onClose: () => void }> = ({
-  checks, left, width, below, onClose,
-}) => {
-  const w = 240;
+const AirspaceTooltip: React.FC<{
+  checks: AirspaceCheck[]; left: number; width: number; below: boolean; onClose: () => void; avoid?: AvoidHandler;
+}> = ({ checks, left, width, below, onClose, avoid }) => {
+  const w = avoid && checks.some(canAvoid) ? 280 : 240;
   const clamped = Math.min(Math.max(left - w / 2, 0), Math.max(0, width - w));
   return (
     <div role="dialog" aria-label="Airspace details" style={{ left: clamped, width: w, ...(below ? { bottom: M.bottom + 2 } : { top: M.top + 2 }) }}
@@ -318,6 +323,7 @@ const AirspaceTooltip: React.FC<{ checks: AirspaceCheck[]; left: number; width: 
             {freqs.length
               ? freqs.map(f => <p key={f.value} className="font-semibold">{frequencyText(f)}{f.source && <span className="font-normal text-muted-foreground"> (from {f.source})</span>}</p>)
               : <p className="text-muted-foreground">No frequency listed</p>}
+            {avoid && canAvoid(c) && <AvoidAirspace options={avoid.optionsFor(c)} altitudeFt={avoid.altitudeFt} onPick={avoid.onPick}/>}
           </div>
         );
       })}

@@ -7,6 +7,8 @@ import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import type { AirspacesState } from '../../lib/useAirspaces';
 import type { Frequency } from '../../types/route';
 import { SWEDEN_CONTROL_URL, type SwedenControlLeg, swedenControlText } from '../../lib/swedenControl';
+import { type AvoidHandler, canAvoid } from '../../lib/avoidAirspace';
+import AvoidAirspace from './AvoidAirspace';
 
 interface AirspacePanelProps {
   state: AirspacesState;
@@ -15,6 +17,8 @@ interface AirspacePanelProps {
   basis: string;
   /** Who to call in class G along the route, where it's in Sweden. */
   swedenControl?: SwedenControlLeg[];
+  /** Offers going under or over each airspace entered. */
+  avoid?: AvoidHandler;
 }
 
 const ft = (n: number) => Math.round(n).toLocaleString('en');
@@ -66,7 +70,7 @@ const activationText = (a: AirspaceCheck['airspace']['activation']) =>
   a === 'NOTAM' ? 'Active by NOTAM.' : a === 'request' ? 'Active on request.' : a === 'demand' ? 'Active on demand.' : '';
 
 /** The airspaces the planned flight path enters or passes close to, in route order. */
-const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis, swedenControl = [] }) => {
+const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis, swedenControl = [], avoid }) => {
   // Gliding sectors, sport areas and the like go in the second list, with what's passed over or under.
   const isInfo = (c: AirspaceCheck) => adviceFor(c.airspace).severity === 'info';
   const near = (c: AirspaceCheck) => c.status === 'inside' || c.status === 'close';
@@ -109,7 +113,7 @@ const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis, swe
           </p>
           {!hidden && relevant.length > 0 && (
             <ul className="space-y-1.5">
-              {relevant.map((c, i) => <Item key={`${c.airspace.id}-${i}`} c={c}/>)}
+              {relevant.map((c, i) => <Item key={`${c.airspace.id}-${i}`} c={c} avoid={avoid}/>)}
             </ul>
           )}
           {!hidden && other.length > 0 && (
@@ -170,7 +174,7 @@ const SwedenControlAlong: React.FC<{ legs: SwedenControlLeg[] }> = ({ legs }) =>
   </div>
 );
 
-const Item: React.FC<{ c: AirspaceCheck }> = ({ c }) => {
+const Item: React.FC<{ c: AirspaceCheck; avoid?: AvoidHandler }> = ({ c, avoid }) => {
   const advice = adviceFor(c.airspace);
   const style = SEVERITY_STYLE[advice.severity];
   const you = Math.abs(c.maxFt - c.minFt) < 50 ? `${ft(c.maxFt)} ft` : `${ft(c.minFt)}–${ft(c.maxFt)} ft`;
@@ -188,6 +192,7 @@ const Item: React.FC<{ c: AirspaceCheck }> = ({ c }) => {
         {c.status === 'inside' ? advice.hint : 'Close to its limit: allow for altimeter setting and terrain.'} {activationText(c.airspace.activation)}
       </p>
       <Frequencies list={c.airspace.frequencies}/>
+      {avoid && canAvoid(c) && <AvoidAirspace options={avoid.optionsFor(c)} altitudeFt={avoid.altitudeFt} onPick={avoid.onPick}/>}
     </li>
   );
 };
