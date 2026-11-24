@@ -17,7 +17,7 @@ import type {
   MemberView,
   PasswordLinkResponse,
 } from '../types/admin';
-import type { AirportInfo, AirspaceView, NearbyAirport, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
+import type { AirportInfo, AirspaceView, NearbyAirport, PointInfo, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
 import type { ClubName, MyClub } from '../types/profile';
 import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
 
@@ -110,6 +110,11 @@ export function fetchMapStatus(): Promise<MapStatus> {
 export function fetchAirspacesAlong(points: Array<{ lat: number; lon: number }>): Promise<AirspaceView[]> {
   const route = points.map(p => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join(';');
   return request<AirspaceView[]>(`/api/map/airspaces?${new URLSearchParams({ route })}`);
+}
+
+/** The airspaces above a point and the nearest airports' frequencies. Public. */
+export function fetchPointInfo(lat: number, lon: number): Promise<PointInfo> {
+  return request<PointInfo>(`/api/map/here?${new URLSearchParams({ lat: lat.toFixed(4), lon: lon.toFixed(4) })}`);
 }
 
 /** Leaflet URL template for the airspace overlay (openAIP, proxied by the backend). */

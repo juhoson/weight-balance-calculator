@@ -289,10 +289,11 @@ it('lists the airspace the planned path enters, and the ones it passes over', as
     [[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]];
   mockedAirspaces.mockResolvedValue([
     { id: 'tma', name: 'TEST TMA', type: 'TMA', icaoClass: 'C', activation: null, polygon: box(14.0, 58.3, 14.8, 58.9),
+      frequencies: [{ value: '126.405', name: 'TEST APPROACH', kind: 'APP', primary: true, source: 'ESXX' }],
       lower: { ft: 1500, datum: 'MSL', label: '1,500 ft MSL' }, upper: { ft: 9500, datum: 'STD', label: 'FL95' } },
-    { id: 'd', name: 'ES D 99', type: 'D', icaoClass: null, activation: 'NOTAM', polygon: box(15.0, 58.8, 15.3, 59.1),
+    { id: 'd', name: 'ES D 99', type: 'D', icaoClass: null, activation: 'NOTAM', polygon: box(15.0, 58.8, 15.3, 59.1), frequencies: [],
       lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 1000, datum: 'GND', label: '1,000 ft AGL' } },
-    { id: 'far', name: 'FAR CTR', type: 'CTR', icaoClass: 'D', activation: null, polygon: box(20, 65, 21, 66),
+    { id: 'far', name: 'FAR CTR', type: 'CTR', icaoClass: 'D', activation: null, polygon: box(20, 65, 21, 66), frequencies: [],
       lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 2500, datum: 'MSL', label: '2,500 ft MSL' } },
   ]);
   render(<WeightBalanceCalculator />);
@@ -304,11 +305,20 @@ it('lists the airspace the planned path enters, and the ones it passes over', as
   expect(panel).toHaveTextContent(/Terminal area \(class C\)/);
   expect(panel).toHaveTextContent(/1,500 ft MSL – FL95 · you 3,000 ft/);
   expect(panel).toHaveTextContent(/Inside\. Clearance needed\./);
+  expect(panel).toHaveTextContent(/126\.405 TEST APPROACH \(from ESXX\)/);
   // The danger area tops out at 1,000 ft AGL (taken over ESGG, 506 ft): passed over with room to spare.
   expect(screen.getByText('Over or under 1 more')).toBeInTheDocument();
   expect(panel).toHaveTextContent(/ES D 99 \(GND – 1,000 ft AGL\) · over it/);
   expect(panel).not.toHaveTextContent(/FAR CTR/);
   expect(mockedAirspaces).toHaveBeenCalledWith([{ lat: essx.lat, lon: essx.lon }, { lat: esgg.lat, lon: esgg.lon }]);
+
+  // A long list can be hidden; the summary stays, and the choice is remembered.
+  fireEvent.click(screen.getByRole('button', { name: 'Hide list' }));
+  expect(panel).not.toHaveTextContent(/TEST TMA/);
+  expect(panel).toHaveTextContent(/Enters 1 airspace/);
+  expect(localStorage.getItem('airspaceList.hidden')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Show list' }));
+  expect(panel).toHaveTextContent(/TEST TMA/);
 
   // At 1,000 ft: under the TMA's floor, but into the danger area.
   fireEvent.change(screen.getByLabelText('Cruise altitude'), { target: { value: '1000' } });

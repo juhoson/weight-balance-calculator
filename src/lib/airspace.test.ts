@@ -5,7 +5,7 @@ const box = (lon0: number, lat0: number, lon1: number, lat1: number): Array<[num
   [[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]];
 const space = (patch: Partial<AirspaceView>): AirspaceView => ({
   id: 'x', name: 'X', type: 'CTR', icaoClass: 'D', activation: null, polygon: box(0.4, -0.1, 0.6, 0.1),
-  lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 2500, datum: 'MSL', label: '2,500 ft MSL' }, ...patch,
+  lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 2500, datum: 'MSL', label: '2,500 ft MSL' }, frequencies: [], ...patch,
 });
 // Along the equator: 1° of longitude is 60 NM.
 const route = [{ code: 'A', lat: 0, lon: 0 }, { code: 'B', lat: 0, lon: 1 }];

@@ -168,4 +168,25 @@ export interface AirspaceView {
   activation: 'NOTAM' | 'request' | 'demand' | null;
   /** Outer ring, [lon, lat]. */
   polygon: Array<[number, number]>;
+  /** Its own, else taken from an airport inside it (see Frequency.source). */
+  frequencies: Frequency[];
+}
+
+export interface Frequency {
+  /** MHz, e.g. "130.605". */
+  value: string;
+  /** As published, e.g. "VÄSTERÅS TOWER". */
+  name: string | null;
+  kind: 'TWR' | 'APP' | 'AFIS' | 'INFO' | 'RADIO' | 'ATIS' | 'GND' | 'FIS' | 'CTAF' | 'DEL' | 'CENTER' | 'GLIDING' | 'OTHER';
+  primary: boolean;
+  /** The airport it was taken from when the airspace has none of its own; null when published for the airspace. */
+  source: string | null;
+}
+
+/** What's at a point: the airspaces above it, lowest first, and the nearest airports with radio. */
+export interface PointInfo {
+  lat: number;
+  lon: number;
+  airspaces: AirspaceView[];
+  airports: Array<{ code: string; name: string; lat: number; lon: number; distanceNm: number; frequencies: Frequency[] }>;
 }

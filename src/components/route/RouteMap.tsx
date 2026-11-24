@@ -1,7 +1,8 @@
 import React from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { AIRSPACE_TILE_URL, fetchMapStatus, type MapStatus } from '../../api/backend';
+import { AIRSPACE_TILE_URL, fetchMapStatus, fetchPointInfo, type MapStatus } from '../../api/backend';
+import { pointInfoHtml } from '../../lib/frequencies';
 
 export interface MapAirport {
   code: string;
@@ -79,9 +80,23 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
     // Top left, under the zoom buttons: the credits take the bottom edge on a phone.
     L.control.scale({ imperial: true, metric: true, position: 'topleft' }).addTo(map);
     routeLayer.current = L.layerGroup().addTo(map);
-    // Clicking the map enables the mouse wheel, so scrolling past it doesn't zoom it.
-    map.on('click', () => map.scrollWheelZoom.enable());
+    // Clicking the map enables the mouse wheel, so scrolling past it doesn't zoom it; with the
+    // airspace on, it also shows the airspace and frequencies at that spot.
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      map.scrollWheelZoom.enable();
+      if (!status?.airspace) return;
+      // As tall as the map allows (it scrolls inside); the map buttons hide while it's open.
+      const popup = L.popup({
+        maxWidth: 260, maxHeight: Math.max(120, map.getSize().y - 70), className: 'point-info-popup', autoPanPadding: [8, 8],
+      })
+        .setLatLng(e.latlng).setContent('<div class="point-info">Loading airspace…</div>').openOn(map);
+      fetchPointInfo(e.latlng.lat, L.Util.wrapNum(e.latlng.lng, [-180, 180], true))
+        .then(info => { if (map.hasLayer(popup)) popup.setContent(pointInfoHtml(info)); })
+        .catch(() => { if (map.hasLayer(popup)) popup.setContent('<div class="point-info">Could not load the airspace here.</div>'); });
+    });
     map.on('mouseout', () => map.scrollWheelZoom.disable());
+    map.on('popupopen', () => container.current?.classList.add('route-map--popup'));
+    map.on('popupclose', () => container.current?.classList.remove('route-map--popup'));
     mapRef.current = map;
     return () => {
       map.remove();
@@ -106,6 +121,8 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
       const end = i === 0 || i === airports.length - 1;
       L.circleMarker([a.lat, a.lon], {
         radius: end ? 7 : 5, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1,
+        // A tap on an airport shows its name, not the airspace lookup.
+        bubblingMouseEvents: false,
       })
         .bindTooltip(a.code, { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' })
         .bindPopup(a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : escapeHtml(a.code))
@@ -130,7 +147,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
         className="route-map relative z-0 h-72 w-full overflow-hidden rounded-md border border-border sm:h-96"/>
       <p className="text-[11px] text-muted-foreground">
         {status?.airspace
-          ? 'Airspace from openAIP, maintained by volunteers. Not for navigation: check the AIP, the official charts and NOTAMs.'
+          ? 'Tap the map for the airspace and frequencies there. Airspace from openAIP, maintained by volunteers. Not for navigation: check the AIP, the official charts and NOTAMs.'
           : status === undefined ? '' : 'Airspace is not available right now; the map shows the route only.'}
         {L.Browser.mobile && ' Use two fingers to move the map.'}
       </p>

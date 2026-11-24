@@ -195,3 +195,19 @@ input::-webkit-inner-spin-button {
 .route-map .leaflet-tooltip.route-map-label::before {
   display: none;
 }
+
+.point-info-popup .leaflet-popup-content {
+  margin: 8px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.point-info .pi-row { padding: 4px 0; border-bottom: 1px solid rgba(127, 127, 127, 0.25); }
+.point-info .pi-sub { color: #64748b; font-size: 11px; }
+.point-info .pi-freq { font-variant-numeric: tabular-nums; font-weight: 600; }
+.point-info .pi-head { margin-top: 6px; font-weight: 600; font-size: 11px; }
+.point-info .pi-note { margin-top: 6px; color: #64748b; font-size: 10px; }
+
+/* The map buttons would cover a popup on a small map. */
+.route-map.route-map--popup .leaflet-top {
+  visibility: hidden;
+}
