@@ -182,3 +182,20 @@ describe('altitude per leg', () => {
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   });
 });
+
+it('hovering shows the weather only over the wind strip, and moving down onto the chart hides it again', () => {
+  const { container } = render(<RouteProfileChart legs={legs()} altitudeFt={3000} onLegAltitude={jest.fn()}/>);
+  const strip = container.querySelectorAll('rect[data-wind-strip]')[0];
+  // jsdom's pointer events have no pointerType: give them the mouse's.
+  const enter = (el: Element) => {
+    const e = new MouseEvent('pointerover', { bubbles: true });
+    Object.defineProperty(e, 'pointerType', { value: 'mouse' });
+    fireEvent(el, e);
+  };
+  enter(columns(container)[0]);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  enter(strip);
+  expect(screen.getByRole('dialog', { name: 'Segment details' })).toBeInTheDocument();
+  enter(columns(container)[0]);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});

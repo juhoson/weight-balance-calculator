@@ -51,12 +51,12 @@ function useWidth<T extends HTMLElement>(fallback: number): [React.RefObject<T |
 }
 
 /** What's open: a segment's weather, or the airspace boxes under a tap. */
-type Active = { kind: 'segment'; i: number } | { kind: 'airspace'; ids: number[]; x: number; below: boolean };
+type Active = { kind: 'segment'; i: number; hover?: boolean } | { kind: 'airspace'; ids: number[]; x: number; below: boolean };
 
 /**
  * The route from the side: cloud by height along the way, the cruise altitude, the freezing level
- * and the (averaged) terrain, with the wind at the cruise altitude along the top. Tap or hover a
- * segment (the wind strip along the top always works) for its weather; tap an airspace box for its
+ * and the (averaged) terrain, with the wind at the cruise altitude along the top. Tap a
+ * segment, or hover the wind strip along the top, for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
 const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude }) => {
@@ -266,14 +266,24 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
             );
           })}
 
-          {/* Hover/tap targets, a full column per segment */}
-          {segments.map((s, i) => (
-            <rect key={i} x={x(s.segment.startNm)} width={Math.max(1, x(s.segment.startNm + s.segment.distanceNm) - x(s.segment.startNm))}
-              y={M.top - 28} height={plotH + 28} fill="transparent" data-segment={i}
-              className={`cursor-pointer ${activeSegment === i ? 'fill-foreground/10' : ''}`}
-              onPointerEnter={e => { if (e.pointerType === 'mouse' && active?.kind !== 'airspace') setActive({ kind: 'segment', i }); }}
-              onPointerUp={() => setActive(a => (a?.kind === 'segment' && a.i === i ? null : { kind: 'segment', i }))}/>
-          ))}
+          {/* Tap targets, a full column per segment; hovering opens the details only over the wind strip
+              along the top, so they don't cover the flight path while the pointer is on it. */}
+          {segments.map((s, i) => {
+            const x0 = x(s.segment.startNm), w = Math.max(1, x(s.segment.startNm + s.segment.distanceNm) - x0);
+            const toggle = () => setActive(a => (a?.kind === 'segment' && a.i === i && !a.hover ? null : { kind: 'segment', i }));
+            return (
+              <g key={i}>
+                <rect x={x0} width={w} y={M.top - 28} height={28} fill="transparent" data-wind-strip={i}
+                  className={`cursor-pointer ${activeSegment === i ? 'fill-foreground/10' : ''}`}
+                  onPointerEnter={e => { if (e.pointerType === 'mouse' && active?.kind !== 'airspace') setActive({ kind: 'segment', i, hover: true }); }}
+                  onPointerUp={toggle}/>
+                <rect x={x0} width={w} y={M.top} height={plotH} fill="transparent" data-segment={i}
+                  className={`cursor-pointer ${activeSegment === i ? 'fill-foreground/10' : ''}`}
+                  onPointerEnter={e => { if (e.pointerType === 'mouse' && active?.kind === 'segment' && active.hover) setActive(null); }}
+                  onPointerUp={toggle}/>
+              </g>
+            );
+          })}
 
           {/* Airspace boxes on top of the columns, narrowest last so it wins the tap. */}
           {boxes.map(({ c, x0, x1, top, bottom }, i) => (
