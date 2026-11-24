@@ -27,7 +27,7 @@ function legs() {
   return plan.legs;
 }
 
-const columns = (container: HTMLElement) => container.querySelectorAll('rect[fill="transparent"]');
+const columns = (container: HTMLElement) => container.querySelectorAll('rect[data-segment]');
 
 it('a tap opens a segment\'s details and another tap on it closes them', () => {
   const { container } = render(<RouteProfileChart legs={legs()} altitudeFt={3000}/>);
@@ -64,4 +64,27 @@ it('places the details away from the cruise line', () => {
   expect(screen.getByRole('dialog').style.bottom).not.toBe(''); // high cruise: details at the bottom
   rerender(<RouteProfileChart legs={legs()} altitudeFt={2000}/>);
   expect(screen.getByRole('dialog').style.top).not.toBe(''); // low cruise: at the top
+});
+
+it('a tap on an airspace box shows its limits and frequency, and the wind strip still shows the weather', () => {
+  const tma = {
+    airspace: {
+      id: 't', name: 'STOCKHOLM TMA', type: 'TMA', icaoClass: 'C', activation: null, polygon: [],
+      lower: { ft: 2500, datum: 'MSL' as const, label: '2,500 ft MSL' }, upper: { ft: 9500, datum: 'STD' as const, label: 'FL95' },
+      frequencies: [{ value: '132.480', name: 'SWEDEN CONTROL', kind: 'CENTER' as const, primary: true, source: null }],
+    },
+    fromNm: 10, toNm: 40, status: 'inside' as const, minFt: 3000, maxFt: 3000, floorFt: 2500, ceilingFt: 9500,
+  };
+  const { container } = render(<RouteProfileChart legs={legs()} altitudeFt={3000} airspaces={[tma]}/>);
+  fireEvent.pointerUp(screen.getByRole('button', { name: 'Airspace STOCKHOLM TMA' }));
+  const dialog = screen.getByRole('dialog', { name: 'Airspace details' });
+  expect(dialog).toHaveTextContent('STOCKHOLM TMA');
+  expect(dialog).toHaveTextContent('2,500 ft MSL – FL95');
+  expect(dialog).toHaveTextContent('10–40 NM along the route. You are in it.');
+  expect(dialog).toHaveTextContent('132.480 SWEDEN CONTROL');
+  fireEvent.click(screen.getByRole('button', { name: 'Close airspace details' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+  fireEvent.pointerUp(columns(container)[0]);
+  expect(screen.getByRole('dialog', { name: 'Segment details' })).toHaveTextContent('0–25 NM');
 });

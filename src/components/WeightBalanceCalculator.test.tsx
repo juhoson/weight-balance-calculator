@@ -183,7 +183,7 @@ it('picking a club aircraft moves a remembered route to its home airfield, but k
 
   const user = userEvent.setup();
   const pick = async (text: string, reg: RegExp) => {
-    await user.click(screen.getByRole('combobox', { name: 'Aircraft' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Aircraft' }));
     await user.keyboard(`{Control>}a{/Control}${text}`);
     await user.click(await screen.findByRole('option', { name: reg }));
   };
@@ -206,7 +206,7 @@ it('picking a club aircraft keeps a trip that already starts at its home airfiel
   render(<WeightBalanceCalculator />);
   await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESOW', 'ESGG', []));
   const user = userEvent.setup();
-  await user.click(screen.getByRole('combobox', { name: 'Aircraft' }));
+  await user.click(await screen.findByRole('combobox', { name: 'Aircraft' }));
   await user.keyboard('{Control>}a{/Control}mbc');
   await user.click(await screen.findByRole('option', { name: /SE-MBC/ }));
   await waitFor(() => expect(screen.getByRole('heading', { name: 'SE-MBC' })).toBeInTheDocument());

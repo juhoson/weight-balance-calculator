@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import type { LegPlan, ProfilePlan, SegmentPlan } from '../../lib/enroute';
 import { adviceFor, type AirspaceCheck } from '../../lib/airspace';
+import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import { SEVERITY_STYLE } from './AirspacePanel';
 
 interface RouteProfileChartProps {
@@ -37,14 +38,18 @@ function useWidth<T extends HTMLElement>(fallback: number): [React.RefObject<T |
   return [ref, width];
 }
 
+/** What's open: a segment's weather, or the airspace boxes under a tap. */
+type Active = { kind: 'segment'; i: number } | { kind: 'airspace'; ids: number[]; x: number; below: boolean };
+
 /**
  * The route from the side: cloud by height along the way, the cruise altitude, the freezing level
  * and the (averaged) terrain, with the wind at the cruise altitude along the top. Tap or hover a
- * segment for its details; the nav log below has the same numbers as a table.
+ * segment (the wind strip along the top always works) for its weather; tap an airspace box for its
+ * limits and frequency. The nav log below has the same numbers as a table.
  */
 const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [] }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
-  const [active, setActive] = React.useState<number | null>(null);
+  const [active, setActive] = React.useState<Active | null>(null);
   React.useEffect(() => {
     if (active === null) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setActive(null); };
@@ -80,13 +85,31 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
   const terrain = segments.map(s => s.segment.groundFt ?? 0);
   const boundaries = legs.map(l => l.segments[0]?.segment.startNm).filter((nm): nm is number => nm !== undefined);
   const codes = [...legs.map(l => l.leg.from), legs[legs.length - 1].leg.to];
-  const shown = active === null ? null : segments[active];
+  const shown = active?.kind === 'segment' ? segments[active.i] : null;
+  const activeSegment = active?.kind === 'segment' ? active.i : null;
   // Boxes that reach into the chart, widest first so narrow ones stay on top. Gliding sectors and
   // other information-only areas are left to the list: in grey they'd read as cloud.
   const placedLabels: Array<{ x0: number; x1: number; top: number }> = [];
   const shownAirspaces = airspaces
     .filter(c => c.floorFt < topFt && c.ceilingFt > 0 && adviceFor(c.airspace).severity !== 'info')
     .sort((a, b) => (b.toNm - b.fromNm) - (a.toNm - a.fromNm));
+  const boxes = shownAirspaces.map(c => {
+    const x0 = x(c.fromNm);
+    return { c, x0, x1: Math.max(x(c.toNm), x0 + 2), top: y(Math.min(c.ceilingFt, topFt)), bottom: y(Math.max(0, c.floorFt)) };
+  });
+  const openAirspace = active?.kind === 'airspace' ? active.ids : [];
+  /** A tap on a box lists every box under the finger, narrowest first; without a position, just that one. */
+  const tapAirspace = (e: React.PointerEvent<SVGRectElement>, idx: number) => {
+    e.stopPropagation();
+    const svg = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
+    const px = svg && svg.width > 0 ? e.clientX - svg.left : null, py = svg && svg.width > 0 ? e.clientY - svg.top : null;
+    const ids = px === null || py === null ? [idx]
+      : boxes.map((b, i) => ({ b, i })).filter(({ b }) => px >= b.x0 && px <= b.x1 && py >= b.top - 1 && py <= b.bottom + 1).map(({ i }) => i).reverse();
+    const list = ids.length ? ids : [idx];
+    const same = active?.kind === 'airspace' && active.ids.join() === list.join();
+    const b = boxes[list[0]];
+    setActive(same ? null : { kind: 'airspace', ids: list, x: px ?? (b.x0 + b.x1) / 2, below: (b.top + b.bottom) / 2 < M.top + plotH / 2 });
+  };
 
   return (
     <figure className="min-w-0 space-y-2">
@@ -99,7 +122,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
         {shownAirspaces.length > 0 && (
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-blue-600 bg-blue-500/15 dark:border-blue-400"/> Airspace (see the list below)</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-blue-600 bg-blue-500/15 dark:border-blue-400"/> Airspace (tap for limits and frequency)</span>
         )}
       </figcaption>
       <div ref={ref} className="relative w-full min-w-0 select-none" onPointerLeave={e => { if (e.pointerType === 'mouse') setActive(null); }}>
@@ -134,10 +157,9 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
 
           {/* Airspace: floor to ceiling where the route is under its outline. */}
           <g aria-hidden="true">
-            {shownAirspaces.map((c, i) => {
+            {boxes.map(({ c, x0, x1, top, bottom }, i) => {
               const style = SEVERITY_STYLE[adviceFor(c.airspace).severity].box;
-              const x0 = x(c.fromNm), x1 = Math.max(x(c.toNm), x0 + 2);
-              const top = y(Math.min(c.ceilingFt, topFt)), bottom = y(Math.max(0, c.floorFt));
+              const open = openAirspace.includes(i);
               const label = c.airspace.name.length > 22 ? `${c.airspace.name.slice(0, 21)}…` : c.airspace.name;
               const labelW = label.length * 5.5 + 6;
               // One label per spot: skip a name that would overprint one already drawn.
@@ -146,8 +168,8 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
               if (fits) placedLabels.push({ x0, x1: x0 + labelW, top });
               return (
                 <g key={`${c.airspace.id}-${i}`} className={style}>
-                  <rect x={x0} width={x1 - x0} y={top} height={Math.max(1, bottom - top)} fillOpacity={0.1}
-                    strokeWidth={1} strokeDasharray={c.status === 'inside' ? undefined : '3 3'}/>
+                  <rect x={x0} width={x1 - x0} y={top} height={Math.max(1, bottom - top)} fillOpacity={open ? 0.3 : 0.1}
+                    strokeWidth={open ? 2 : 1} strokeDasharray={c.status === 'inside' || open ? undefined : '3 3'}/>
                   {fits && (
                     <text x={x0 + 3} y={top + 11} className="fill-foreground stroke-none text-[9px]" fillOpacity={0.8}>{label}</text>
                   )}
@@ -210,16 +232,31 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           {/* Hover/tap targets, a full column per segment */}
           {segments.map((s, i) => (
             <rect key={i} x={x(s.segment.startNm)} width={Math.max(1, x(s.segment.startNm + s.segment.distanceNm) - x(s.segment.startNm))}
-              y={M.top - 28} height={plotH + 28} fill="transparent"
-              className={active === i ? 'fill-foreground/10' : undefined}
-              onPointerEnter={e => { if (e.pointerType === 'mouse') setActive(i); }}
-              onPointerUp={() => setActive(a => (a === i ? null : i))}/>
+              y={M.top - 28} height={plotH + 28} fill="transparent" data-segment={i}
+              className={`cursor-pointer ${activeSegment === i ? 'fill-foreground/10' : ''}`}
+              onPointerEnter={e => { if (e.pointerType === 'mouse' && active?.kind !== 'airspace') setActive({ kind: 'segment', i }); }}
+              onPointerUp={() => setActive(a => (a?.kind === 'segment' && a.i === i ? null : { kind: 'segment', i }))}/>
+          ))}
+
+          {/* Airspace boxes on top of the columns, narrowest last so it wins the tap. */}
+          {boxes.map(({ c, x0, x1, top, bottom }, i) => (
+            <rect key={`hit-${i}`} x={x0} width={x1 - x0} y={top} height={Math.max(4, bottom - top)} fill="transparent"
+              className="cursor-pointer" role="button" tabIndex={0} aria-label={`Airspace ${c.airspace.name}`}
+              onPointerUp={e => tapAirspace(e, i)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                setActive({ kind: 'airspace', ids: [i], x: (x0 + x1) / 2, below: (top + bottom) / 2 < M.top + plotH / 2 });
+              }}/>
           ))}
         </svg>
         {shown && (
           <Tooltip s={shown} left={x(shown.segment.startNm + shown.segment.distanceNm / 2)} width={width}
             // Away from the cruise line, so the flight path stays in view.
             below={y(altitudeFt) < M.top + plotH / 2} onClose={() => setActive(null)}/>
+        )}
+        {active?.kind === 'airspace' && (
+          <AirspaceTooltip checks={active.ids.map(i => boxes[i].c)} left={active.x} width={width} below={active.below} onClose={() => setActive(null)}/>
         )}
       </div>
     </figure>
@@ -245,6 +282,45 @@ const Tooltip: React.FC<{ s: SegmentPlan; left: number; width: number; below: bo
       <p>MH {pad3(s.magneticHeading)}° · GS {Math.round(s.groundSpeedKt)} kt</p>
       <p>Cloud base {s.cloudBaseFt === null ? 'none (no broken layer)' : `≈ ${s.cloudBaseFt.toLocaleString('en')} ft`}</p>
       <p>0 °C {s.freezingLevelFt === null ? 'above 18,000 ft' : s.segment.groundFt !== null && s.freezingLevelFt <= s.segment.groundFt ? 'at the ground' : `≈ ${s.freezingLevelFt.toLocaleString('en')} ft`}</p>
+    </div>
+  );
+};
+
+const STATUS: Record<AirspaceCheck['status'], string> = {
+  inside: 'You are in it', close: 'You pass close to a limit', above: 'You pass over it', below: 'You pass under it',
+};
+const activation = (a: AirspaceCheck['airspace']['activation']) =>
+  a === 'NOTAM' ? ' Active by NOTAM.' : a === 'request' ? ' Active on request.' : a === 'demand' ? ' Active on demand.' : '';
+
+/** The airspaces under a tap: where they start and end, and who to call. */
+const AirspaceTooltip: React.FC<{ checks: AirspaceCheck[]; left: number; width: number; below: boolean; onClose: () => void }> = ({
+  checks, left, width, below, onClose,
+}) => {
+  const w = 240;
+  const clamped = Math.min(Math.max(left - w / 2, 0), Math.max(0, width - w));
+  return (
+    <div role="dialog" aria-label="Airspace details" style={{ left: clamped, width: w, ...(below ? { bottom: M.bottom + 2 } : { top: M.top + 2 }) }}
+      onPointerUp={e => { e.stopPropagation(); onClose(); }}
+      className="absolute z-10 max-h-[200px] cursor-pointer space-y-1.5 overflow-y-auto rounded-md border border-border bg-popover/95 p-2 pr-7 text-[11px] leading-snug text-popover-foreground shadow-md tabular-nums">
+      <button type="button" aria-label="Close airspace details" onClick={onClose}
+        className="absolute right-1 top-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+        <X className="h-3.5 w-3.5"/>
+      </button>
+      {checks.map((c, i) => {
+        const advice = adviceFor(c.airspace);
+        const freqs = contactFrequencies(c.airspace.frequencies);
+        return (
+          <div key={`${c.airspace.id}-${i}`} className={i > 0 ? 'border-t border-border pt-1.5' : undefined}>
+            <p className="font-medium">{c.airspace.name}</p>
+            <p className={SEVERITY_STYLE[advice.severity].text}>{advice.label}</p>
+            <p>{c.airspace.lower.label} – {c.airspace.upper.label}</p>
+            <p className="text-muted-foreground">{Math.round(c.fromNm)}–{Math.round(c.toNm)} NM along the route. {STATUS[c.status]}.{activation(c.airspace.activation)}</p>
+            {freqs.length
+              ? freqs.map(f => <p key={f.value} className="font-semibold">{frequencyText(f)}{f.source && <span className="font-normal text-muted-foreground"> (from {f.source})</span>}</p>)
+              : <p className="text-muted-foreground">No frequency listed</p>}
+          </div>
+        );
+      })}
     </div>
   );
 };
