@@ -140,7 +140,8 @@ const RouteSection: React.FC<RouteSectionProps> = ({
       )}
       {data && (
         <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
-          <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}/>
+          <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}
+            onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS}/>
         </React.Suspense>
       )}
       {weather.error && <p className="text-sm text-red-600" role="alert">{weather.error}</p>}

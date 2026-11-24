@@ -195,6 +195,28 @@ input::-webkit-inner-spin-button {
 .route-map .leaflet-tooltip.route-map-label::before {
   display: none;
 }
+/* Waypoints that can be dragged, and the handle mid-leg to drag out a new one. */
+.route-map .route-map-waypoint {
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  background: #d946ef;
+  cursor: grab;
+}
+.route-map .route-map-insert {
+  border: 2px solid #d946ef;
+  border-radius: 9999px;
+  background: #ffffff;
+  opacity: 0.85;
+  cursor: grab;
+}
+.route-map .route-map-insert:hover { opacity: 1; }
+.route-map .route-map-remove {
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  border-radius: 4px;
+  font-size: 12px;
+}
 
 .point-info-popup .leaflet-popup-content {
   margin: 8px 10px;

@@ -1,7 +1,8 @@
 import React from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { AIRSPACE_TILE_URL, fetchMapStatus, fetchPointInfo, type MapStatus } from '../../api/backend';
+import { AIRSPACE_TILE_URL, fetchMapStatus, fetchPointInfo, type MapStatus, nearestAirports } from '../../api/backend';
+import { parsePosition, positionCode } from '../../lib/routePoint';
 import { pointInfoHtml } from '../../lib/frequencies';
 
 export interface MapAirport {
@@ -14,7 +15,17 @@ export interface MapAirport {
 interface RouteMapProps {
   /** Departure, any waypoints and arrival, in order. */
   airports: MapAirport[];
+  /**
+   * Makes the waypoints draggable and adds a handle mid-leg to drag out a new one; called with the
+   * waypoints' codes (airports, or positions like 5912N01734E) after each change.
+   */
+  onWaypointsChange?: (via: string[]) => void;
+  maxWaypoints?: number;
 }
+
+/** Dropped this close to an airport on screen, a waypoint becomes that airport. */
+const SNAP_PX = 14;
+const keyOf = (airports: MapAirport[]) => airports.map(a => `${a.code}@${a.lat.toFixed(4)},${a.lon.toFixed(4)}`).join('|');
 
 const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 // Short, so the credits fit on one line on a phone.
@@ -36,7 +47,7 @@ export function resetMapStatus(): void {
 }
 
 /** The route on a map, with openAIP's airspace on top. */
-const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
+const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWaypoints = 18 }) => {
   const container = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<L.Map | null>(null);
   const routeLayer = React.useRef<L.LayerGroup | null>(null);
@@ -105,29 +116,110 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
     };
   }, [status]);
 
-  const key = airports.map(a => `${a.code}@${a.lat.toFixed(4)},${a.lon.toFixed(4)}`).join('|');
+  const editRef = React.useRef(onWaypointsChange);
+  editRef.current = onWaypointsChange;
+  const editable = !!onWaypointsChange && airports.length >= 2;
+  // A waypoint moved on the map is drawn where it was dropped until the new route has loaded.
+  const key = keyOf(airports);
+  const [pending, setPending] = React.useState<{ base: string; airports: MapAirport[] } | null>(null);
+  React.useEffect(() => setPending(null), [key]);
+  const shown = pending && pending.base === key ? pending.airports : airports;
+  const shownKey = keyOf(shown);
+  // The codes after the pilot's own edit: the map keeps its view for those instead of refitting.
+  const edited = React.useRef<string | null>(null);
   React.useEffect(() => {
     const map = mapRef.current;
     const group = routeLayer.current;
     if (!map || !group) return;
     group.clearLayers();
-    if (airports.length === 0) return;
-    const points = airports.map(a => L.latLng(a.lat, a.lon));
-    if (points.length > 1) {
-      L.polyline(points, { color: '#ffffff', weight: 6, opacity: 0.8, interactive: false }).addTo(group);
-      L.polyline(points, { color: ROUTE_COLOR, weight: 3, opacity: 1, interactive: false }).addTo(group);
-    }
-    airports.forEach((a, i) => {
-      const end = i === 0 || i === airports.length - 1;
-      L.circleMarker([a.lat, a.lon], {
-        radius: end ? 7 : 5, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1,
-        // A tap on an airport shows its name, not the airspace lookup.
-        bubblingMouseEvents: false,
-      })
-        .bindTooltip(a.code, { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' })
-        .bindPopup(a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : escapeHtml(a.code))
-        .addTo(group);
+    if (shown.length === 0) return;
+    const points = shown.map(a => L.latLng(a.lat, a.lon));
+    const lines = points.length > 1 ? [
+      L.polyline(points, { color: '#ffffff', weight: 6, opacity: 0.8, interactive: false }).addTo(group),
+      L.polyline(points, { color: ROUTE_COLOR, weight: 3, opacity: 1, interactive: false }).addTo(group),
+    ] : [];
+    const redraw = (pts: L.LatLng[]) => lines.forEach(l => l.setLatLngs(pts));
+    const between = shown.slice(1, -1);
+    const commit = (waypoints: MapAirport[]) => {
+      const next = [shown[0], ...waypoints, shown[shown.length - 1]];
+      edited.current = next.map(a => a.code).join('|');
+      setPending({ base: key, airports: next });
+      editRef.current?.(waypoints.map(a => a.code));
+    };
+    // Dropped right on an airport (on screen): that airport; otherwise the position.
+    const dropped = async (at: L.LatLng): Promise<MapAirport> => {
+      const lon = L.Util.wrapNum(at.lng, [-180, 180], true);
+      const code = positionCode(at.lat, lon);
+      const exact = parsePosition(code) ?? { lat: at.lat, lon };
+      try {
+        const near = (await nearestAirports(at.lat, lon))[0]?.airport;
+        if (near && map.latLngToContainerPoint([near.lat, near.lon]).distanceTo(map.latLngToContainerPoint(at)) <= SNAP_PX) {
+          return { code: near.code, name: near.name, lat: near.lat, lon: near.lon };
+        }
+      } catch {
+        // No airport list: the position it is.
+      }
+      return { code, name: `Position ${code}`, ...exact };
+    };
+
+    shown.forEach((a, i) => {
+      const end = i === 0 || i === shown.length - 1;
+      const label = <T extends L.Layer>(m: T): T => {
+        m.bindTooltip(a.code, { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' });
+        return m;
+      };
+      if (end || !editable) {
+        label(L.circleMarker([a.lat, a.lon], {
+          radius: end ? 7 : 5, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1,
+          // A tap on an airport shows its name, not the airspace lookup.
+          bubblingMouseEvents: false,
+        }))
+          .bindPopup(a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : escapeHtml(a.code))
+          .addTo(group);
+        return;
+      }
+      // A waypoint: drag it somewhere else, or remove it from its popup.
+      const w = i - 1;
+      const marker = L.marker([a.lat, a.lon], {
+        icon: L.divIcon({ className: 'route-map-waypoint', iconSize: [14, 14] }), draggable: true, autoPan: true, keyboard: false,
+      });
+      label(marker);
+      const popup = document.createElement('div');
+      popup.innerHTML = a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : `<strong>${escapeHtml(a.code)}</strong>`;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'route-map-remove';
+      remove.textContent = 'Remove waypoint';
+      remove.addEventListener('click', () => {
+        map.closePopup();
+        commit(between.filter((_, j) => j !== w));
+      });
+      popup.appendChild(remove);
+      marker.bindPopup(popup);
+      marker.on('drag', () => redraw(points.map((p, j) => (j === i ? marker.getLatLng() : p))));
+      marker.on('dragend', () => {
+        dropped(marker.getLatLng()).then(p => commit(between.map((b, j) => (j === w ? p : b))));
+      });
+      marker.addTo(group);
     });
+    // A handle in the middle of each leg: drag it out to add a waypoint there.
+    if (editable && between.length < maxWaypoints) {
+      for (let i = 0; i < points.length - 1; i++) {
+        const mid = L.latLng((points[i].lat + points[i + 1].lat) / 2, (points[i].lng + points[i + 1].lng) / 2);
+        const handle = L.marker(mid, {
+          icon: L.divIcon({ className: 'route-map-insert', iconSize: [12, 12] }), draggable: true, autoPan: true, keyboard: false,
+          title: 'Drag to add a waypoint',
+        });
+        handle.on('drag', () => redraw([...points.slice(0, i + 1), handle.getLatLng(), ...points.slice(i + 1)]));
+        handle.on('dragend', () => {
+          dropped(handle.getLatLng()).then(p => commit([...between.slice(0, i), p, ...between.slice(i)]));
+        });
+        handle.addTo(group);
+      }
+    }
+
+    if (edited.current === shown.map(a => a.code).join('|')) return; // the pilot's own change: keep the view
+    edited.current = null;
     const bounds = L.latLngBounds(points);
     const size = map.getSize();
     const tiny = bounds.getNorthEast().distanceTo(bounds.getSouthWest()) < 5000;
@@ -139,7 +231,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
       // labels right of each airport, and the credits along the bottom.
       map.fitBounds(bounds, { paddingTopLeft: [60, 64], paddingBottomRight: [72, 36], maxZoom: 11 });
     }
-  }, [key, status]);
+  }, [shownKey, status, editable, maxWaypoints]);
 
   return (
     <div className="space-y-1">
@@ -149,6 +241,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
         {status?.airspace
           ? 'Tap the map for the airspace and frequencies there. Airspace from openAIP, maintained by volunteers. Not for navigation: check the AIP, the official charts and NOTAMs.'
           : status === undefined ? '' : 'Airspace is not available right now; the map shows the route only.'}
+        {editable && ' Drag a waypoint to move it, or a white dot in the middle of a leg to add one; drop it on an airport to use that airport.'}
         {L.Browser.mobile && ' Use two fingers to move the map.'}
       </p>
     </div>

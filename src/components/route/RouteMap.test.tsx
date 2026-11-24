@@ -10,6 +10,7 @@ const { default: RouteMap, resetMapStatus } = require('./RouteMap') as typeof im
 jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
   fetchPointInfo: jest.fn(),
+  nearestAirports: jest.fn(),
   AIRSPACE_TILE_URL: '/api/map/airspace/{z}/{x}/{y}.png',
 }));
 
@@ -55,4 +56,30 @@ test('a tap on the map shows the airspace and frequencies there', async () => {
   fireEvent.click(mapEl, { clientX: 50, clientY: 50 });
   expect(await screen.findByText(/130\.605 VÄSTERÅS TOWER/)).toBeInTheDocument();
   expect(fetchPointInfo).toHaveBeenCalledTimes(1);
+});
+
+test('waypoints can be moved, added and removed on the map', async () => {
+  (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
+  const onChange = jest.fn();
+  const three = [route[0], { code: '5930N01720E', name: 'Position 5930N01720E', lat: 59.5, lon: 17.3333 }, route[1]];
+  const { container, rerender } = render(<RouteMap airports={three} onWaypointsChange={onChange}/>);
+  expect(await screen.findByText(/Drag a waypoint to move it/)).toBeInTheDocument();
+  await waitFor(() => expect(container.querySelectorAll('.route-map-waypoint')).toHaveLength(1));
+  expect(container.querySelectorAll('.route-map-insert')).toHaveLength(2); // one per leg
+
+  fireEvent.click(container.querySelector('.route-map-waypoint') as HTMLElement);
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove waypoint' }));
+  expect(onChange).toHaveBeenCalledWith([]);
+  // Drawn without it straight away, before the new route has loaded.
+  await waitFor(() => expect(container.querySelectorAll('.route-map-waypoint')).toHaveLength(0));
+  expect(container.querySelectorAll('.route-map-insert')).toHaveLength(1);
+
+  // The new route loads; then no handles at the waypoint limit, and none without the callback.
+  rerender(<RouteMap airports={route} onWaypointsChange={onChange}/>);
+  rerender(<RouteMap airports={three} onWaypointsChange={onChange} maxWaypoints={1}/>);
+  await waitFor(() => expect(container.querySelectorAll('.route-map-insert')).toHaveLength(0));
+  expect(container.querySelectorAll('.route-map-waypoint')).toHaveLength(1);
+  rerender(<RouteMap airports={three}/>);
+  await waitFor(() => expect(container.querySelectorAll('.route-map-waypoint')).toHaveLength(0));
+  expect(screen.queryByText(/Drag a waypoint/)).toBeNull();
 });
