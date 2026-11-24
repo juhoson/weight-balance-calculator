@@ -7,7 +7,7 @@ import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import type { AirspacesState } from '../../lib/useAirspaces';
 import type { Frequency } from '../../types/route';
 import { SWEDEN_CONTROL_URL, type SwedenControlLeg, swedenControlText } from '../../lib/swedenControl';
-import { type AvoidHandler, canAvoid } from '../../lib/avoidAirspace';
+import { type AvoidHandler, canAvoid, holdFor } from '../../lib/avoidAirspace';
 import AvoidAirspace from './AvoidAirspace';
 
 interface AirspacePanelProps {
@@ -192,7 +192,8 @@ const Item: React.FC<{ c: AirspaceCheck; avoid?: AvoidHandler }> = ({ c, avoid }
         {c.status === 'inside' ? advice.hint : 'Close to its limit: allow for altimeter setting and terrain.'} {activationText(c.airspace.activation)}
       </p>
       <Frequencies list={c.airspace.frequencies}/>
-      {avoid && canAvoid(c) && <AvoidAirspace options={avoid.optionsFor(c)} altitudeFt={avoid.altitudeFt} onPick={avoid.onPick}/>}
+      {avoid && canAvoid(c) && <AvoidAirspace options={avoid.optionsFor(c)} altitudeFt={avoid.altitudeFt} onPick={avoid.onPick}
+        range={c} onHold={avoid.onHold && ((side, ft) => avoid.onHold?.(holdFor(c, side, ft)))}/>}
     </li>
   );
 };

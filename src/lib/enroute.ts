@@ -103,6 +103,8 @@ export interface SegmentPlan {
   cloudBaseFt: number | null;
   freezingLevelFt: number | null;
   layers: CloudLayer[];
+  /** The altitude it's flown at: the cruise altitude, or a hold's. */
+  altitudeFt: number;
 }
 
 export interface LegPlan {
@@ -122,6 +124,23 @@ export interface VerticalProfile {
   climbTasKt: number;
   climbFpm: number;
   descentFpm: number;
+  /** Stretches flown at another altitude (under or over an airspace); the rest at the cruise altitude. */
+  holds?: AltitudeHold[];
+}
+
+/** "At 2,000 ft from 20 to 40 NM": the descent into it ends before it starts, the climb out starts after it ends. */
+export interface AltitudeHold {
+  fromNm: number;
+  toNm: number;
+  ft: number;
+  /** Why, e.g. "Under STOCKHOLM TMA". */
+  note?: string;
+}
+
+/** A corner of the flight path: altitude at a distance from the departure, straight lines between. */
+export interface PathPoint {
+  nm: number;
+  ft: number;
 }
 
 export interface ProfilePlan {
@@ -137,6 +156,10 @@ export interface ProfilePlan {
   descentMinutes: number;
   tocAt: Date;
   todAt: Date;
+  /** The whole path, departure to circuit altitude over the arrival. */
+  path: PathPoint[];
+  /** Holds the climb or descent can't reach in time at these rates (the path is steeper there). */
+  missed: AltitudeHold[];
 }
 
 export type RoutePlan =
@@ -186,11 +209,12 @@ export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: nu
       cloudBaseFt: hour < 0 ? null : segment.cloudBaseFt[hour] ?? null,
       freezingLevelFt: hour < 0 ? null : segment.freezingLevelFt[hour] ?? null,
       layers: hour < 0 ? [] : segment.layers[hour] ?? [],
+      altitudeFt: levelAt(segment.startNm + segment.distanceNm / 2, vertical?.cruiseFt ?? forecast.altitudeFt, vertical?.holds),
     });
     at += minutes * 60_000;
   }
   if (segments.length === 0) return { ok: false, reason: 'no-forecast', leg: legs[0] };
-  const profile = vertical ? withProfile(segments, vertical, departure) : null;
+  const profile = vertical ? withProfile(segments, vertical, departure, tasKt) : null;
   const legPlans: LegPlan[] = legs.map((leg, i) => {
     const own = segments.filter(s => s.segment.leg === i);
     return { leg, segments: own, minutes: own.reduce((sum, s) => sum + s.minutes, 0) };
@@ -198,62 +222,156 @@ export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: nu
   return { ok: true, legs: legPlans, segments, minutes: segments.reduce((sum, s) => sum + s.minutes, 0), profile };
 }
 
+/** The altitude flown at a point: a hold's there, otherwise the cruise altitude. */
+export function levelAt(nm: number, cruiseFt: number, holds: AltitudeHold[] = []): number {
+  return holds.find(h => nm >= h.fromNm && nm <= h.toNm)?.ft ?? cruiseFt;
+}
+
+/** Holds sorted, inside the route, without overlaps (a later one wins where they overlap). */
+export function tidyHolds(holds: AltitudeHold[], totalNm: number): AltitudeHold[] {
+  const out: AltitudeHold[] = [];
+  for (const h of holds) {
+    const c = { ...h, fromNm: Math.max(0, h.fromNm), toNm: Math.min(totalNm, h.toNm) };
+    if (c.toNm - c.fromNm < 0.1) continue;
+    for (let i = out.length - 1; i >= 0; i--) if (out[i].fromNm < c.toNm && out[i].toNm > c.fromNm) out.splice(i, 1);
+    out.push(c);
+  }
+  return out.sort((x, y) => x.fromNm - y.fromNm);
+}
+
+/**
+ * The path with holds, in still air: climb at Vy from the departure, cruise, holds and the descent to
+ * circuit altitude. The descent into a hold ends where it starts and the climb out starts where it
+ * ends; between holds too short to get back to the cruise altitude, the flight stays where it is.
+ */
+export function steppedPath(totalNm: number, v: VerticalProfile, cruiseTasKt: number): { path: PathPoint[]; missed: AltitudeHold[]; climbs: Array<[number, number]> } {
+  const climbNm = (dFt: number) => (dFt / v.climbFpm / 60) * v.climbTasKt;
+  const descentNm = (dFt: number) => (dFt / v.descentFpm / 60) * cruiseTasKt;
+  const change = (from: number, to: number) => (to > from ? climbNm(to - from) : descentNm(from - to));
+  const holds = tidyHolds(v.holds ?? [], totalNm);
+  // The route in stretches: the cruise altitude between holds (free to change in), and the holds (fixed).
+  const stretches: Array<{ s: number; e: number; ft: number; hold?: AltitudeHold }> = [];
+  let at = 0;
+  for (const h of holds) {
+    if (h.fromNm > at) stretches.push({ s: at, e: h.fromNm, ft: v.cruiseFt });
+    stretches.push({ s: h.fromNm, e: h.toNm, ft: h.ft, hold: h });
+    at = h.toNm;
+  }
+  if (at < totalNm) stretches.push({ s: at, e: totalNm, ft: v.cruiseFt });
+
+  const path: PathPoint[] = [{ nm: 0, ft: v.departureFt }];
+  const missed: AltitudeHold[] = [];
+  const climbs: Array<[number, number]> = [];
+  let cur = path[0];
+  /** Level at `start`, then straight to `ft` over the distance it takes. */
+  const go = (ft: number, start: number) => {
+    if (start > cur.nm) path.push({ nm: start, ft: cur.ft });
+    const p = { nm: Math.min(totalNm, start + change(cur.ft, ft)), ft };
+    path.push(p);
+    if (ft > cur.ft) climbs.push([start, p.nm]);
+    cur = p;
+  };
+  stretches.forEach((st, k) => {
+    if (st.ft === cur.ft) return;
+    const d = change(cur.ft, st.ft);
+    if (st.hold) {
+      // Into a hold: as late as still gets there in time, or straight away climbing out of the departure.
+      const start = cur.nm === 0 && st.ft > cur.ft ? 0 : Math.max(cur.nm, st.s - d);
+      // Drawn as flown: still changing inside it. That matters only on the wrong side of it: still
+      // below one above the cruise altitude (over something), or above one below it (under something).
+      const wrongSide = st.ft > cur.ft ? st.ft > v.cruiseFt : st.ft < v.cruiseFt;
+      if (start + d > st.s + 0.05 && wrongSide) missed.push(st.hold);
+      go(st.ft, start);
+      return;
+    }
+    // Back to the cruise altitude only if there's room to get there and on to what follows.
+    const start = Math.max(cur.nm, st.s);
+    const next = stretches[k + 1]?.ft ?? v.arrivalFt;
+    if (start + d + change(st.ft, next) > st.e) return;
+    go(st.ft, start);
+  });
+  if (cur.ft !== v.arrivalFt) {
+    // The descent to circuit altitude, steeper if it must be to end over the field.
+    const d = change(cur.ft, v.arrivalFt);
+    const start = Math.max(cur.nm, totalNm - d);
+    if (start > cur.nm) path.push({ nm: start, ft: cur.ft });
+    if (v.arrivalFt > cur.ft) climbs.push([start, totalNm]);
+    path.push({ nm: totalNm, ft: v.arrivalFt });
+  } else if (cur.nm < totalNm) path.push({ nm: totalNm, ft: cur.ft });
+  return { path, missed, climbs };
+}
+
 /**
  * Adds the climb and descent: finds the top of climb (at Vy, in each segment's wind) and the top of
  * descent (at cruise speed, so it costs no extra time), retimes the segments the climb slows down,
- * and lowers the top when the route is too short to reach the cruise altitude. Segments are
- * changed in place.
+ * and lowers the top when the route is too short to reach the cruise altitude. With holds, the path
+ * comes from steppedPath and every climb slows the segments it's in. Segments are changed in place.
  */
-function withProfile(segments: SegmentPlan[], v: VerticalProfile, departure: Date): ProfilePlan {
+function withProfile(segments: SegmentPlan[], v: VerticalProfile, departure: Date, cruiseTasKt: number): ProfilePlan {
   const start = (i: number) => segments[i].segment.startNm;
   const dist = (i: number) => segments[i].segment.distanceNm;
   const total = start(segments.length - 1) + dist(segments.length - 1);
   const cruiseGs = segments.map(s => s.triangle.groundSpeedKt);
   const climbGs = segments.map((s, i) => windTriangle(s.segment.trueCourseDeg, v.climbTasKt, s.wind)?.groundSpeedKt ?? cruiseGs[i]);
 
-  // Where along the route a number of minutes at these groundspeeds ends, from the start or the end.
-  const forward = (gs: number[], minutes: number) => {
-    let t = 0;
-    for (let i = 0; i < segments.length; i++) {
-      const m = (dist(i) / gs[i]) * 60;
-      if (t + m >= minutes) return start(i) + ((minutes - t) / 60) * gs[i];
-      t += m;
-    }
-    return total;
-  };
-  const backward = (gs: number[], minutes: number) => {
-    let t = 0;
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const m = (dist(i) / gs[i]) * 60;
-      if (t + m >= minutes) return start(i) + dist(i) - ((minutes - t) / 60) * gs[i];
-      t += m;
-    }
-    return 0;
-  };
-  const tocOf = (top: number) => forward(climbGs, Math.max(0, top - v.departureFt) / v.climbFpm);
-  const todOf = (top: number) => backward(cruiseGs, Math.max(0, top - v.arrivalFt) / v.descentFpm);
+  let path: PathPoint[];
+  let climbs: Array<[number, number]>;
+  let missed: AltitudeHold[] = [];
+  let top: number, toc: number, tod: number;
+  if (v.holds?.length) {
+    ({ path, climbs, missed } = steppedPath(total, v, cruiseTasKt));
+    top = Math.max(...path.map(p => p.ft));
+    toc = path[1]?.nm ?? 0;
+    tod = path.length > 2 ? path[path.length - 2].nm : toc;
+  } else {
+    // Where along the route a number of minutes at these groundspeeds ends, from the start or the end.
+    const forward = (gs: number[], minutes: number) => {
+      let t = 0;
+      for (let i = 0; i < segments.length; i++) {
+        const m = (dist(i) / gs[i]) * 60;
+        if (t + m >= minutes) return start(i) + ((minutes - t) / 60) * gs[i];
+        t += m;
+      }
+      return total;
+    };
+    const backward = (gs: number[], minutes: number) => {
+      let t = 0;
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const m = (dist(i) / gs[i]) * 60;
+        if (t + m >= minutes) return start(i) + dist(i) - ((minutes - t) / 60) * gs[i];
+        t += m;
+      }
+      return 0;
+    };
+    const tocOf = (h: number) => forward(climbGs, Math.max(0, h - v.departureFt) / v.climbFpm);
+    const todOf = (h: number) => backward(cruiseGs, Math.max(0, h - v.arrivalFt) / v.descentFpm);
 
-  let top = v.cruiseFt;
-  if (tocOf(top) > todOf(top)) {
-    // Too short: the highest altitude where the climb and the descent meet.
-    let lo = Math.min(v.cruiseFt, Math.max(v.departureFt, v.arrivalFt)), hi = v.cruiseFt;
-    for (let k = 0; k < 40; k++) {
-      const mid = (lo + hi) / 2;
-      if (tocOf(mid) <= todOf(mid)) lo = mid; else hi = mid;
+    top = v.cruiseFt;
+    if (tocOf(top) > todOf(top)) {
+      // Too short: the highest altitude where the climb and the descent meet.
+      let lo = Math.min(v.cruiseFt, Math.max(v.departureFt, v.arrivalFt)), hi = v.cruiseFt;
+      for (let k = 0; k < 40; k++) {
+        const mid = (lo + hi) / 2;
+        if (tocOf(mid) <= todOf(mid)) lo = mid; else hi = mid;
+      }
+      top = lo;
     }
-    top = lo;
+    toc = tocOf(top);
+    tod = Math.max(toc, todOf(top));
+    path = [{ nm: 0, ft: v.departureFt }, { nm: toc, ft: top }, { nm: tod, ft: top }, { nm: total, ft: v.arrivalFt }];
+    climbs = [[0, toc]];
   }
-  const toc = tocOf(top), tod = Math.max(toc, todOf(top));
 
-  // Retime: the part of each segment before the top of climb is flown at the climb groundspeed.
+  // Retime: the parts of each segment that climb are flown at the climb groundspeed.
+  const climbingIn = (a: number, b: number) => climbs.reduce((sum, [c0, c1]) => sum + Math.max(0, Math.min(b, c1) - Math.max(a, c0)), 0);
   let at = departure.getTime();
   let tocAt = departure, todAt = departure;
   segments.forEach((s, i) => {
     const s0 = start(i), s1 = s0 + dist(i);
-    const climbPart = Math.max(0, Math.min(s1, toc) - s0);
+    const climbPart = climbingIn(s0, s1);
     const minutes = (climbPart / climbGs[i] + (dist(i) - climbPart) / cruiseGs[i]) * 60;
     const timeAt = (nm: number) => {
-      const c = Math.max(0, Math.min(nm, toc) - s0);
+      const c = climbingIn(s0, nm);
       return at + ((c / climbGs[i] + (nm - s0 - c) / cruiseGs[i]) * 60) * 60_000;
     };
     if (toc >= s0 && toc <= s1) tocAt = new Date(timeAt(toc));
@@ -264,12 +382,15 @@ function withProfile(segments: SegmentPlan[], v: VerticalProfile, departure: Dat
     at += minutes * 60_000;
     s.arrives = new Date(at);
   });
+  const firstFt = path[1]?.ft ?? v.departureFt;
+  const lastFt = path.length > 2 ? path[path.length - 2].ft : firstFt;
   return {
-    topFt: top, reachesCruise: top >= v.cruiseFt - 1, departureFt: v.departureFt, arrivalFt: v.arrivalFt,
+    topFt: top, reachesCruise: v.holds?.length ? path.some(p => Math.abs(p.ft - v.cruiseFt) < 1) || path.length <= 2 : top >= v.cruiseFt - 1,
+    departureFt: v.departureFt, arrivalFt: v.arrivalFt,
     tocNm: toc, todNm: tod,
-    climbMinutes: Math.max(0, top - v.departureFt) / v.climbFpm,
-    descentMinutes: Math.max(0, top - v.arrivalFt) / v.descentFpm,
-    tocAt, todAt,
+    climbMinutes: Math.max(0, firstFt - v.departureFt) / v.climbFpm,
+    descentMinutes: Math.max(0, lastFt - v.arrivalFt) / v.descentFpm,
+    tocAt, todAt, path, missed,
   };
 }
 
@@ -294,15 +415,16 @@ export interface PlanWarnings {
   icing: SegmentPlan[];
 }
 
-export function warningsOf(segments: SegmentPlan[], altitudeFt: number): PlanWarnings {
-  const nearCloud = segments.filter(s => s.cloudBaseFt !== null && s.cloudBaseFt < altitudeFt + CLOUD_MARGIN_FT);
+export function warningsOf(segments: SegmentPlan[], cruiseFt: number): PlanWarnings {
+  const alt = (s: SegmentPlan) => s.altitudeFt ?? cruiseFt;
+  const nearCloud = segments.filter(s => s.cloudBaseFt !== null && s.cloudBaseFt < alt(s) + CLOUD_MARGIN_FT);
   const bases = nearCloud.map(s => s.cloudBaseFt as number);
   return {
     nearCloud,
     lowestBaseFt: bases.length ? Math.min(...bases) : null,
-    lowTerrain: segments.filter(s => s.segment.groundFt !== null && altitudeFt < s.segment.groundFt + TERRAIN_MARGIN_FT),
-    icing: segments.filter(s => s.cloudBaseFt !== null && s.cloudBaseFt <= altitudeFt
-      && s.freezingLevelFt !== null && s.freezingLevelFt <= altitudeFt),
+    lowTerrain: segments.filter(s => s.segment.groundFt !== null && alt(s) < s.segment.groundFt + TERRAIN_MARGIN_FT),
+    icing: segments.filter(s => s.cloudBaseFt !== null && s.cloudBaseFt <= alt(s)
+      && s.freezingLevelFt !== null && s.freezingLevelFt <= alt(s)),
   };
 }
 

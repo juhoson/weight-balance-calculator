@@ -143,20 +143,30 @@ export function useSuggestMax(): [number, (ft: number) => void] {
 }
 
 /**
- * The same forecast at each altitude from 1,000 ft to `maxFt`, for comparing them. Asked only once the
- * main forecast has arrived, and one after the other, so they're all built from its cached data
- * (Open-Meteo is asked for every level at once) rather than asking again.
+ * The same forecast at each altitude from 1,000 ft to `maxFt`, for comparing them. Asked only once
+ * the main forecast has arrived, so they're all built from its cached data.
  */
 export function useAltitudeForecasts(trip: RouteWeather | null, departure: Date | null,
   main: EnrouteForecastState, maxFt: number): Map<number, EnrouteForecast> | null {
+  const altitudes = React.useMemo(() => (validSuggestMax(maxFt) ? altitudesUpTo(maxFt) : []), [maxFt]);
+  return useForecastsAt(trip, departure, main, altitudes);
+}
+
+/**
+ * The same forecast at other altitudes. Asked only once the main forecast has arrived, and one
+ * after the other, so they're all built from its cached data (Open-Meteo is asked for every level at
+ * once) rather than asking again. Changing the cruise altitude alone doesn't ask again.
+ */
+export function useForecastsAt(trip: RouteWeather | null, departure: Date | null,
+  main: EnrouteForecastState, altitudes: number[]): Map<number, EnrouteForecast> | null {
   const [byAltitude, setByAltitude] = React.useState<Map<number, EnrouteForecast> | null>(null);
   const routeKey = trip
     ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival].map(a => `${a.code}:${a.lat}:${a.lon}`).join('|')
     : '';
   const departureMs = departure ? Math.floor(departure.getTime() / 60_000) * 60_000 : 0;
-  // Waits for the main forecast; changing the cruise altitude alone doesn't compare again.
   const ready = !!main.data?.available && !main.loading;
-  const key = routeKey && validSuggestMax(maxFt) ? `${routeKey}#${departureMs}#${maxFt}#${main.data?.times[0] ?? ''}` : '';
+  const list = altitudes.join(',');
+  const key = routeKey && list ? `${routeKey}#${departureMs}#${list}#${main.data?.times[0] ?? ''}` : '';
   const [doneKey, setDoneKey] = React.useState('');
   React.useEffect(() => {
     if (key !== doneKey) setByAltitude(null);
@@ -165,15 +175,15 @@ export function useAltitudeForecasts(trip: RouteWeather | null, departure: Date 
     const route = routeKey.split('|').map(p => { const [code, lat, lon] = p.split(':'); return { code, lat: Number(lat), lon: Number(lon) }; });
     (async () => {
       const out = new Map<number, EnrouteForecast>();
-      for (const ft of altitudesUpTo(maxFt)) {
+      for (const ft of list.split(',').map(Number)) {
         if (cancelled) return;
         const f = await forecastAlongRoute(route, ft, departureMs ? new Date(departureMs) : null);
         if (!f.available) return;
         out.set(ft, f);
       }
       if (!cancelled) { setByAltitude(out); setDoneKey(key); }
-    })().catch(() => { /* no suggestions; the main forecast still shows */ });
+    })().catch(() => { /* none; the main forecast still shows */ });
     return () => { cancelled = true; };
-  }, [key, ready, doneKey, routeKey, departureMs, maxFt]);
+  }, [key, ready, doneKey, routeKey, departureMs, list]);
   return byAltitude;
 }

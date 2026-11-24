@@ -1,5 +1,5 @@
 import React, { Profiler } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
 import { fetchAirframes, fetchAirspacesAlong, fetchGenericTypes, fetchRouteWeather } from '../api/backend';
@@ -475,4 +475,38 @@ describe('a club link (?club=)', () => {
     expect(screen.getByText(/typical values for the model/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Show all aircraft' })).toHaveAttribute('href', '/?x=1');
   });
+});
+
+it('flies a stretch at another altitude, in that altitude\'s wind', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
+  const first = new Date();
+  first.setMinutes(0, 0, 0);
+  const times = Array.from({ length: 12 }, (_, h) => new Date(first.getTime() + h * 3600_000).toISOString());
+  const each = <T,>(v: T) => times.map(() => v);
+  mockedWinds.mockImplementation(async (_route, altitudeFt) => ({
+    available: true, altitudeFt, times,
+    segments: Array.from({ length: 7 }, (_, k) => ({
+      leg: 0, startNm: k * 25, distanceNm: 25, trueCourseDeg: 231, lat: 59 - k * 0.25, lon: 16 - k * 0.6, groundFt: 300,
+      windDirTrue: each(231), windKt: each(altitudeFt > 3000 ? 30 : 20), tempC: each(5),
+      cloudBaseFt: each(null), freezingLevelFt: each(null), layers: each([]),
+    })),
+  }));
+  render(<WeightBalanceCalculator />);
+  const changes = await screen.findByRole('region', { name: 'Altitude changes along the route' });
+  expect(changes).toHaveTextContent('All of it at 3,000 ft.');
+  expect(screen.getByRole('table', { name: 'Nav log' })).not.toHaveTextContent('Alt');
+
+  // Added in the middle third (58-117 NM), 1,000 ft below the cruise.
+  fireEvent.click(within(changes).getByRole('button', { name: 'Add' }));
+  expect(within(changes).getByLabelText('Change 1 altitude')).toHaveValue(2000);
+  fireEvent.change(within(changes).getByLabelText('Change 1 altitude'), { target: { value: '4500' } });
+  // The three segments in it are flown at 4,500 ft, in the 30 kt wind there.
+  await waitFor(() => expect(screen.getAllByText('231/30')).toHaveLength(3));
+  const log = screen.getByRole('table', { name: 'Nav log' });
+  expect(log).toHaveTextContent('Alt');
+  expect(within(log).getAllByText('4,500')).toHaveLength(3);
+  expect(screen.getByText(/1 altitude change, in the forecast wind/)).toBeInTheDocument();
+
+  fireEvent.click(within(changes).getByRole('button', { name: 'Remove change 1' }));
+  await waitFor(() => expect(screen.getAllByText('231/20')).toHaveLength(7));
 });

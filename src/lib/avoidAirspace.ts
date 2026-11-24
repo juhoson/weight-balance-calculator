@@ -1,5 +1,5 @@
 import { adviceFor, AGL_MARGIN_FT, type AirspaceCheck, type Crossing, MARGIN_FT } from './airspace';
-import { TERRAIN_MARGIN_FT, toMagnetic, variationAt } from './enroute';
+import { type AltitudeHold, TERRAIN_MARGIN_FT, toMagnetic, variationAt } from './enroute';
 import { intermediate, type RoutePosition } from './openMeteo';
 import { MAX_ALTITUDE_FT, MIN_ALTITUDE_FT } from './useEnrouteForecast';
 import type { EnrouteSegment, RouteLeg } from '../types/route';
@@ -147,7 +147,18 @@ export interface AvoidHandler {
   optionsFor: (c: AirspaceCheck) => AvoidResult[];
   altitudeFt: number;
   onPick: (ft: number) => void;
+  /** Goes under or over just where the route crosses it, keeping the cruise altitude elsewhere. */
+  onHold?: (hold: AltitudeHold) => void;
 }
+
+/** Held this far either side of where the route is under an airspace's outline. */
+export const HOLD_MARGIN_NM = 1;
+
+/** Under or over one airspace, only where the route crosses it. */
+export const holdFor = (c: Crossing, side: AvoidOption['side'], ft: number): AltitudeHold => ({
+  fromNm: c.fromNm - HOLD_MARGIN_NM, toNm: c.toNm + HOLD_MARGIN_NM, ft,
+  note: `${side === 'under' ? 'Under' : 'Over'} ${c.airspace.name}`,
+});
 
 /** Only where there's something to avoid: entered or passed close to, and not just for information. */
 export const canAvoid = (c: AirspaceCheck) => (c.status === 'inside' || c.status === 'close') && adviceFor(c.airspace).severity !== 'info';

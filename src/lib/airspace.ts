@@ -53,6 +53,23 @@ export function altitudeAlong(p: PathProfile): AltitudeAt {
   };
 }
 
+/** Altitude along a path given by its corners, straight between them. */
+export function altitudeAlongPoints(path: Array<{ nm: number; ft: number }>): AltitudeAt {
+  return nm => {
+    if (path.length === 0) return 0;
+    if (nm <= path[0].nm) return path[0].ft;
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i];
+      if (nm <= b.nm) return b.nm - a.nm < 1e-9 ? b.ft : a.ft + (b.ft - a.ft) * (nm - a.nm) / (b.nm - a.nm);
+    }
+    return path[path.length - 1].ft;
+  };
+}
+
+/** The corners of a climb–cruise–descent profile. */
+export const pointsOf = (p: PathProfile) =>
+  [{ nm: 0, ft: p.departureFt }, { nm: p.tocNm, ft: p.topFt }, { nm: p.todNm, ft: p.topFt }, { nm: p.totalNm, ft: p.arrivalFt }];
+
 /**
  * The same climb and descent without wind, for when there's no forecast plan: climb at the Vy
  * true airspeed, descend at the cruise one, and top out lower where the route is too short.

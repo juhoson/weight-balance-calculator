@@ -4,7 +4,7 @@ import type { LegPlan, ProfilePlan, SegmentPlan } from '../../lib/enroute';
 import { adviceFor, type AirspaceCheck } from '../../lib/airspace';
 import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import { SEVERITY_STYLE } from './AirspacePanel';
-import { type AvoidHandler, canAvoid } from '../../lib/avoidAirspace';
+import { type AvoidHandler, canAvoid, holdFor } from '../../lib/avoidAirspace';
 import AvoidAirspace from './AvoidAirspace';
 
 interface RouteProfileChartProps {
@@ -120,7 +120,8 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
       <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-primary"/>
           {profile
-            ? profile.reachesCruise ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft` : `Flight path, highest ≈ ${(Math.round(profile.topFt / 100) * 100).toLocaleString('en')} ft`
+            ? profile.path.length > 4 ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft with altitude changes`
+              : profile.reachesCruise ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft` : `Flight path, highest ≈ ${(Math.round(profile.topFt / 100) * 100).toLocaleString('en')} ft`
             : `Cruise ${altitudeFt.toLocaleString('en')} ft`}</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud (darker = more)</span>
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
@@ -193,15 +194,18 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           {profile ? (
             <g>
               <path fill="none" className="stroke-primary" strokeWidth={2} strokeLinejoin="round"
-                d={`M${x(0)},${y(profile.departureFt)}L${x(profile.tocNm)},${y(profile.topFt)}L${x(profile.todNm)},${y(profile.topFt)}L${x(totalNm)},${y(profile.arrivalFt)}`}/>
+                d={profile.path.map((p, i) => `${i ? 'L' : 'M'}${x(p.nm)},${y(p.ft)}`).join('')}/>
               {(x(profile.todNm) - x(profile.tocNm) < 40
                 // Too close to label apart (a short hop): one point.
-                ? [{ nm: (profile.tocNm + profile.todNm) / 2, label: 'TOC/TOD', anchor: 'middle' as const, dx: 0 }]
-                : [{ nm: profile.tocNm, label: 'TOC', anchor: 'start' as const, dx: 4 }, { nm: profile.todNm, label: 'TOD', anchor: 'end' as const, dx: -4 }]
+                ? [{ nm: (profile.tocNm + profile.todNm) / 2, ft: profile.topFt, label: 'TOC/TOD', anchor: 'middle' as const, dx: 0 }]
+                : [
+                  { nm: profile.tocNm, ft: profile.path[1]?.ft ?? profile.topFt, label: 'TOC', anchor: 'start' as const, dx: 4 },
+                  { nm: profile.todNm, ft: profile.path[profile.path.length - 2]?.ft ?? profile.topFt, label: 'TOD', anchor: 'end' as const, dx: -4 },
+                ]
               ).map(m => (
                 <g key={m.label}>
-                  <circle cx={x(m.nm)} cy={y(profile.topFt)} r={3.5} className="fill-background stroke-primary" strokeWidth={2}/>
-                  <text x={x(m.nm) + m.dx} y={y(profile.topFt) - 7} textAnchor={m.anchor} className="fill-foreground text-[10px] font-semibold">{m.label}</text>
+                  <circle cx={x(m.nm)} cy={y(m.ft)} r={3.5} className="fill-background stroke-primary" strokeWidth={2}/>
+                  <text x={x(m.nm) + m.dx} y={y(m.ft) - 7} textAnchor={m.anchor} className="fill-foreground text-[10px] font-semibold">{m.label}</text>
                 </g>
               ))}
             </g>
@@ -261,7 +265,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
         )}
         {active?.kind === 'airspace' && (
           <AirspaceTooltip checks={active.ids.map(i => boxes[i].c)} left={active.x} width={width} below={active.below} onClose={() => setActive(null)}
-            avoid={avoid && { ...avoid, onPick: ft => { setActive(null); avoid.onPick(ft); } }}/>
+            avoid={avoid && { ...avoid, onPick: ft => { setActive(null); avoid.onPick(ft); }, onHold: avoid.onHold && (h => { setActive(null); avoid.onHold?.(h); }) }}/>
         )}
       </div>
     </figure>
@@ -323,7 +327,8 @@ const AirspaceTooltip: React.FC<{
             {freqs.length
               ? freqs.map(f => <p key={f.value} className="font-semibold">{frequencyText(f)}{f.source && <span className="font-normal text-muted-foreground"> (from {f.source})</span>}</p>)
               : <p className="text-muted-foreground">No frequency listed</p>}
-            {avoid && canAvoid(c) && <AvoidAirspace options={avoid.optionsFor(c)} altitudeFt={avoid.altitudeFt} onPick={avoid.onPick}/>}
+            {avoid && canAvoid(c) && <AvoidAirspace options={avoid.optionsFor(c)} altitudeFt={avoid.altitudeFt} onPick={avoid.onPick}
+              range={c} onHold={avoid.onHold && ((side, ft) => avoid.onHold?.(holdFor(c, side, ft)))}/>}
           </div>
         );
       })}

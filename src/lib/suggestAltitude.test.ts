@@ -25,7 +25,7 @@ const area = (name: string): AirspaceCheck => ({
 /** Headwind 30 kt low, easing with height, and a 20 kt tailwind at 6,500 ft. */
 function forecasts(over: Partial<EnrouteSegment> = {}) {
   const m = new Map<number, EnrouteForecast>();
-  for (let ft = 1000; ft <= 6500; ft += 500) m.set(ft, ft === 6500 ? forecastAt(90, 20, over) : forecastAt(270, 30 - ft / 250, over));
+  for (let ft = 1000; ft <= 6500; ft += 500) m.set(ft, { ...(ft === 6500 ? forecastAt(90, 20, over) : forecastAt(270, 30 - ft / 250, over)), altitudeFt: ft });
   return m;
 }
 
@@ -66,6 +66,6 @@ it('leaves out altitudes in or near cloud, and says when none is clear', () => {
 
 it('skips an altitude the wind is too strong to fly at', () => {
   const m = forecasts();
-  m.set(1500, forecastAt(270, 120));
+  m.set(1500, { ...forecastAt(270, 120), altitudeFt: 1500 });
   expect(suggestAltitudes(input(m)).options.map(o => o.ft)).not.toContain(1500);
 });

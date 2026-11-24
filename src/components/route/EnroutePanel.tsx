@@ -7,7 +7,8 @@ import { FormItem, FormLabel } from '../ui/Form';
 import {
   type ClimbRates, MAX_ALTITUDE_FT, MAX_RATE_FPM, MIN_ALTITUDE_FT, MIN_RATE_FPM, validAltitude, validRate, type EnrouteForecastState,
 } from '../../lib/useEnrouteForecast';
-import { type RoutePlan, warningsOf } from '../../lib/enroute';
+import { type AltitudeHold, type RoutePlan, warningsOf } from '../../lib/enroute';
+import AltitudeChanges from './AltitudeChanges';
 import RouteProfileChart from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
 import type { AvoidHandler } from '../../lib/avoidAirspace';
@@ -37,6 +38,9 @@ interface EnroutePanelProps {
   suggestions?: Suggestions | null;
   suggestMaxFt?: number;
   onSuggestMaxChange?: (ft: number) => void;
+  /** Stretches at another altitude than the cruise. */
+  holds?: AltitudeHold[];
+  onHoldsChange?: (holds: AltitudeHold[]) => void;
 }
 
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
@@ -54,7 +58,7 @@ export function localInputValue(d: Date): string {
 /** Cruise altitude and departure time; the route flown in the forecast as a profile and a nav log. */
 const EnroutePanel: React.FC<EnroutePanelProps> = ({
   altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
-  onClimbRatesChange, airspaces, avoid, suggestions = null, suggestMaxFt, onSuggestMaxChange,
+  onClimbRatesChange, airspaces, avoid, suggestions = null, suggestMaxFt, onSuggestMaxChange, holds = [], onHoldsChange,
 }) => {
   const now = new Date();
   const maxDeparture = new Date(now.getTime() + 46 * 3600_000);
@@ -120,7 +124,7 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
               {warnings.nearCloud.length > 0 && (
                 <li className="flex gap-2"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0"/>
-                  Cloud base forecast below or less than 500 ft above your cruise altitude ({ft(altitudeFt)} ft) on {warnings.nearCloud.length} of {plan.segments.length} segments
+                  Cloud base forecast below or less than 500 ft above {holds.length ? 'the altitude flown' : `your cruise altitude (${ft(altitudeFt)} ft)`} on {warnings.nearCloud.length} of {plan.segments.length} segments
                   (lowest ≈ {ft(warnings.lowestBaseFt ?? 0)} ft).</li>
               )}
               {warnings.icing.length > 0 && (
@@ -137,6 +141,10 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
           {suggestMaxFt !== undefined && onSuggestMaxChange && (
             <AltitudeSuggestions suggestions={suggestions} altitudeFt={altitudeFt} currentMinutes={plan.minutes}
               maxFt={suggestMaxFt} onMaxChange={onSuggestMaxChange} onPick={onAltitudeChange}/>
+          )}
+          {onHoldsChange && (
+            <AltitudeChanges holds={holds} onChange={onHoldsChange} cruiseFt={altitudeFt} missed={plan.profile?.missed ?? []}
+              totalNm={plan.segments.reduce((sum, x) => Math.max(sum, x.segment.startNm + x.segment.distanceNm), 0)}/>
           )}
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
           <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}/>
@@ -188,47 +196,53 @@ const ProfileSummary: React.FC<{
 };
 
 /** Leg by leg, segment by segment: the numbers to fly. */
-const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) => (
-  <div className="overflow-x-auto">
-    <table className="w-full text-xs tabular-nums">
-      <caption className="sr-only">Nav log</caption>
-      <thead className="text-left text-[11px] text-muted-foreground">
-        <tr>
-          <th className="py-1 pr-1.5 sm:pr-2 font-medium">NM</th>
-          <th className="hidden py-1 pr-1.5 sm:pr-2 font-medium sm:table-cell" title="Magnetic course">MC</th>
-          <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Magnetic heading">MH</th>
-          <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Groundspeed">GS</th>
-          <th className="py-1 pr-1.5 sm:pr-2 font-medium">Time</th>
-          <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Arrival at the end of the segment (UTC)">ETA</th>
-          <th className="py-1 pr-1.5 sm:pr-2 font-medium">Wind</th>
-          <th className="py-1 font-medium" title="Estimated base of the lowest broken or overcast layer">Base</th>
-        </tr>
-      </thead>
-      {plan.legs.map((l, i) => (
-        <tbody key={i} className="border-t border-border">
+const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) => {
+  // An altitude column only when it changes along the way.
+  const alt = plan.segments.some(s => s.altitudeFt !== plan.segments[0]?.altitudeFt);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs tabular-nums">
+        <caption className="sr-only">Nav log</caption>
+        <thead className="text-left text-[11px] text-muted-foreground">
           <tr>
-            <th colSpan={8} className="pb-0.5 pt-2 text-left font-semibold text-foreground">
-              {l.leg.from} → {l.leg.to} · {Math.round(l.leg.distanceNm)} NM · {fmtMinutes(l.minutes)}
-              {l.segments[0] && <span className="font-normal text-muted-foreground"> · var {variation(l.segments[0].variationDeg)}</span>}
-            </th>
+            <th className="py-1 pr-1.5 sm:pr-2 font-medium">NM</th>
+            {alt && <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Altitude flown (ft)">Alt</th>}
+            <th className="hidden py-1 pr-1.5 sm:pr-2 font-medium sm:table-cell" title="Magnetic course">MC</th>
+            <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Magnetic heading">MH</th>
+            <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Groundspeed">GS</th>
+            <th className="py-1 pr-1.5 sm:pr-2 font-medium">Time</th>
+            <th className="py-1 pr-1.5 sm:pr-2 font-medium" title="Arrival at the end of the segment (UTC)">ETA</th>
+            <th className="py-1 pr-1.5 sm:pr-2 font-medium">Wind</th>
+            <th className="py-1 font-medium" title="Estimated base of the lowest broken or overcast layer">Base</th>
           </tr>
-          {l.segments.map((s, j) => (
-            <tr key={j} className="text-foreground">
-              <td className="whitespace-nowrap py-0.5 pr-1.5 sm:pr-2 text-muted-foreground">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)}</td>
-              <td className="hidden py-0.5 pr-1.5 sm:pr-2 sm:table-cell">{pad3(s.magneticCourse)}</td>
-              <td className="py-0.5 pr-1.5 sm:pr-2 font-semibold">{pad3(s.magneticHeading)}</td>
-              <td className="py-0.5 pr-1.5 sm:pr-2">{Math.round(s.groundSpeedKt)}</td>
-              <td className="py-0.5 pr-1.5 sm:pr-2">{fmtMinutes(s.minutes)}</td>
-              <td className="py-0.5 pr-1.5 sm:pr-2">{utc(s.arrives)}</td>
-              <td className="py-0.5 pr-1.5 sm:pr-2">{pad3(s.wind.fromTrue)}/{Math.round(s.wind.kt)}</td>
-              <td className="py-0.5">{s.cloudBaseFt === null ? '–' : ft(s.cloudBaseFt)}</td>
+        </thead>
+        {plan.legs.map((l, i) => (
+          <tbody key={i} className="border-t border-border">
+            <tr>
+              <th colSpan={alt ? 9 : 8} className="pb-0.5 pt-2 text-left font-semibold text-foreground">
+                {l.leg.from} → {l.leg.to} · {Math.round(l.leg.distanceNm)} NM · {fmtMinutes(l.minutes)}
+                {l.segments[0] && <span className="font-normal text-muted-foreground"> · var {variation(l.segments[0].variationDeg)}</span>}
+              </th>
             </tr>
-          ))}
-        </tbody>
-      ))}
-    </table>
-    <p className="mt-1 text-[11px] text-muted-foreground">Wind is true direction/kt at the cruise altitude; ETA in UTC.</p>
-  </div>
-);
+            {l.segments.map((s, j) => (
+              <tr key={j} className="text-foreground">
+                <td className="whitespace-nowrap py-0.5 pr-1.5 sm:pr-2 text-muted-foreground">{Math.round(s.segment.startNm)}–{Math.round(s.segment.startNm + s.segment.distanceNm)}</td>
+                {alt && <td className="py-0.5 pr-1.5 sm:pr-2">{ft(s.altitudeFt)}</td>}
+                <td className="hidden py-0.5 pr-1.5 sm:pr-2 sm:table-cell">{pad3(s.magneticCourse)}</td>
+                <td className="py-0.5 pr-1.5 sm:pr-2 font-semibold">{pad3(s.magneticHeading)}</td>
+                <td className="py-0.5 pr-1.5 sm:pr-2">{Math.round(s.groundSpeedKt)}</td>
+                <td className="py-0.5 pr-1.5 sm:pr-2">{fmtMinutes(s.minutes)}</td>
+                <td className="py-0.5 pr-1.5 sm:pr-2">{utc(s.arrives)}</td>
+                <td className="py-0.5 pr-1.5 sm:pr-2">{pad3(s.wind.fromTrue)}/{Math.round(s.wind.kt)}</td>
+                <td className="py-0.5">{s.cloudBaseFt === null ? '–' : ft(s.cloudBaseFt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        ))}
+      </table>
+      <p className="mt-1 text-[11px] text-muted-foreground">Wind is true direction/kt at the {alt ? 'altitude flown' : 'cruise altitude'}; ETA in UTC.</p>
+    </div>
+  );
+};
 
 export default EnroutePanel;

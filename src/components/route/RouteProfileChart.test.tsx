@@ -114,3 +114,29 @@ it('a tapped airspace offers going under or over it, which sets the cruise altit
   expect(onPick).toHaveBeenCalledWith(2000);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+it('"only here" holds the altitude just where the route crosses the tapped airspace', () => {
+  const tma = {
+    airspace: {
+      id: 't', name: 'STOCKHOLM TMA', type: 'TMA', icaoClass: 'C', activation: null, polygon: [],
+      lower: { ft: 2500, datum: 'MSL' as const, label: '2,500 ft MSL' }, upper: { ft: 9500, datum: 'STD' as const, label: 'FL95' },
+      frequencies: [],
+    },
+    fromNm: 10, toNm: 40, status: 'inside' as const, minFt: 3000, maxFt: 3000, floorFt: 2500, ceilingFt: 9500,
+  };
+  const onHold = jest.fn();
+  const avoid = {
+    altitudeFt: 3000, onPick: jest.fn(), onHold,
+    optionsFor: () => [
+      { side: 'under' as const, ft: 2000, why: '', stillInside: false, alsoEnters: [] },
+      { side: 'over' as const, ft: null, why: 'Its top (FL195) is too high to go over.', stillInside: false, alsoEnters: [] },
+    ],
+  };
+  render(<RouteProfileChart legs={legs()} altitudeFt={3000} airspaces={[tma]} avoid={avoid}/>);
+  fireEvent.pointerUp(screen.getByRole('button', { name: 'Airspace STOCKHOLM TMA' }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('Only here (9–41 NM):');
+  expect(screen.queryByRole('button', { name: /over at/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /under at 2,000 ft/ }));
+  expect(onHold).toHaveBeenCalledWith({ fromNm: 9, toNm: 41, ft: 2000, note: 'Under STOCKHOLM TMA' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});

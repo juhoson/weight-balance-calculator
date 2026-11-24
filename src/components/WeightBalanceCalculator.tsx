@@ -27,14 +27,14 @@ import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../li
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
 import AirspacePanel from './route/AirspacePanel';
-import { altitudeAlong, checkCrossings, type Crossing, crossingsAlong, type PathProfile, stillAirProfile } from '../lib/airspace';
+import { altitudeAlongPoints, checkCrossings, type Crossing, crossingsAlong, pointsOf, stillAirProfile } from '../lib/airspace';
 import { avoidOptions, type AvoidHandler, crossingContext, withEffects } from '../lib/avoidAirspace';
 import { useAirspaces } from '../lib/useAirspaces';
 import EnroutePanel from './route/EnroutePanel';
 import { swedenControlAlong } from '../lib/swedenControl';
-import {useAltitudeForecasts, useClimbRates, useCruiseAltitude, useEnrouteForecast, useSuggestMax, validAltitude, validRate} from '../lib/useEnrouteForecast';
+import {useAltitudeForecasts, useClimbRates, useCruiseAltitude, useEnrouteForecast, useForecastsAt, useSuggestMax, validAltitude, validRate} from '../lib/useEnrouteForecast';
 import {type OkPlan, suggestAltitudes} from '../lib/suggestAltitude';
-import {CIRCUIT_HEIGHT_FT, legsOf, planRoute, roundUpTo5, trueAirspeed, type VerticalProfile} from '../lib/enroute';
+import {type AltitudeHold, CIRCUIT_HEIGHT_FT, legsOf, levelAt, type PathPoint, planRoute, roundUpTo5, steppedPath, tidyHolds, trueAirspeed, type VerticalProfile} from '../lib/enroute';
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import type {RouteWeather} from '../types/route';
@@ -129,9 +129,9 @@ const Section: React.FC<{ step: number; title: string; children: React.ReactNode
  * The airspace check for a flight path. AGL ceilings are placed over the highest route airport, and
  * airspace over the arrival counts down to the runway.
  */
-function checkPath(trip: RouteWeather, crossings: Crossing[], path: PathProfile) {
+function checkPath(trip: RouteWeather, crossings: Crossing[], path: PathPoint[]) {
   const groundFt = Math.max(...[trip.departure, ...(trip.waypoints ?? []), trip.arrival].map(a => a.elevationFt ?? 0));
-  return checkCrossings(crossings, altitudeAlong(path), [path.tocNm, path.todNm], groundFt,
+  return checkCrossings(crossings, altitudeAlongPoints(path), path.map(p => p.nm), groundFt,
     { totalNm: trip.distanceNm, fieldFt: trip.arrival.elevationFt ?? 0 });
 }
 
@@ -728,7 +728,24 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       climbFpm: climbRates.climbFpm, descentFpm: climbRates.descentFpm,
     };
   }, [trip, vyKt, climbRates.climbFpm, climbRates.descentFpm]);
-  const vertical = React.useMemo(() => verticalFor(altitudeFt), [verticalFor, altitudeFt]);
+  // Stretches flown at another altitude (under or over an airspace); cleared with a new route.
+  const [holds, setHolds] = React.useState<AltitudeHold[]>([]);
+  const activeHolds = React.useMemo(() => (trip ? tidyHolds(holds, trip.distanceNm) : []), [holds, trip]);
+  const addHold = React.useCallback((h: AltitudeHold) => setHolds(prev => [...prev, h]), []);
+  const vertical = React.useMemo(() => {
+    const v = verticalFor(altitudeFt);
+    return v && activeHolds.length ? { ...v, holds: activeHolds } : v;
+  }, [verticalFor, altitudeFt, activeHolds]);
+  // The forecast at each hold's altitude, from the cache.
+  const holdLevels = React.useMemo(
+    () => activeHolds.map(h => h.ft).filter((ft, i, all) => ft !== altitudeFt && validAltitude(ft) && all.indexOf(ft) === i).sort((a, b) => a - b),
+    [activeHolds, altitudeFt]);
+  // Every altitude up to the pilot's highest, each in its own forecast wind: for the suggestions, and
+  // for the holds (any other hold altitude is built on its own).
+  const [suggestMaxFt, setSuggestMaxFt] = useSuggestMax();
+  const altitudeForecasts = useAltitudeForecasts(trip, departureAt, forecast, suggestMaxFt);
+  const otherLevels = React.useMemo(() => holdLevels.filter(ft => !altitudeForecasts?.has(ft)), [holdLevels, altitudeForecasts]);
+  const holdForecasts = useForecastsAt(trip, departureAt, forecast, otherLevels);
   const windPlan = React.useMemo(() => {
     const data = forecast.data;
     if (!trip || blockedReason || !data?.available || !(cruiseKt > 0) || !validAltitude(altitudeFt)) return null;
@@ -737,8 +754,19 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     if (!last || last.leg !== legs.length - 1 || Math.abs(last.startNm + last.distanceNm - trip.distanceNm) > 1) {
       return null; // still the previous route's forecast
     }
-    return planRoute(legs, data, cruiseKt, departureAt ?? new Date(), vertical);
-  }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt, vertical]);
+    let flown = data;
+    if (activeHolds.length) {
+      // Each segment in the forecast for the altitude it's flown at (for a moment, while that's being
+      // built, the cruise altitude's).
+      const segments = data.segments.map((seg, i) => {
+        const ft = levelAt(seg.startNm + seg.distanceNm / 2, altitudeFt, activeHolds);
+        const source = ft === altitudeFt ? data : altitudeForecasts?.get(ft) ?? holdForecasts?.get(ft);
+        return source && source.segments.length === data.segments.length ? source.segments[i] : seg;
+      });
+      flown = { ...data, segments };
+    }
+    return planRoute(legs, flown, cruiseKt, departureAt ?? new Date(), vertical);
+  }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt, vertical, activeHolds, altitudeForecasts, holdForecasts]);
   const windMinutes = windPlan?.ok ? roundUpTo5(windPlan.minutes) : 0;
 
   // Airspace along the route, checked against the planned climb, cruise and descent.
@@ -751,30 +779,31 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     if (!trip || !crossings) return [];
     const total = trip.distanceNm;
     const v = verticalFor(cruiseFt);
-    const path: PathProfile = v && cruiseKt > 0
-      ? stillAirProfile(total, { ...v, cruiseTasKt: cruiseKt })
-      : { departureFt: cruiseFt, arrivalFt: cruiseFt, topFt: cruiseFt, tocNm: 0, todNm: total, totalNm: total };
+    const path = v && cruiseKt > 0
+      ? pointsOf(stillAirProfile(total, { ...v, cruiseTasKt: cruiseKt }))
+      : [{ nm: 0, ft: cruiseFt }, { nm: total, ft: cruiseFt }];
     return checkPath(trip, crossings, path);
   }, [trip, crossings, verticalFor, cruiseKt]);
   const airspaceCheck = React.useMemo(() => {
     if (!trip || !crossings) return null;
     const total = trip.distanceNm;
     const fpm = `${climbRates.climbFpm} ft/min up, ${climbRates.descentFpm} ft/min down`;
-    let path: PathProfile;
+    const changes = activeHolds.length ? `, ${activeHolds.length} altitude change${activeHolds.length === 1 ? '' : 's'}` : '';
+    let path: PathPoint[];
     let basis: string;
     if (windPlan?.ok && windPlan.profile) {
       const p = windPlan.profile;
-      path = { departureFt: p.departureFt, arrivalFt: p.arrivalFt, topFt: p.topFt, tocNm: p.tocNm, todNm: p.todNm, totalNm: total };
-      basis = `for the planned path to ${Math.round(p.topFt).toLocaleString('en')} ft (${fpm}, in the forecast wind)`;
+      path = p.path;
+      basis = `for the planned path to ${Math.round(p.topFt).toLocaleString('en')} ft (${fpm}${changes}, in the forecast wind)`;
     } else if (vertical && cruiseKt > 0 && validAltitude(altitudeFt)) {
-      path = stillAirProfile(total, { ...vertical, cruiseTasKt: cruiseKt });
-      basis = `for the planned path to ${Math.round(path.topFt).toLocaleString('en')} ft (${fpm}, no wind)`;
+      path = activeHolds.length ? steppedPath(total, vertical, cruiseKt).path : pointsOf(stillAirProfile(total, { ...vertical, cruiseTasKt: cruiseKt }));
+      basis = `for the planned path to ${Math.round(Math.max(...path.map(p => p.ft))).toLocaleString('en')} ft (${fpm}${changes}, no wind)`;
     } else {
-      path = { departureFt: altitudeFt, arrivalFt: altitudeFt, topFt: altitudeFt, tocNm: 0, todNm: total, totalNm: total };
+      path = [{ nm: 0, ft: altitudeFt }, { nm: total, ft: altitudeFt }];
       basis = `at ${altitudeFt.toLocaleString('en')} ft the whole way`;
     }
     return { checks: checkPath(trip, crossings, path), basis };
-  }, [trip, crossings, windPlan, vertical, cruiseKt, altitudeFt, climbRates.climbFpm, climbRates.descentFpm]);
+  }, [trip, crossings, windPlan, vertical, cruiseKt, altitudeFt, activeHolds, climbRates.climbFpm, climbRates.descentFpm]);
   const avoid = React.useMemo<AvoidHandler | undefined>(() => {
     if (!trip || !airspaceCheck) return undefined;
     const route = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
@@ -785,22 +814,16 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     return {
       altitudeFt,
       onPick: setAltitudeFt,
+      onHold: addHold,
       optionsFor: c => withEffects(avoidOptions(c, crossingContext(c, route, legs, segments, airportsFt, at)), c, airspaceCheck.checks, checkAt),
     };
-  }, [trip, airspaceCheck, windPlan, departureAt, altitudeFt, setAltitudeFt, checkAt]);
-  // Every altitude up to the pilot's highest, each in its own forecast wind: the best and the fastest.
-  const [suggestMaxFt, setSuggestMaxFt] = useSuggestMax();
-  const altitudeForecasts = useAltitudeForecasts(trip, departureAt, forecast, suggestMaxFt);
+  }, [trip, airspaceCheck, windPlan, departureAt, altitudeFt, setAltitudeFt, checkAt, addHold]);
   const suggestions = React.useMemo(() => {
     if (!trip || !altitudeForecasts || !(cruiseKt > 0)) return null;
     const total = trip.distanceNm;
     const airspaceFor = (plan: OkPlan, ft: number) => {
       if (!crossings) return [];
-      const p = plan.profile;
-      const path: PathProfile = p
-        ? { departureFt: p.departureFt, arrivalFt: p.arrivalFt, topFt: p.topFt, tocNm: p.tocNm, todNm: p.todNm, totalNm: total }
-        : { departureFt: ft, arrivalFt: ft, topFt: ft, tocNm: 0, todNm: total, totalNm: total };
-      return checkPath(trip, crossings, path);
+      return checkPath(trip, crossings, plan.profile?.path ?? [{ nm: 0, ft }, { nm: total, ft }]);
     };
     return suggestAltitudes({
       legs: legsOf(trip), forecasts: altitudeForecasts, tasKt: cruiseKt, departure: departureAt ?? new Date(), verticalFor, airspaceFor,
@@ -811,7 +834,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
   const [manualTime, setManualTime] = React.useState(false);
   const viaKey = route.via.join(',');
-  React.useEffect(() => { setManualTime(false); }, [route.from, route.to, viaKey]);
+  React.useEffect(() => { setManualTime(false); setHolds([]); }, [route.from, route.to, viaKey]);
   React.useEffect(() => {
     if (routeMinutes > 0 && !manualTime) {
       setInputs(prev => (prev.flightTime === routeMinutes ? prev : {...prev, flightTime: routeMinutes}));
@@ -918,6 +941,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 suggestions={suggestions}
                 suggestMaxFt={suggestMaxFt}
                 onSuggestMaxChange={setSuggestMaxFt}
+                holds={activeHolds}
+                onHoldsChange={setHolds}
               />
             )}
             {trip && (
