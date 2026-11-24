@@ -204,7 +204,7 @@ const ProfileSummary: React.FC<{
 };
 
 /** Leg by leg, segment by segment: the numbers to fly. */
-const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) => {
+export const NavLog: React.FC<{ plan: Extract<RoutePlan, { ok: true }> }> = ({ plan }) => {
   // An altitude column only when it changes along the way.
   const alt = plan.segments.some(s => s.altitudeFt !== plan.segments[0]?.altitudeFt);
   return (

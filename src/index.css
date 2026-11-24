@@ -237,3 +237,24 @@ input::-webkit-inner-spin-button {
 .route-map.route-map--popup .leaflet-top {
   visibility: hidden;
 }
+
+/* The briefing pack: printed on its own, never shown on screen. */
+.briefing-pack {
+  display: none;
+}
+@media print {
+  body.print-briefing > *:not(.briefing-pack) {
+    display: none !important;
+  }
+  body.print-briefing .briefing-pack {
+    display: block !important;
+  }
+  .briefing-pack {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+@page {
+  size: A4;
+  margin: 12mm;
+}

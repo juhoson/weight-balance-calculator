@@ -1,0 +1,317 @@
+import React from 'react';
+import type { AltitudeHold, RoutePlan } from '../../lib/enroute';
+import { warningsOf } from '../../lib/enroute';
+import type { AirspaceCheck } from '../../lib/airspace';
+import { adviceFor } from '../../lib/airspace';
+import { contactFrequencies, frequencyText } from '../../lib/frequencies';
+import { decodeMetar, summarise } from '../../lib/metarTaf';
+import { swedenControlText, type SwedenControlLeg } from '../../lib/swedenControl';
+import { EMERGENCY_REMINDER, GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
+import type { Frequency, RouteWeather } from '../../types/route';
+import type { CalculationSummary } from '../ResultsPanel';
+import { VERDICT_TEXT, verdictOf } from '../ResultsPanel';
+import RouteProfileChart from '../route/RouteProfileChart';
+import { NavLog } from '../route/EnroutePanel';
+
+export type BriefingSection = 'overview' | 'weather' | 'frequencies' | 'emergency';
+
+export const BRIEFING_SECTIONS: Array<{ id: BriefingSection; label: string; detail: string }> = [
+  { id: 'overview', label: 'Overview', detail: 'Route, legs, times, fuel, weight and balance, the profile and the nav log' },
+  { id: 'weather', label: 'Weather briefing', detail: 'METAR and TAF along the route, decoded, and the en-route forecast' },
+  { id: 'frequencies', label: 'Frequencies', detail: 'Airports, airspace along the route, Sweden Control and emergency, in one box' },
+  { id: 'emergency', label: 'Emergency checklist', detail: 'Generic single-engine piston memory items and the MAYDAY call, in one box' },
+];
+
+export interface AirportFrequencies {
+  code: string;
+  name: string;
+  frequencies: Frequency[];
+}
+
+export interface BriefingData {
+  /** "ESSX → WP1 → ESGG". */
+  routeName: string;
+  aircraftName: string;
+  departure: Date;
+  trip: RouteWeather;
+  plan: Extract<RoutePlan, { ok: true }> | null;
+  altitudeFt: number;
+  holds: AltitudeHold[];
+  tasKt: number;
+  powerSetting: string;
+  flightMinutes: number;
+  fuel: { onBoardL: number; tripL: number; landingL: number } | null;
+  wb: CalculationSummary | null;
+  airspaces: AirspaceCheck[];
+  swedenControl: SwedenControlLeg[];
+  speeds: { glide?: number; vy: number; approach: number; stallLanding: number; unit: string } | null;
+  /** Null while being looked up. */
+  airportFrequencies: AirportFrequencies[] | null;
+}
+
+const fmt = (n: number) => Math.round(n).toLocaleString('en');
+const hm = (m: number) => `${Math.floor(Math.round(m) / 60)}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+const pad3 = (n: number) => String(Math.round(((n % 360) + 360) % 360) % 360).padStart(3, '0');
+const utc = (d: Date) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}Z`;
+const ROLE: Record<string, string> = { DEPARTURE: 'Departure', WAYPOINT: 'Waypoint', ENROUTE: 'En route', ARRIVAL: 'Arrival' };
+
+const Section: React.FC<{ title: string; children: React.ReactNode; boxed?: boolean }> = ({ title, children, boxed }) => (
+  <section className={boxed ? 'mt-4 break-inside-avoid rounded border-2 border-black p-3' : 'mt-5'}>
+    <h2 className="mb-2 border-b border-black pb-0.5 text-[13pt] font-bold">{title}</h2>
+    {children}
+  </section>
+);
+
+/** The printed pack: only the sections asked for, in black on white. */
+const BriefingPack: React.FC<{ data: BriefingData; sections: BriefingSection[] }> = ({ data, sections }) => {
+  const has = (s: BriefingSection) => sections.includes(s);
+  return (
+    <article className="bg-white p-0 text-[9.5pt] leading-snug text-black" aria-label="Briefing pack">
+      <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-1">
+        <div>
+          <h1 className="text-[16pt] font-bold">Flight briefing: {data.routeName}</h1>
+          <p>
+            {data.aircraftName} · departure {data.departure.toISOString().slice(0, 10)} {utc(data.departure)}
+            {' '}({data.departure.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} local)
+          </p>
+        </div>
+        <p className="text-right text-[8pt]">Prepared {new Date().toISOString().slice(0, 16).replace('T', ' ')}Z<br/>flightplanningtool.com</p>
+      </header>
+      {has('overview') && <Overview data={data}/>}
+      {has('weather') && <Weather data={data}/>}
+      {has('frequencies') && <Frequencies data={data}/>}
+      {has('emergency') && <Emergency data={data}/>}
+      <p className="mt-4 text-[7.5pt]">
+        For planning only. Weather is from aviationweather.gov and a model forecast (Open-Meteo), airspace from openAIP: get an
+        official briefing, check the AIP, NOTAMs and the charts before flight. Verify weight and balance against the aircraft&apos;s POH.
+      </p>
+    </article>
+  );
+};
+
+const Overview: React.FC<{ data: BriefingData }> = ({ data }) => {
+  const { trip, plan, wb, fuel } = data;
+  const legs = plan ? plan.legs.map(l => ({ ...l.leg, minutes: l.minutes, mc: l.segments[0]?.magneticCourse ?? null,
+    alt: l.segments[Math.floor(l.segments.length / 2)]?.altitudeFt ?? data.altitudeFt }))
+    : (trip.legs ?? []).map(l => ({ ...l, minutes: (l.distanceNm / data.tasKt) * 60, mc: null, alt: data.altitudeFt }));
+  const eta = new Date(data.departure.getTime() + data.flightMinutes * 60_000);
+  return (
+    <Section title="Overview">
+      <div className="grid grid-cols-3 gap-x-4 gap-y-0.5">
+        <p><strong>Distance</strong> {fmt(trip.distanceNm)} NM</p>
+        <p><strong>Flight time</strong> {hm(data.flightMinutes)}{plan ? ' (forecast wind)' : ' (no wind)'}</p>
+        <p><strong>Departure → ETA</strong> {utc(data.departure)} → {utc(eta)}</p>
+        <p><strong>Cruise</strong> {fmt(data.altitudeFt)} ft{data.holds.length ? `, ${data.holds.length} altitude change${data.holds.length === 1 ? '' : 's'}` : ''}</p>
+        <p><strong>TAS</strong> {data.tasKt} kt at {data.powerSetting}</p>
+        {fuel && <p><strong>Fuel</strong> {fmt(fuel.onBoardL)} L on board, trip {fmt(fuel.tripL)} L, landing {fmt(fuel.landingL)} L</p>}
+      </div>
+      {data.holds.length > 0 && (
+        <p className="mt-1">Altitude changes: {data.holds.map(h => `${fmt(h.ft)} ft ${Math.round(h.fromNm)}–${Math.round(h.toNm)} NM${h.note ? ` (${h.note})` : ''}`).join('; ')}</p>
+      )}
+      <table className="mt-2 w-full border-collapse tabular-nums">
+        <thead>
+          <tr className="border-b border-black text-left">
+            <th className="pr-2">Leg</th><th className="pr-2">NM</th><th className="pr-2">TC</th><th className="pr-2">MC</th>
+            <th className="pr-2">Alt</th><th className="pr-2">Time</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {legs.map((l, i) => (
+            <tr key={i} className="border-b border-black/30">
+              <td className="pr-2 font-semibold">{l.from} → {l.to}</td>
+              <td className="pr-2">{l.distanceNm.toFixed(0)}</td>
+              <td className="pr-2">{pad3(l.trueCourseDeg)}°</td>
+              <td className="pr-2">{l.mc === null ? '–' : `${pad3(l.mc)}°`}</td>
+              <td className="pr-2">{fmt(l.alt)}</td>
+              <td className="pr-2">{hm(l.minutes)}</td>
+              <td className="w-1/3"/>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {wb && (
+        <div className="mt-2 grid grid-cols-2 gap-4 break-inside-avoid">
+          {([['Take-off', wb.takeoff], ['Landing', wb.landing]] as const).map(([name, r]) => (
+            <p key={name}><strong>{name}</strong> {r.totalWeight.toFixed(1)} kg, CG {r.cg.toFixed(3)} m: {r.isWithinLimits ? 'within limits' : 'OUTSIDE LIMITS'}
+              {r.problems?.length ? ` (${r.problems.join(' ')})` : ''}</p>
+          ))}
+          <p className="col-span-2 font-semibold">{VERDICT_TEXT[verdictOf(wb)].title}: {VERDICT_TEXT[verdictOf(wb)].detail}</p>
+        </div>
+      )}
+      {plan && (
+        <div className="mt-3 break-inside-avoid">
+          <RouteProfileChart legs={plan.legs} altitudeFt={data.altitudeFt} profile={plan.profile} airspaces={data.airspaces}/>
+        </div>
+      )}
+      {plan && (
+        <div className="mt-2">
+          <NavLog plan={plan}/>
+        </div>
+      )}
+    </Section>
+  );
+};
+
+const Weather: React.FC<{ data: BriefingData }> = ({ data }) => {
+  const { trip, plan } = data;
+  const w = plan ? warningsOf(plan.segments, data.altitudeFt) : null;
+  return (
+    <Section title="Weather briefing">
+      {!trip.weatherAvailable && <p>The weather service could not be reached when this was prepared.</p>}
+      <div className="space-y-1.5">
+        {trip.points.map((p, i) => (
+          <div key={i} className="break-inside-avoid border-b border-black/30 pb-1">
+            <p className="font-semibold">
+              {ROLE[p.role]}{p.airportCode ? ` ${p.airportCode}` : ''}{p.role !== 'DEPARTURE' ? ` · ${Math.round(p.alongTrackNm)} NM` : ''}
+              {p.station ? ` · ${p.station.code} ${p.station.name.trim()}${p.station.distanceNm > 0 ? ` (${p.station.distanceNm} NM away)` : ''}` : ''}
+              {p.metar?.flightCategory ? ` · ${p.metar.flightCategory}` : ''}
+            </p>
+            {p.metar
+              ? <>
+                <p className="font-mono text-[8.5pt]">{p.metar.raw}</p>
+                <p>{summarise(decodeMetar(p.metar.raw)).join('. ')}.</p>
+              </>
+              : <p>No current report.</p>}
+            {p.taf && <p className="font-mono text-[8.5pt]">{p.taf.raw}</p>}
+          </div>
+        ))}
+      </div>
+      {plan && w && (
+        <div className="mt-2 break-inside-avoid">
+          <h3 className="font-semibold">En-route forecast (model)</h3>
+          <table className="w-full border-collapse tabular-nums">
+            <thead>
+              <tr className="border-b border-black text-left">
+                <th className="pr-2">Leg</th><th className="pr-2">Wind component</th><th className="pr-2">Lowest cloud base</th><th>Lowest 0 °C level</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plan.legs.map((l, i) => {
+                const nm = l.segments.reduce((s, x) => s + x.segment.distanceNm, 0) || 1;
+                const comp = l.segments.reduce((s, x) => s + (x.triangle.groundSpeedKt - x.tasKt) * x.segment.distanceNm, 0) / nm;
+                const bases = l.segments.map(s => s.cloudBaseFt).filter((b): b is number => b !== null);
+                const fz = l.segments.map(s => s.freezingLevelFt).filter((b): b is number => b !== null);
+                return (
+                  <tr key={i} className="border-b border-black/30">
+                    <td className="pr-2 font-semibold">{l.leg.from} → {l.leg.to}</td>
+                    <td className="pr-2">{Math.round(comp) === 0 ? 'none' : comp > 0 ? `tailwind ${Math.round(comp)} kt` : `headwind ${Math.round(-comp)} kt`}</td>
+                    <td className="pr-2">{bases.length ? `≈ ${fmt(Math.min(...bases))} ft` : 'none (no broken layer)'}</td>
+                    <td>{fz.length ? `≈ ${fmt(Math.min(...fz))} ft` : 'above 18,000 ft'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <ul className="mt-1 list-disc pl-4">
+            {w.nearCloud.length > 0 && <li>Cloud base below or within 500 ft of the altitude flown on {w.nearCloud.length} of {plan.segments.length} segments (lowest ≈ {fmt(w.lowestBaseFt ?? 0)} ft).</li>}
+            {w.icing.length > 0 && <li>Icing possible: in cloud above the freezing level on {w.icing.length} segments.</li>}
+            {w.lowTerrain.length > 0 && <li>Less than 1,000 ft above the (averaged) terrain on {w.lowTerrain.length} segments.</li>}
+            {!w.nearCloud.length && !w.icing.length && !w.lowTerrain.length && <li>No cloud, icing or terrain warnings at the altitudes planned.</li>}
+          </ul>
+        </div>
+      )}
+    </Section>
+  );
+};
+
+const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
+  const along = data.airspaces
+    .filter(c => (c.status === 'inside' || c.status === 'close') && adviceFor(c.airspace).severity !== 'info')
+    .sort((a, b) => a.fromNm - b.fromNm);
+  return (
+    <Section title="Frequencies" boxed>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+        <div>
+          <h3 className="font-semibold">Airports</h3>
+          {data.airportFrequencies === null
+            ? <p>Looking up…</p>
+            : data.airportFrequencies.map(a => (
+              <div key={a.code} className="mb-1">
+                <p className="font-semibold">{a.code} {a.name}</p>
+                {a.frequencies.length
+                  ? [...a.frequencies.filter(f => f.kind === 'ATIS'), ...contactFrequencies(a.frequencies)]
+                    .map((f, i) => <p key={i} className="tabular-nums">{frequencyText(f)}</p>)
+                  : <p>No frequency listed</p>}
+              </div>
+            ))}
+        </div>
+        <div>
+          <h3 className="font-semibold">Emergency</h3>
+          <p className="tabular-nums"><strong>121.500</strong> distress and urgency</p>
+          <p className="tabular-nums">Squawk <strong>7700</strong> emergency · <strong>7600</strong> radio failure · <strong>7500</strong> unlawful interference</p>
+          {data.swedenControl.length > 0 && (
+            <>
+              <h3 className="mt-2 font-semibold">Sweden Control (class G, flight information)</h3>
+              {data.swedenControl.map((s, i) => (
+                <p key={i} className="tabular-nums">{Math.round(s.fromNm)}–{Math.round(s.toNm)} NM: {swedenControlText(s.sector)} ({s.sector.sector})</p>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+      {along.length > 0 && (
+        <div className="mt-2">
+          <h3 className="font-semibold">Airspace along the route</h3>
+          <table className="w-full border-collapse tabular-nums">
+            <tbody>
+              {along.map((c, i) => (
+                <tr key={i} className="border-b border-black/30 align-top">
+                  <td className="whitespace-nowrap pr-2">{Math.round(c.fromNm)}–{Math.round(c.toNm)} NM</td>
+                  <td className="pr-2 font-semibold">{c.airspace.name}{c.airspace.icaoClass ? ` (${c.airspace.icaoClass})` : ''}</td>
+                  <td className="whitespace-nowrap pr-2">{c.airspace.lower.label} – {c.airspace.upper.label}</td>
+                  <td>{contactFrequencies(c.airspace.frequencies).map(frequencyText).join(', ') || adviceFor(c.airspace).label}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="mt-2 grid grid-cols-4 gap-2 text-[8pt]">
+        {['Clearance', 'ATIS', 'QNH', 'Notes'].map(l => <p key={l} className="h-7 border border-black/50 px-1">{l}</p>)}
+      </div>
+    </Section>
+  );
+};
+
+const Emergency: React.FC<{ data: BriefingData }> = ({ data }) => {
+  const s = data.speeds;
+  const u = s?.unit === 'MPH' ? 'mph' : 'kt';
+  return (
+    <Section title="Emergency checklist" boxed>
+      <p className="mb-2 text-center text-[13pt] font-bold tracking-wide">{EMERGENCY_REMINDER.toUpperCase()}</p>
+      <p className="mb-2 text-center font-semibold">
+        Best glide {s?.glide ? `${s.glide} ${u}` : '_____'} · Vy {s ? `${s.vy} ${u}` : '_____'} · Approach {s ? `${s.approach} ${u}` : '_____'} · Stall, landing flaps {s ? `${s.stallLanding} ${u}` : '_____'}
+      </p>
+      <div className="columns-2 gap-4">
+        {GENERIC_EMERGENCY_CHECKLIST.map(sec => (
+          <div key={sec.title} className="mb-2 break-inside-avoid">
+            <h3 className="font-bold uppercase">{sec.title}</h3>
+            <table className="w-full">
+              <tbody>
+                {sec.items.map(it => (
+                  <tr key={it.item}>
+                    <td className="pr-1">{it.item}</td>
+                    <td className="text-right font-semibold">{it.action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {sec.note && <p className="italic">{sec.note}</p>}
+          </div>
+        ))}
+        <div className="mb-2 break-inside-avoid">
+          <h3 className="font-bold uppercase">MAYDAY call</h3>
+          <ol className="list-decimal pl-4">{MAYDAY_CALL.map(l => <li key={l}>{l}</li>)}</ol>
+          <p className="italic">Squawk 7700. On the current frequency, or 121.5.</p>
+        </div>
+      </div>
+      <p className="mt-1 border-t border-black pt-1 text-[8pt] font-semibold">
+        Generic single-engine piston checklist, not specific to {data.aircraftName}. The POH/AFM takes precedence: check it matches
+        your aircraft (fuel pump, carburettor heat, mixture, fuel selector) before you rely on it.
+        {s ? ' Speeds from the aircraft data in this app.' : ''}
+      </p>
+    </Section>
+  );
+};
+
+export default BriefingPack;

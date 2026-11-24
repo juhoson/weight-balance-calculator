@@ -39,6 +39,8 @@ import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import type {RouteWeather} from '../types/route';
 import {routeChain} from '../lib/routePoint';
+import BriefingButton from './briefing/BriefingDialog';
+import type {BriefingData} from './briefing/BriefingPack';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
 import {nearestAirports} from '../api/backend';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
@@ -873,6 +875,33 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   if (!aircraft) return null; // only for the render before the list effect picks another aircraft
   const verdict = results ? verdictOf(results) : null;
   const maxFuel = getMaxFuel(aircraft);
+  const toLiters = (amount: number, perLiter: number) => (inputs.fuelUnit === 'liters' ? amount : amount / perLiter);
+  const perfData = aircraft.performance;
+  const briefing: Omit<BriefingData, 'airportFrequencies'> | null = trip ? {
+    routeName: routeChain([trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code]),
+    aircraftName: selectedMeta?.kind === 'generic' ? `${selectedMeta.label} (generic)` : selectedAircraft,
+    departure: departureAt ?? new Date(),
+    trip,
+    plan: windPlan?.ok ? windPlan : null,
+    altitudeFt,
+    holds: activeHolds,
+    tasKt,
+    powerSetting: inputs.powerSetting,
+    flightMinutes: inputs.flightTime,
+    fuel: results ? {
+      onBoardL: toLiters(inputs.fuelAmount, aircraft.stations.fuel.weightPerLiter)
+        + (aircraft.stations.fuel2 ? toLiters(inputs.fuel2Amount || 0, aircraft.stations.fuel2.weightPerLiter) : 0),
+      tripL: calculateTripFuel(),
+      landingL: results.landing.fuelRemaining,
+    } : null,
+    wb: results,
+    airspaces: airspaceCheck?.checks ?? [],
+    swedenControl,
+    speeds: perfData ? {
+      glide: perfData.bestGlideSpeed, vy: perfData.bestClimbSpeed, approach: perfData.approachSpeedNormal,
+      stallLanding: perfData.stallSpeedLanding, unit: perfData.speedUnit,
+    } : null,
+  } : null;
 
   return (
     <>
@@ -1095,6 +1124,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               : 'Enter your aircraft\'s empty weight and arm from its weighing report (under the aircraft) to see the results.'}
             routeLabel={trip ? `${routeChain([trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code])} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
           />
+          <div className="mt-3 flex justify-end print:hidden">
+            <BriefingButton data={briefing}/>
+          </div>
         </aside>
       </form>
 
