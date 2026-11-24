@@ -16,9 +16,10 @@ interface RouteMapProps {
 }
 
 const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
-const OPENAIP_CREDIT = 'Airspace &copy; <a href="https://www.openaip.net" target="_blank" rel="noopener">openAIP</a> '
-  + '(<a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener">CC BY-NC 4.0</a>)';
+// Short, so the credits fit on one line on a phone.
+const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+const OPENAIP_CREDIT = 'airspace &copy; <a href="https://www.openaip.net" target="_blank" rel="noopener">openAIP</a> '
+  + '<a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener">CC BY-NC</a>';
 const ROUTE_COLOR = '#d946ef';
 
 let statusPromise: Promise<MapStatus | null> | null = null;
@@ -58,7 +59,9 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
       minZoom: 4,
       maxZoom: 13,
       worldCopyJump: true,
+      attributionControl: false,
     });
+    L.control.attribution({ prefix: false }).addTo(map);
     // Leaflet needs a view before anything is drawn; the route effect fits it to the route.
     map.setView([60, 15], 5);
     L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_CREDIT, className: 'basemap-tiles' }).addTo(map);
@@ -68,12 +71,13 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
         maxNativeZoom: status.maxZoom,
         maxZoom: 19,
         attribution: OPENAIP_CREDIT,
-        opacity: 0.9,
+        opacity: 1,
       }).addTo(map);
       // Lets the pilot hide the airspace to read the map underneath.
       L.control.layers(undefined, { Airspace: airspace }, { collapsed: true, position: 'topright' }).addTo(map);
     }
-    L.control.scale({ imperial: true, metric: true, position: 'bottomleft' }).addTo(map);
+    // Top left, under the zoom buttons: the credits take the bottom edge on a phone.
+    L.control.scale({ imperial: true, metric: true, position: 'topleft' }).addTo(map);
     routeLayer.current = L.layerGroup().addTo(map);
     // Clicking the map enables the mouse wheel, so scrolling past it doesn't zoom it.
     map.on('click', () => map.scrollWheelZoom.enable());
@@ -114,7 +118,9 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports }) => {
       // A local flight, or a map that isn't laid out yet (fitBounds needs a size).
       map.setView(bounds.getCenter(), tiny ? 10 : 8);
     } else {
-      map.fitBounds(bounds, { padding: [32, 32], maxZoom: 11 });
+      // Room for the zoom buttons and scale (top left), the layers button (top right), the
+      // labels right of each airport, and the credits along the bottom.
+      map.fitBounds(bounds, { paddingTopLeft: [60, 64], paddingBottomRight: [72, 36], maxZoom: 11 });
     }
   }, [key, status]);
 

@@ -26,6 +26,9 @@ import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
+import AirspacePanel from './route/AirspacePanel';
+import { altitudeAlong, checkCrossings, crossingsAlong, type PathProfile, stillAirProfile } from '../lib/airspace';
+import { useAirspaces } from '../lib/useAirspaces';
 import EnroutePanel from './route/EnroutePanel';
 import {useClimbRates, useCruiseAltitude, useEnrouteForecast, validAltitude, validRate} from '../lib/useEnrouteForecast';
 import {CIRCUIT_HEIGHT_FT, legsOf, planRoute, roundUpTo5, trueAirspeed, type VerticalProfile} from '../lib/enroute';
@@ -721,6 +724,32 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     return planRoute(legs, data, cruiseKt, departureAt ?? new Date(), vertical);
   }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt, vertical]);
   const windMinutes = windPlan?.ok ? roundUpTo5(windPlan.minutes) : 0;
+
+  // Airspace along the route, checked against the planned climb, cruise and descent.
+  const airspaces = useAirspaces(trip);
+  const airspaceCheck = React.useMemo(() => {
+    if (!trip || !airspaces.data) return null;
+    const route = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
+    const total = trip.distanceNm;
+    const fpm = `${climbRates.climbFpm} ft/min up, ${climbRates.descentFpm} ft/min down`;
+    let path: PathProfile;
+    let basis: string;
+    if (windPlan?.ok && windPlan.profile) {
+      const p = windPlan.profile;
+      path = { departureFt: p.departureFt, arrivalFt: p.arrivalFt, topFt: p.topFt, tocNm: p.tocNm, todNm: p.todNm, totalNm: total };
+      basis = `for the planned path to ${Math.round(p.topFt).toLocaleString('en')} ft (${fpm}, in the forecast wind)`;
+    } else if (vertical && cruiseKt > 0 && validAltitude(altitudeFt)) {
+      path = stillAirProfile(total, { ...vertical, cruiseTasKt: cruiseKt });
+      basis = `for the planned path to ${Math.round(path.topFt).toLocaleString('en')} ft (${fpm}, no wind)`;
+    } else {
+      path = { departureFt: altitudeFt, arrivalFt: altitudeFt, topFt: altitudeFt, tocNm: 0, todNm: total, totalNm: total };
+      basis = `at ${altitudeFt.toLocaleString('en')} ft the whole way`;
+    }
+    const groundFt = Math.max(...route.map(a => a.elevationFt ?? 0));
+    const checks = checkCrossings(crossingsAlong(route, airspaces.data), altitudeAlong(path), [path.tocNm, path.todNm], groundFt,
+      { totalNm: total, fieldFt: trip.arrival.elevationFt ?? 0 });
+    return { checks, basis };
+  }, [trip, airspaces.data, windPlan, vertical, cruiseKt, altitudeFt, climbRates.climbFpm, climbRates.descentFpm]);
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
   const [manualTime, setManualTime] = React.useState(false);
   const viaKey = route.via.join(',');
@@ -826,7 +855,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 vyKt={vyKt}
                 climbRates={climbRates}
                 onClimbRatesChange={setClimbRates}
+                airspaces={airspaceCheck?.checks}
               />
+            )}
+            {trip && (
+              <AirspacePanel state={airspaces} checks={airspaceCheck?.checks ?? []} basis={airspaceCheck?.basis ?? ''}/>
             )}
           </Section>
 

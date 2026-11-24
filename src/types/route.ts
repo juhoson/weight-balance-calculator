@@ -145,3 +145,27 @@ export interface CloudLayer {
   heightFt: number;
   cloudCover: number;
 }
+
+/** openAIP airspace near a route, from the backend. */
+export interface AirspaceLimit {
+  /** Feet; a flight level as its pressure altitude (FL95 = 9500). */
+  ft: number;
+  datum: 'GND' | 'MSL' | 'STD';
+  /** As published, e.g. "FL95", "1,500 ft MSL", "GND". */
+  label: string;
+}
+
+export interface AirspaceView {
+  id: string;
+  name: string;
+  /** e.g. "CTR", "TMA", "CTA", "R", "D", "P", "TMZ", "RMZ", "ATZ", "TIZ", "OTHER". */
+  type: string;
+  /** "A".."G", or null for special-use airspace. */
+  icaoClass: string | null;
+  lower: AirspaceLimit;
+  upper: AirspaceLimit;
+  /** Activated by "NOTAM", on "request" or on "demand"; null when permanent. */
+  activation: 'NOTAM' | 'request' | 'demand' | null;
+  /** Outer ring, [lon, lat]. */
+  polygon: Array<[number, number]>;
+}

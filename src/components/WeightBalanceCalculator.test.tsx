@@ -2,16 +2,18 @@ import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
-import { fetchAirframes, fetchGenericTypes, fetchRouteWeather } from '../api/backend';
+import { fetchAirframes, fetchAirspacesAlong, fetchGenericTypes, fetchRouteWeather } from '../api/backend';
 import { forecastAlongRoute } from '../lib/openMeteo';
 import { esgg, essx, routeWeather } from '../lib/testRoute';
+import { clearAirspaceCache } from '../lib/useAirspaces';
 import { allBuiltinViews, genericFromBuiltin, viewFromBuiltin } from '../lib/testViews';
 
 jest.mock('../api/backend', () => ({
   fetchAirframes: jest.fn(), fetchGenericTypes: jest.fn(), fetchClubs: jest.fn(), saveClubSelection: jest.fn(),
-  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(),
+  fetchRouteWeather: jest.fn(), nearestAirports: jest.fn(), searchAirports: jest.fn(), fetchAirspacesAlong: jest.fn(),
+  ApiError: jest.requireActual('../api/backend').ApiError,
 }));
-jest.mock('../lib/openMeteo', () => ({ forecastAlongRoute: jest.fn() }));
+jest.mock('../lib/openMeteo', () => ({ ...jest.requireActual('../lib/openMeteo'), forecastAlongRoute: jest.fn() }));
 const mockedRoute = fetchRouteWeather as jest.MockedFunction<typeof fetchRouteWeather>;
 const mockedWinds = forecastAlongRoute as jest.MockedFunction<typeof forecastAlongRoute>;
 /** The airport codes and altitude of the last forecast asked for. */
@@ -22,6 +24,7 @@ jest.mock('./route/RouteMap', () => ({ airports }: { airports: Array<{ code: str
 jest.mock('./CGEnvelopeVisualization', () => () => <div data-testid="envelope" />);
 let mockUser: { id: number; email: string; displayName: string } | null = null;
 jest.mock('../api/useAuth', () => ({ useAuth: () => ({ user: mockUser, signOutReason: null }) }));
+const mockedAirspaces = fetchAirspacesAlong as jest.MockedFunction<typeof fetchAirspacesAlong>;
 const mockedFetch = fetchAirframes as jest.MockedFunction<typeof fetchAirframes>;
 const mockedGenerics = fetchGenericTypes as jest.MockedFunction<typeof fetchGenericTypes>;
 const pilot = { id: 7, email: 'p@example.com', displayName: 'Pilot' };
@@ -47,6 +50,9 @@ beforeEach(() => {
   mockUser = null;
   mockedWinds.mockReset();
   mockedWinds.mockImplementation(async (_route, altitudeFt) => ({ available: false, altitudeFt, times: [], segments: [] }));
+  mockedAirspaces.mockReset();
+  mockedAirspaces.mockResolvedValue([]);
+  clearAirspaceCache();
 });
 
 const emptyWeightShown = () =>
@@ -275,6 +281,40 @@ it('does not ask for the en-route forecast when the fuel does not cover the trip
 
   fireEvent.change(screen.getByLabelText('Fuel amount'), { target: { value: '150' } });
   await waitFor(() => expect(mockedWinds).toHaveBeenCalledTimes(1));
+});
+
+it('lists the airspace the planned path enters, and the ones it passes over', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', auto: false }));
+  const box = (lon0: number, lat0: number, lon1: number, lat1: number): Array<[number, number]> =>
+    [[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]];
+  mockedAirspaces.mockResolvedValue([
+    { id: 'tma', name: 'TEST TMA', type: 'TMA', icaoClass: 'C', activation: null, polygon: box(14.0, 58.3, 14.8, 58.9),
+      lower: { ft: 1500, datum: 'MSL', label: '1,500 ft MSL' }, upper: { ft: 9500, datum: 'STD', label: 'FL95' } },
+    { id: 'd', name: 'ES D 99', type: 'D', icaoClass: null, activation: 'NOTAM', polygon: box(15.0, 58.8, 15.3, 59.1),
+      lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 1000, datum: 'GND', label: '1,000 ft AGL' } },
+    { id: 'far', name: 'FAR CTR', type: 'CTR', icaoClass: 'D', activation: null, polygon: box(20, 65, 21, 66),
+      lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 2500, datum: 'MSL', label: '2,500 ft MSL' } },
+  ]);
+  render(<WeightBalanceCalculator />);
+  const panel = await screen.findByRole('region', { name: 'Airspace along the route' });
+  await waitFor(() => expect(panel).toHaveTextContent(/Enters 1 airspace, 1 needing a clearance\./));
+  // No forecast here: the still-air climb to 3,000 ft.
+  expect(panel).toHaveTextContent(/Altitudes for the planned path to 3,000 ft \(500 ft\/min up, 500 ft\/min down, no wind\)/);
+  expect(panel).toHaveTextContent(/TEST TMA/);
+  expect(panel).toHaveTextContent(/Terminal area \(class C\)/);
+  expect(panel).toHaveTextContent(/1,500 ft MSL – FL95 · you 3,000 ft/);
+  expect(panel).toHaveTextContent(/Inside\. Clearance needed\./);
+  // The danger area tops out at 1,000 ft AGL (taken over ESGG, 506 ft): passed over with room to spare.
+  expect(screen.getByText('Over or under 1 more')).toBeInTheDocument();
+  expect(panel).toHaveTextContent(/ES D 99 \(GND – 1,000 ft AGL\) · over it/);
+  expect(panel).not.toHaveTextContent(/FAR CTR/);
+  expect(mockedAirspaces).toHaveBeenCalledWith([{ lat: essx.lat, lon: essx.lon }, { lat: esgg.lat, lon: esgg.lon }]);
+
+  // At 1,000 ft: under the TMA's floor, but into the danger area.
+  fireEvent.change(screen.getByLabelText('Cruise altitude'), { target: { value: '1000' } });
+  await waitFor(() => expect(panel).toHaveTextContent(/Enters 1 airspace, 1 restricted, danger or prohibited\./));
+  expect(panel).toHaveTextContent(/ES D 99Danger area.*Inside\. Check whether it is active\. Active by NOTAM\./);
+  expect(panel).toHaveTextContent(/TEST TMA \(1,500 ft MSL – FL95\) · under it/);
 });
 
 it('a route with a waypoint asks for weather via it and counts all legs', async () => {

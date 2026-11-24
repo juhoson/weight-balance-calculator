@@ -179,7 +179,10 @@ input::-webkit-inner-spin-button {
   }
 }
 
-/* Route map: a dark base map in dark mode; the airspace overlay keeps its colours. */
+/* Route map: a muted base map so the airspace overlay stands out; dark in dark mode. */
+.route-map .basemap-tiles {
+  filter: saturate(0.45) contrast(0.95) brightness(1.03);
+}
 .dark .route-map .basemap-tiles {
   filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.85);
 }

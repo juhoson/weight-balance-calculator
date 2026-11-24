@@ -1,12 +1,16 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import type { LegPlan, ProfilePlan, SegmentPlan } from '../../lib/enroute';
+import { adviceFor, type AirspaceCheck } from '../../lib/airspace';
+import { SEVERITY_STYLE } from './AirspacePanel';
 
 interface RouteProfileChartProps {
   legs: LegPlan[];
   altitudeFt: number;
   /** Climb and descent; without it the cruise altitude is drawn all the way. */
   profile?: ProfilePlan | null;
+  /** Airspace under the route, drawn as boxes from floor to ceiling. */
+  airspaces?: AirspaceCheck[];
 }
 
 const HEIGHT = 240;
@@ -38,7 +42,7 @@ function useWidth<T extends HTMLElement>(fallback: number): [React.RefObject<T |
  * and the (averaged) terrain, with the wind at the cruise altitude along the top. Tap or hover a
  * segment for its details; the nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [] }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<number | null>(null);
   React.useEffect(() => {
@@ -77,6 +81,12 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
   const boundaries = legs.map(l => l.segments[0]?.segment.startNm).filter((nm): nm is number => nm !== undefined);
   const codes = [...legs.map(l => l.leg.from), legs[legs.length - 1].leg.to];
   const shown = active === null ? null : segments[active];
+  // Boxes that reach into the chart, widest first so narrow ones stay on top. Gliding sectors and
+  // other information-only areas are left to the list: in grey they'd read as cloud.
+  const placedLabels: Array<{ x0: number; x1: number; top: number }> = [];
+  const shownAirspaces = airspaces
+    .filter(c => c.floorFt < topFt && c.ceilingFt > 0 && adviceFor(c.airspace).severity !== 'info')
+    .sort((a, b) => (b.toNm - b.fromNm) - (a.toNm - a.fromNm));
 
   return (
     <figure className="min-w-0 space-y-2">
@@ -88,6 +98,9 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud (darker = more)</span>
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
+        {shownAirspaces.length > 0 && (
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-blue-600 bg-blue-500/15 dark:border-blue-400"/> Airspace (see the list below)</span>
+        )}
       </figcaption>
       <div ref={ref} className="relative w-full min-w-0 select-none" onPointerLeave={e => { if (e.pointerType === 'mouse') setActive(null); }}>
         <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} className="block" role="img"
@@ -116,6 +129,30 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
                 return <rect key={`${i}-${j}`} x={x0} width={Math.max(0, x1 - x0)} y={y(above)} height={Math.max(0, y(below) - y(above))}
                   fillOpacity={(l.cloudCover / 100) * 0.75}/>;
               });
+            })}
+          </g>
+
+          {/* Airspace: floor to ceiling where the route is under its outline. */}
+          <g aria-hidden="true">
+            {shownAirspaces.map((c, i) => {
+              const style = SEVERITY_STYLE[adviceFor(c.airspace).severity].box;
+              const x0 = x(c.fromNm), x1 = Math.max(x(c.toNm), x0 + 2);
+              const top = y(Math.min(c.ceilingFt, topFt)), bottom = y(Math.max(0, c.floorFt));
+              const label = c.airspace.name.length > 22 ? `${c.airspace.name.slice(0, 21)}…` : c.airspace.name;
+              const labelW = label.length * 5.5 + 6;
+              // One label per spot: skip a name that would overprint one already drawn.
+              const fits = x1 - x0 > labelW && bottom - top > 14
+                && !placedLabels.some(r => x0 < r.x1 && x0 + labelW > r.x0 && Math.abs(top - r.top) < 12);
+              if (fits) placedLabels.push({ x0, x1: x0 + labelW, top });
+              return (
+                <g key={`${c.airspace.id}-${i}`} className={style}>
+                  <rect x={x0} width={x1 - x0} y={top} height={Math.max(1, bottom - top)} fillOpacity={0.1}
+                    strokeWidth={1} strokeDasharray={c.status === 'inside' ? undefined : '3 3'}/>
+                  {fits && (
+                    <text x={x0 + 3} y={top + 11} className="fill-foreground stroke-none text-[9px]" fillOpacity={0.8}>{label}</text>
+                  )}
+                </g>
+              );
             })}
           </g>
 
