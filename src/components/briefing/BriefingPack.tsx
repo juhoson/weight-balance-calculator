@@ -7,7 +7,7 @@ import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import { decodeMetar, summarise } from '../../lib/metarTaf';
 import { swedenControlText, type SwedenControlLeg } from '../../lib/swedenControl';
 import { EMERGENCY_REMINDER, GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
-import type { Frequency, RouteWeather } from '../../types/route';
+import type { AerodromeInfo, Frequency, RouteWeather } from '../../types/route';
 import type { CalculationSummary } from '../ResultsPanel';
 import { VERDICT_TEXT, verdictOf } from '../ResultsPanel';
 import RouteProfileChart from '../route/RouteProfileChart';
@@ -15,16 +15,17 @@ import { NavLog } from '../route/EnroutePanel';
 import { lazyWithReload } from '../../lib/lazyWithReload';
 
 // Leaflet loads only for a pack with maps.
-const BriefingMaps = lazyWithReload(() => import('./BriefingMaps'));
+const AirfieldMaps = lazyWithReload(() => import('./BriefingMaps').then(m => ({ default: m.AirfieldMaps })));
+const RouteChart = lazyWithReload(() => import('./BriefingMaps').then(m => ({ default: m.RouteChart })));
 
-export type BriefingSection = 'overview' | 'maps' | 'weather' | 'frequencies' | 'emergency';
+export type BriefingSection = 'overview' | 'airfields' | 'enroute' | 'weather' | 'emergency';
 
 export const BRIEFING_SECTIONS: Array<{ id: BriefingSection; label: string; detail: string }> = [
   { id: 'overview', label: 'Overview', detail: 'Route, legs, times, fuel, weight and balance, the profile and the nav log' },
-  { id: 'maps', label: 'Maps', detail: 'The whole route, and the departure and arrival areas, with airspace' },
+  { id: 'airfields', label: 'Departure and arrival', detail: 'One page: both aerodromes on maps with their reporting points and circuits, the frequencies, and boxes for the block times and tacho' },
+  { id: 'enroute', label: 'En-route chart', detail: 'The whole route on a page of its own, with airspace' },
   { id: 'weather', label: 'Weather briefing', detail: 'METAR and TAF along the route, decoded, and the en-route forecast' },
-  { id: 'frequencies', label: 'Frequencies', detail: 'Airports, airspace along the route, Sweden Control and emergency, in one box' },
-  { id: 'emergency', label: 'Emergency checklist', detail: 'Generic single-engine piston memory items and the MAYDAY call, in one box' },
+  { id: 'emergency', label: 'Emergency checklist', detail: 'A page of its own: generic single-engine piston memory items and the MAYDAY call' },
 ];
 
 export interface AirportFrequencies {
@@ -52,7 +53,13 @@ export interface BriefingData {
   speeds: { glide?: number; vy: number; approach: number; stallLanding: number; unit: string } | null;
   /** Null while being looked up. */
   airportFrequencies: AirportFrequencies[] | null;
+  /** The departure's and arrival's circuits and reporting points by code; null while being looked up. */
+  aerodromes: Record<string, AerodromeInfo> | null;
 }
+
+/** Enough to call: the ATIS and three more for an airport, one or two for an airspace. */
+const MAX_AIRPORT_FREQUENCIES = 3;
+const MAX_AIRSPACE_FREQUENCIES = 2;
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en');
 const hm = (m: number) => `${Math.floor(Math.round(m) / 60)}:${String(Math.round(m) % 60).padStart(2, '0')}`;
@@ -60,8 +67,8 @@ const pad3 = (n: number) => String(Math.round(((n % 360) + 360) % 360) % 360).pa
 const utc = (d: Date) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}Z`;
 const ROLE: Record<string, string> = { DEPARTURE: 'Departure', WAYPOINT: 'Waypoint', ENROUTE: 'En route', ARRIVAL: 'Arrival' };
 
-const Section: React.FC<{ title: string; children: React.ReactNode; boxed?: boolean }> = ({ title, children, boxed }) => (
-  <section className={boxed ? 'mt-4 break-inside-avoid rounded border-2 border-black p-3' : 'mt-5'}>
+const Section: React.FC<{ title: string; children: React.ReactNode; boxed?: boolean; page?: boolean }> = ({ title, children, boxed, page }) => (
+  <section className={boxed ? 'mt-4 break-inside-avoid rounded border-2 border-black p-3' : 'mt-5'} style={page ? { breakBefore: 'page' } : undefined}>
     <h2 className="mb-2 border-b border-black pb-0.5 text-[13pt] font-bold">{title}</h2>
     {children}
   </section>
@@ -83,22 +90,94 @@ const BriefingPack: React.FC<{ data: BriefingData; sections: BriefingSection[] }
         <p className="text-right text-[8pt]">Prepared {new Date().toISOString().slice(0, 16).replace('T', ' ')}Z<br/>flightplanningtool.com</p>
       </header>
       {has('overview') && <Overview data={data}/>}
-      {has('maps') && (
-        <Section title="Maps">
-          <React.Suspense fallback={<div data-map-ready="false">Loading the maps…</div>}>
-            <BriefingMaps local={data.trip.distanceNm === 0}
-              points={[data.trip.departure, ...(data.trip.waypoints ?? []), data.trip.arrival].map(a => ({ code: a.code, lat: a.lat, lon: a.lon }))}/>
+      {has('airfields') && <Airfields data={data} page={has('overview')}/>}
+      {has('enroute') && (
+        <Section title="En-route chart" page={has('overview') || has('airfields')}>
+          <React.Suspense fallback={<div data-map-ready="false">Loading the map…</div>}>
+            <RouteChart points={pointsOf(data)}/>
           </React.Suspense>
         </Section>
       )}
-      {has('weather') && <Weather data={data}/>}
-      {has('frequencies') && <Frequencies data={data}/>}
-      {has('emergency') && <Emergency data={data}/>}
+      {has('weather') && <Weather data={data} page={has('enroute')}/>}
+      {has('emergency') && <Emergency data={data} page={sections.some(x => x !== 'emergency')}/>}
       <p className="mt-4 text-[7.5pt]">
         For planning only. Weather is from aviationweather.gov and a model forecast (Open-Meteo), airspace from openAIP: get an
         official briefing, check the AIP, NOTAMs and the charts before flight. Verify weight and balance against the aircraft&apos;s POH.
       </p>
     </article>
+  );
+};
+
+const pointsOf = (data: BriefingData) =>
+  [data.trip.departure, ...(data.trip.waypoints ?? []), data.trip.arrival].map(a => ({ code: a.code, lat: a.lat, lon: a.lon }));
+
+/** One page for the two ends of the flight: maps, circuits, frequencies and the times to fill in. */
+const Airfields: React.FC<{ data: BriefingData; page: boolean }> = ({ data, page }) => {
+  const local = data.trip.distanceNm === 0;
+  const ends = local ? [data.trip.departure] : [data.trip.departure, data.trip.arrival];
+  const vrps: Record<string, AerodromeInfo['reportingPoints']> = {};
+  ends.forEach(a => { vrps[a.code] = data.aerodromes?.[a.code]?.reportingPoints ?? []; });
+  const eta = new Date(data.departure.getTime() + data.flightMinutes * 60_000);
+  return (
+    <Section title="Departure and arrival" page={page}>
+      <React.Suspense fallback={<div data-map-ready="false">Loading the maps…</div>}>
+        <AirfieldMaps points={pointsOf(data)} local={local} vrps={vrps}/>
+      </React.Suspense>
+      <div className={`mt-1 grid gap-2 ${local ? '' : 'grid-cols-2'}`}>
+        {ends.map(a => <AerodromeNotes key={a.code} code={a.code} info={data.aerodromes?.[a.code]} loading={data.aerodromes === null}/>)}
+      </div>
+      <Frequencies data={data}/>
+      <section className="mt-3 break-inside-avoid rounded border-2 border-black p-2" aria-label="Times">
+        <table className="w-full border-collapse tabular-nums">
+          <thead>
+            <tr className="border-b border-black text-left">
+              <th className="w-1/4 pr-2"/><th className="w-1/4 pr-2">Planned (UTC)</th><th className="w-1/4 pr-2">Actual</th><th>Tacho</th>
+            </tr>
+          </thead>
+          <tbody>
+            {([['Off block', '', 'Start'], ['Takeoff', utc(data.departure), ''], ['Landing', utc(eta), ''], ['On block', '', 'End']] as const).map(([what, planned, tacho]) => (
+              <tr key={what} className="h-7 border-b border-black/40">
+                <td className="pr-2 font-semibold">{what}</td>
+                <td className="pr-2">{planned}</td>
+                <td className="border-l border-black/40"/>
+                <td className="border-l border-black/40 pl-1 text-[8pt]">{tacho}</td>
+              </tr>
+            ))}
+            <tr className="h-7">
+              <td className="pr-2 font-semibold">Block time</td><td className="pr-2">{hm(data.flightMinutes)} flight</td>
+              <td className="border-l border-black/40"/><td className="border-l border-black/40 pl-1 text-[8pt]">Total</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </Section>
+  );
+};
+
+/** The circuit direction (where openAIP has it) and the reporting points of an aerodrome. */
+const AerodromeNotes: React.FC<{ code: string; info?: AerodromeInfo; loading: boolean }> = ({ code, info, loading }) => {
+  const known = (info?.circuits ?? []).filter(c => c.direction);
+  const vrps = info?.reportingPoints ?? [];
+  return (
+    <div>
+      <p className="font-semibold">{code}</p>
+      {loading ? <p>Looking up…</p> : (
+        <>
+          <p>
+            <strong>Circuit:</strong>{' '}
+            {known.length
+              ? known.map(c => `RWY ${c.runway} ${c.direction === 'LEFT' ? 'left' : 'right'}-hand`).join(', ')
+              : <>not in the data: left-hand unless the AIP/VAC says otherwise. RWY ____ L / R</>}
+          </p>
+          <p>
+            <strong>Reporting points:</strong>{' '}
+            {vrps.length
+              ? vrps.map(p => (p.compulsory ? `${p.name} (compulsory)` : p.name)).join(', ')
+              : 'none in the data'}
+          </p>
+        </>
+      )}
+    </div>
   );
 };
 
@@ -165,11 +244,11 @@ const Overview: React.FC<{ data: BriefingData }> = ({ data }) => {
   );
 };
 
-const Weather: React.FC<{ data: BriefingData }> = ({ data }) => {
+const Weather: React.FC<{ data: BriefingData; page: boolean }> = ({ data, page }) => {
   const { trip, plan } = data;
   const w = plan ? warningsOf(plan.segments, data.altitudeFt) : null;
   return (
-    <Section title="Weather briefing">
+    <Section title="Weather briefing" page={page}>
       {!trip.weatherAvailable && <p>The weather service could not be reached when this was prepared.</p>}
       <div className="space-y-1.5">
         {trip.points.map((p, i) => (
@@ -228,9 +307,11 @@ const Weather: React.FC<{ data: BriefingData }> = ({ data }) => {
 };
 
 const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
+  // Each airspace once (a TMA comes in several sectors), with its one or two frequencies.
   const along = data.airspaces
     .filter(c => (c.status === 'inside' || c.status === 'close') && adviceFor(c.airspace).severity !== 'info')
-    .sort((a, b) => a.fromNm - b.fromNm);
+    .sort((a, b) => a.fromNm - b.fromNm)
+    .filter((c, i, all) => all.findIndex(o => o.airspace.name === c.airspace.name) === i);
   return (
     <Section title="Frequencies" boxed>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2">
@@ -242,7 +323,7 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
               <div key={a.code} className="mb-1">
                 <p className="font-semibold">{a.code} {a.name}</p>
                 {a.frequencies.length
-                  ? [...a.frequencies.filter(f => f.kind === 'ATIS'), ...contactFrequencies(a.frequencies)]
+                  ? [...a.frequencies.filter(f => f.kind === 'ATIS').slice(0, 1), ...contactFrequencies(a.frequencies).slice(0, MAX_AIRPORT_FREQUENCIES)]
                     .map((f, i) => <p key={i} className="tabular-nums">{frequencyText(f)}</p>)
                   : <p>No frequency listed</p>}
               </div>
@@ -272,7 +353,7 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
                   <td className="whitespace-nowrap pr-2">{Math.round(c.fromNm)}–{Math.round(c.toNm)} NM</td>
                   <td className="pr-2 font-semibold">{c.airspace.name}{c.airspace.icaoClass ? ` (${c.airspace.icaoClass})` : ''}</td>
                   <td className="whitespace-nowrap pr-2">{c.airspace.lower.label} – {c.airspace.upper.label}</td>
-                  <td>{contactFrequencies(c.airspace.frequencies).map(frequencyText).join(', ') || adviceFor(c.airspace).label}</td>
+                  <td>{contactFrequencies(c.airspace.frequencies).slice(0, MAX_AIRSPACE_FREQUENCIES).map(frequencyText).join(', ') || adviceFor(c.airspace).label}</td>
                 </tr>
               ))}
             </tbody>
@@ -286,11 +367,11 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
   );
 };
 
-const Emergency: React.FC<{ data: BriefingData }> = ({ data }) => {
+const Emergency: React.FC<{ data: BriefingData; page: boolean }> = ({ data, page }) => {
   const s = data.speeds;
   const u = s?.unit === 'MPH' ? 'mph' : 'kt';
   return (
-    <Section title="Emergency checklist" boxed>
+    <Section title="Emergency checklist" boxed page={page}>
       <p className="mb-2 text-center text-[13pt] font-bold tracking-wide">{EMERGENCY_REMINDER.toUpperCase()}</p>
       <p className="mb-2 text-center font-semibold">
         Best glide {s?.glide ? `${s.glide} ${u}` : '_____'} · Vy {s ? `${s.vy} ${u}` : '_____'} · Approach {s ? `${s.approach} ${u}` : '_____'} · Stall, landing flaps {s ? `${s.stallLanding} ${u}` : '_____'}

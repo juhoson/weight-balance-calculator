@@ -238,6 +238,32 @@ input::-webkit-inner-spin-button {
   visibility: hidden;
 }
 
+/* Visual reporting points on the briefing maps: a triangle, filled when compulsory. */
+.vrp-marker {
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 11px solid #1d4ed8;
+  background: none;
+}
+.vrp-marker::after {
+  content: '';
+  position: absolute;
+  left: -3.5px;
+  top: 3.5px;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-bottom: 6px solid #ffffff;
+}
+.vrp-marker.vrp-marker--compulsory::after {
+  display: none;
+}
+.route-map .leaflet-tooltip.vrp-label {
+  color: #1d4ed8;
+  font-size: 9px;
+}
+
 /* The briefing pack: printed on its own. On screen it is laid out out of sight, so its maps can load. */
 .briefing-pack {
   position: absolute;

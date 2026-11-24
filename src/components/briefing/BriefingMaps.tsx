@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { AIRSPACE_TILE_URL, fetchMapStatus, type MapStatus } from '../../api/backend';
 import { routeLabels } from '../../lib/routePoint';
+import type { AerodromeInfo } from '../../types/route';
 
 export interface BriefingMapPoint {
   code: string;
@@ -20,13 +21,16 @@ const TILE_TIMEOUT_MS = 12_000;
 let statusPromise: Promise<MapStatus | null> | null = null;
 const mapStatus = () => (statusPromise ??= fetchMapStatus().catch(() => null));
 
-type View = { kind: 'fit' } | { kind: 'centre'; at: BriefingMapPoint; zoom: number };
+type View = { kind: 'fit' } | { kind: 'centre'; at: BriefingMapPoint; zoom: number; around?: Array<{ lat: number; lon: number }> };
+type Vrp = AerodromeInfo['reportingPoints'][number];
 
 /**
  * One printed map: the route on OpenStreetMap with openAIP's airspace, fixed and without controls.
  * Marks itself data-map-ready once its tiles are in, so printing can wait for it.
  */
-const PrintMap: React.FC<{ points: BriefingMapPoint[]; view: View; height: number; title: string }> = ({ points, view, height, title }) => {
+const PrintMap: React.FC<{ points: BriefingMapPoint[]; view: View; height: number; title: string; vrps?: Vrp[] }> = ({
+  points, view, height, title, vrps = [],
+}) => {
   const el = React.useRef<HTMLDivElement>(null);
   const [ready, setReady] = React.useState(false);
   const [scale, setScale] = React.useState<{ px: number; nm: number } | null>(null);
@@ -43,7 +47,11 @@ const PrintMap: React.FC<{ points: BriefingMapPoint[]; view: View; height: numbe
       });
       const latLngs = points.map(p => L.latLng(p.lat, p.lon));
       if (view.kind === 'fit') map.fitBounds(L.latLngBounds(latLngs), { padding: [36, 36], maxZoom: 11 });
-      else map.setView([view.at.lat, view.at.lon], view.zoom);
+      else if (view.around?.length) {
+        // The aerodrome and its reporting points, at least as close as the usual zoom.
+        const b = L.latLngBounds([L.latLng(view.at.lat, view.at.lon), ...view.around.map(p => L.latLng(p.lat, p.lon))]);
+        map.fitBounds(b, { padding: [28, 28], maxZoom: view.zoom });
+      } else map.setView([view.at.lat, view.at.lon], view.zoom);
 
       const layers = [L.tileLayer(OSM_URL, { maxZoom: 19 })];
       if (status?.airspace) {
@@ -61,6 +69,16 @@ const PrintMap: React.FC<{ points: BriefingMapPoint[]; view: View; height: numbe
       points.forEach((p, i) => {
         L.circleMarker([p.lat, p.lon], { radius: i === 0 || i === points.length - 1 ? 6 : 4, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
           .bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [7, 0], className: 'route-map-label' })
+          .addTo(map as L.Map);
+      });
+
+      // Visual reporting points: a triangle, filled when compulsory.
+      vrps.forEach(p => {
+        L.marker([p.lat, p.lon], {
+          icon: L.divIcon({ className: p.compulsory ? 'vrp-marker vrp-marker--compulsory' : 'vrp-marker', iconSize: [12, 11] }),
+          keyboard: false, interactive: false,
+        })
+          .bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label' })
           .addTo(map as L.Map);
       });
 
@@ -98,22 +116,35 @@ const PrintMap: React.FC<{ points: BriefingMapPoint[]; view: View; height: numbe
   );
 };
 
-/** The whole route, and the departure and arrival areas. */
-const BriefingMaps: React.FC<{ points: BriefingMapPoint[]; local: boolean }> = ({ points, local }) => {
+const CREDIT = (
+  <p className="text-[7.5pt]">
+    Map © OpenStreetMap contributors; airspace and reporting points © openAIP (CC BY-NC), maintained by volunteers. Not for
+    navigation: use the official charts.
+  </p>
+);
+
+/** The whole route on one page. */
+export const RouteChart: React.FC<{ points: BriefingMapPoint[] }> = ({ points }) => (
+  <div className="space-y-1">
+    <PrintMap points={points} view={{ kind: 'fit' }} height={880} title="Route"/>
+    {CREDIT}
+  </div>
+);
+
+/** The departure and arrival side by side, each with its reporting points. */
+export const AirfieldMaps: React.FC<{ points: BriefingMapPoint[]; local: boolean; vrps: Record<string, Vrp[]> }> = ({ points, local, vrps }) => {
   const dep = points[0], arr = points[points.length - 1];
+  const map = (at: BriefingMapPoint, label: string) => (
+    <PrintMap points={points} vrps={vrps[at.code] ?? []} height={300} title={`${label}: ${at.code}`}
+      view={{ kind: 'centre', at, zoom: AREA_ZOOM, around: vrps[at.code] }}/>
+  );
   return (
-    <div className="space-y-2">
-      <PrintMap points={points} view={{ kind: 'fit' }} height={430} title="Route"/>
-      <div className="grid grid-cols-2 gap-2">
-        <PrintMap points={points} view={{ kind: 'centre', at: dep, zoom: AREA_ZOOM }} height={330} title={`Departure: ${dep.code}`}/>
-        {!local && <PrintMap points={points} view={{ kind: 'centre', at: arr, zoom: AREA_ZOOM }} height={330} title={`Arrival: ${arr.code}`}/>}
+    <div className="space-y-1">
+      <div className={local ? '' : 'grid grid-cols-2 gap-2'}>
+        {map(dep, local ? 'Aerodrome' : 'Departure')}
+        {!local && map(arr, 'Arrival')}
       </div>
-      <p className="text-[7.5pt]">
-        Map © OpenStreetMap contributors; airspace © openAIP (CC BY-NC), maintained by volunteers. Not for navigation: use the
-        official charts.
-      </p>
+      {CREDIT}
     </div>
   );
 };
-
-export default BriefingMaps;

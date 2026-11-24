@@ -877,7 +877,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const maxFuel = getMaxFuel(aircraft);
   const toLiters = (amount: number, perLiter: number) => (inputs.fuelUnit === 'liters' ? amount : amount / perLiter);
   const perfData = aircraft.performance;
-  const briefing: Omit<BriefingData, 'airportFrequencies'> | null = trip ? {
+  const briefing: Omit<BriefingData, 'airportFrequencies' | 'aerodromes'> | null = trip ? {
     routeName: routeChain([trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code]),
     aircraftName: selectedMeta?.kind === 'generic' ? `${selectedMeta.label} (generic)` : selectedAircraft,
     departure: departureAt ?? new Date(),

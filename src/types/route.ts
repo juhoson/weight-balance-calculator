@@ -197,6 +197,14 @@ export interface Frequency {
 }
 
 /** What's at a point: the airspaces above it, lowest first, and the nearest airports with radio. */
+/** Circuits (where published) and visual reporting points of an aerodrome, from openAIP. */
+export interface AerodromeInfo {
+  code: string;
+  /** direction null: openAIP doesn't say (most runways). */
+  circuits: Array<{ runway: string; trueHeading: number | null; direction: 'LEFT' | 'RIGHT' | null }>;
+  reportingPoints: Array<{ name: string; lat: number; lon: number; compulsory: boolean }>;
+}
+
 export interface PointInfo {
   lat: number;
   lon: number;

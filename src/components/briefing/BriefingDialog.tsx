@@ -3,15 +3,13 @@ import { createPortal } from 'react-dom';
 import { FileText, Loader2, Printer } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog';
-import { fetchPointInfo } from '../../api/backend';
+import { fetchAerodrome, fetchPointInfo } from '../../api/backend';
+import type { AerodromeInfo } from '../../types/route';
 import { track } from '../../lib/analytics';
 import BriefingPack, { type AirportFrequencies, BRIEFING_SECTIONS, type BriefingData, type BriefingSection } from './BriefingPack';
 
-/** The sections left out (so a section added later starts ticked). */
-const OFF_KEY = 'briefingSectionsOff';
-/** Before maps: the sections ticked. */
-const OLD_KEY = 'briefingSections';
-const OLD_SECTIONS: BriefingSection[] = ['overview', 'weather', 'frequencies', 'emergency'];
+/** The sections left out (so a section added later starts ticked); v2 since the pages were rearranged. */
+const OFF_KEY = 'briefingSectionsOff.v2';
 const ALL: BriefingSection[] = BRIEFING_SECTIONS.map(s => s.id);
 /** Printed anyway if the maps take longer than this to load. */
 const MAX_WAIT_MS = 20_000;
@@ -20,16 +18,30 @@ function loadSections(): BriefingSection[] {
   try {
     const off = JSON.parse(localStorage.getItem(OFF_KEY) ?? 'null');
     if (Array.isArray(off)) return ALL.filter(s => !off.includes(s));
-    const old = JSON.parse(localStorage.getItem(OLD_KEY) ?? 'null');
-    if (Array.isArray(old)) return ALL.filter(s => old.includes(s) || !OLD_SECTIONS.includes(s));
   } catch {
     // Not saved yet.
   }
   return ALL;
 }
 
+type Given = Omit<BriefingData, 'airportFrequencies' | 'aerodromes'>;
+
+/** The departure's and arrival's circuits and reporting points (none for a position or when openAIP can't say). */
+async function aerodromesOf(data: Given): Promise<Record<string, AerodromeInfo>> {
+  const ends = [data.trip.departure, data.trip.arrival].filter((a, i, all) => a.type !== 'point' && all.findIndex(b => b.code === a.code) === i);
+  const out: Record<string, AerodromeInfo> = {};
+  await Promise.all(ends.map(async a => {
+    try {
+      out[a.code] = await fetchAerodrome(a.code);
+    } catch {
+      // Left out: the pack says it isn't in the data.
+    }
+  }));
+  return out;
+}
+
 /** Each airport on the route (not positions) with its frequencies, from the airspace lookup at it. */
-async function airportFrequencies(data: Omit<BriefingData, 'airportFrequencies'>): Promise<AirportFrequencies[]> {
+async function airportFrequencies(data: Given): Promise<AirportFrequencies[]> {
   const { trip } = data;
   const airports = [trip.departure, ...(trip.waypoints ?? []), trip.arrival]
     .filter((a, i, all) => a.type !== 'point' && all.findIndex(b => b.code === a.code) === i);
@@ -45,19 +57,22 @@ async function airportFrequencies(data: Omit<BriefingData, 'airportFrequencies'>
 }
 
 /** "Briefing pack": choose the sections, then print them on their own. */
-const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> | null }> = ({ data }) => {
+const BriefingButton: React.FC<{ data: Given | null }> = ({ data }) => {
   const [open, setOpen] = React.useState(false);
   const [sections, setSections] = React.useState<BriefingSection[]>(loadSections);
   const [freqs, setFreqs] = React.useState<AirportFrequencies[] | null>(null);
+  const [aerodromes, setAerodromes] = React.useState<Record<string, AerodromeInfo> | null>(null);
   const [printing, setPrinting] = React.useState(false);
   const routeKey = data ? [data.trip.departure, ...(data.trip.waypoints ?? []), data.trip.arrival].map(a => a.code).join(',') : '';
 
-  // The airport frequencies, looked up when the dialog opens.
+  // The airport frequencies, circuits and reporting points, looked up when the dialog opens.
   React.useEffect(() => {
     if (!open || !data) return;
     let live = true;
     setFreqs(null);
+    setAerodromes(null);
     airportFrequencies(data).then(f => { if (live) setFreqs(f); });
+    aerodromesOf(data).then(a => { if (live) setAerodromes(a); });
     return () => { live = false; };
   }, [open, routeKey]);
 
@@ -104,7 +119,7 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
     setSections(next);
     try { localStorage.setItem(OFF_KEY, JSON.stringify(ALL.filter(x => !next.includes(x)))); } catch { /* private mode */ }
   };
-  const waiting = sections.includes('frequencies') && freqs === null;
+  const waiting = sections.includes('airfields') && (freqs === null || aerodromes === null);
 
   return (
     <>
@@ -138,7 +153,7 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
             <Button type="button" disabled={!data || sections.length === 0 || waiting}
               onClick={() => { track('briefing-print'); setOpen(false); setPrinting(true); }}>
               {waiting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Printer className="mr-2 h-4 w-4"/>}
-              {waiting ? 'Looking up frequencies…' : 'Print'}
+              {waiting ? 'Looking up frequencies and reporting points…' : 'Print'}
             </Button>
           </div>
         </DialogContent>
@@ -149,7 +164,7 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
         </p>
       )}
       {printing && data && createPortal(
-        <div className="briefing-pack"><BriefingPack data={{ ...data, airportFrequencies: freqs }} sections={sections}/></div>,
+        <div className="briefing-pack"><BriefingPack data={{ ...data, airportFrequencies: freqs, aerodromes }} sections={sections}/></div>,
         document.body,
       )}
     </>
