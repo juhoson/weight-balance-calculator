@@ -121,6 +121,7 @@ it('remembers what was left out', async () => {
   fireEvent.click(screen.getByRole('checkbox', { name: /Weather briefing/ }));
   fireEvent.click(screen.getByRole('checkbox', { name: /En-route chart/ }));
   expect(localStorage.getItem('briefingSectionsOff.v2')).toBe(JSON.stringify(['enroute', 'weather']));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Print' })).toBeEnabled());
 });
 
 it('without a route there is nothing to brief', () => {
@@ -137,4 +138,28 @@ it('a pack with only the weather has its reports, decoded, and prints straight a
   expect(pack).toHaveTextContent('METAR ESOW 081720Z');
   expect(pack).toHaveTextContent('Wind from 250° at 12 kt');
   await waitFor(() => expect(window.print).toHaveBeenCalled());
+});
+
+it('keeps the departure and arrival page to one page: short lists, and scaled down if still too tall', async () => {
+  only('airfields');
+  const many = Array.from({ length: 11 }, (_, i) => {
+    const c = tma(i * 10, ['123.725']);
+    return { ...c, airspace: { ...c.airspace, id: `a${i}`, name: `AREA ${i + 1}` } };
+  });
+  const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(1300);
+  try {
+    render(<BriefingButton data={{ ...data, airspaces: many }}/>);
+    open();
+    const pack = await print();
+    expect(pack).toHaveTextContent('AREA 8');
+    expect(pack).not.toHaveTextContent('AREA 9 ');
+    expect(pack).toHaveTextContent('and 3 more further on');
+    // 1,300 px into the ~920 px left under the heading: as small as it goes, 75%.
+    const page = within(pack).getByRole('heading', { name: 'Departure and arrival' }).closest('section') as HTMLElement;
+    await waitFor(() => expect(page).toHaveAttribute('data-fit-scale', '0.75'));
+    expect(page).toHaveStyle({ height: '975px' });
+    tilesIn();
+  } finally {
+    height.mockRestore();
+  }
 });

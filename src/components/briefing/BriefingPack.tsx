@@ -60,6 +60,18 @@ export interface BriefingData {
 /** Enough to call: the ATIS and three more for an airport, one or two for an airspace. */
 const MAX_AIRPORT_FREQUENCIES = 3;
 const MAX_AIRSPACE_FREQUENCIES = 2;
+/** The departure and arrival page lists this many airspaces and Sweden Control sectors, then says how many more. */
+const MAX_AIRSPACES = 8;
+const MAX_SECTORS = 4;
+/** A4 less the 12 mm margins (273 mm at 96 px to the inch), less the section's top margin and a little to spare. */
+const PAGE_HEIGHT_PX = Math.floor((273 * 96) / 25.4) - 20 - 16;
+/** The pack's heading, on the first page. */
+const HEADER_PX = 75;
+
+/** How much to shrink something this tall to fit; never below 75%, so it stays readable. */
+export function fitScale(heightPx: number, availablePx: number, min = 0.75): number {
+  return heightPx <= availablePx || heightPx <= 0 ? 1 : Math.max(min, Math.floor((availablePx / heightPx) * 1000) / 1000);
+}
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en');
 const hm = (m: number) => `${Math.floor(Math.round(m) / 60)}:${String(Math.round(m) % 60).padStart(2, '0')}`;
@@ -118,39 +130,60 @@ const Airfields: React.FC<{ data: BriefingData; page: boolean }> = ({ data, page
   const vrps: Record<string, AerodromeInfo['reportingPoints']> = {};
   ends.forEach(a => { vrps[a.code] = data.aerodromes?.[a.code]?.reportingPoints ?? []; });
   const eta = new Date(data.departure.getTime() + data.flightMinutes * 60_000);
+  // Laid out at A4 width before printing: measured, and scaled down if it would run onto a second page.
+  const inner = React.useRef<HTMLDivElement>(null);
+  const [fit, setFit] = React.useState<{ scale: number; height: number }>({ scale: 1, height: 0 });
+  React.useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight;
+      const scale = fitScale(h, PAGE_HEIGHT_PX - (page ? 0 : HEADER_PX));
+      setFit(f => (f.scale === scale && f.height === h ? f : { scale, height: h }));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [page]);
   return (
-    <Section title="Departure and arrival" page={page}>
-      <React.Suspense fallback={<div data-map-ready="false">Loading the maps…</div>}>
-        <AirfieldMaps points={pointsOf(data)} local={local} vrps={vrps}/>
-      </React.Suspense>
-      <div className={`mt-1 grid gap-2 ${local ? '' : 'grid-cols-2'}`}>
-        {ends.map(a => <AerodromeNotes key={a.code} code={a.code} info={data.aerodromes?.[a.code]} loading={data.aerodromes === null}/>)}
-      </div>
-      <Frequencies data={data}/>
-      <section className="mt-3 break-inside-avoid rounded border-2 border-black p-2" aria-label="Times">
-        <table className="w-full border-collapse tabular-nums">
-          <thead>
-            <tr className="border-b border-black text-left">
-              <th className="w-1/4 pr-2"/><th className="w-1/4 pr-2">Planned (UTC)</th><th className="w-1/4 pr-2">Actual</th><th>Tacho</th>
-            </tr>
-          </thead>
-          <tbody>
-            {([['Off block', '', 'Start'], ['Takeoff', utc(data.departure), ''], ['Landing', utc(eta), ''], ['On block', '', 'End']] as const).map(([what, planned, tacho]) => (
-              <tr key={what} className="h-7 border-b border-black/40">
-                <td className="pr-2 font-semibold">{what}</td>
-                <td className="pr-2">{planned}</td>
-                <td className="border-l border-black/40"/>
-                <td className="border-l border-black/40 pl-1 text-[8pt]">{tacho}</td>
+    <section className="mt-5" style={{ ...(page ? { breakBefore: 'page' as const } : {}), breakInside: 'avoid',
+      ...(fit.scale < 1 ? { height: fit.height * fit.scale, overflow: 'hidden' } : {}) }} data-fit-scale={fit.scale}>
+      <div ref={inner} style={fit.scale < 1 ? { transform: `scale(${fit.scale})`, transformOrigin: 'top left', width: `${100 / fit.scale}%` } : undefined}>
+        <h2 className="mb-2 border-b border-black pb-0.5 text-[13pt] font-bold">Departure and arrival</h2>
+        <React.Suspense fallback={<div data-map-ready="false">Loading the maps…</div>}>
+          <AirfieldMaps points={pointsOf(data)} local={local} vrps={vrps}/>
+        </React.Suspense>
+        <div className={`mt-1 grid gap-2 ${local ? '' : 'grid-cols-2'}`}>
+          {ends.map(a => <AerodromeNotes key={a.code} code={a.code} info={data.aerodromes?.[a.code]} loading={data.aerodromes === null}/>)}
+        </div>
+        <Frequencies data={data}/>
+        <section className="mt-3 break-inside-avoid rounded border-2 border-black p-2" aria-label="Times">
+          <table className="w-full border-collapse tabular-nums">
+            <thead>
+              <tr className="border-b border-black text-left">
+                <th className="w-1/4 pr-2"/><th className="w-1/4 pr-2">Planned (UTC)</th><th className="w-1/4 pr-2">Actual</th><th>Tacho</th>
               </tr>
-            ))}
-            <tr className="h-7">
-              <td className="pr-2 font-semibold">Block time</td><td className="pr-2">{hm(data.flightMinutes)} flight</td>
-              <td className="border-l border-black/40"/><td className="border-l border-black/40 pl-1 text-[8pt]">Total</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-    </Section>
+            </thead>
+            <tbody>
+              {([['Off block', '', 'Start'], ['Takeoff', utc(data.departure), ''], ['Landing', utc(eta), ''], ['On block', '', 'End']] as const).map(([what, planned, tacho]) => (
+                <tr key={what} className="h-7 border-b border-black/40">
+                  <td className="pr-2 font-semibold">{what}</td>
+                  <td className="pr-2">{planned}</td>
+                  <td className="border-l border-black/40"/>
+                  <td className="border-l border-black/40 pl-1 text-[8pt]">{tacho}</td>
+                </tr>
+              ))}
+              <tr className="h-7">
+                <td className="pr-2 font-semibold">Block time</td><td className="pr-2">{hm(data.flightMinutes)} flight</td>
+                <td className="border-l border-black/40"/><td className="border-l border-black/40 pl-1 text-[8pt]">Total</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </section>
   );
 };
 
@@ -312,6 +345,9 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
     .filter(c => (c.status === 'inside' || c.status === 'close') && adviceFor(c.airspace).severity !== 'info')
     .sort((a, b) => a.fromNm - b.fromNm)
     .filter((c, i, all) => all.findIndex(o => o.airspace.name === c.airspace.name) === i);
+  // The departure and arrival in full; airports on the way in one line.
+  const ends = [data.trip.departure.code, data.trip.arrival.code];
+  const via = (data.airportFrequencies ?? []).filter(a => !ends.includes(a.code));
   return (
     <Section title="Frequencies" boxed>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2">
@@ -319,7 +355,7 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
           <h3 className="font-semibold">Airports</h3>
           {data.airportFrequencies === null
             ? <p>Looking up…</p>
-            : data.airportFrequencies.map(a => (
+            : data.airportFrequencies.filter(a => ends.includes(a.code)).map(a => (
               <div key={a.code} className="mb-1">
                 <p className="font-semibold">{a.code} {a.name}</p>
                 {a.frequencies.length
@@ -328,6 +364,9 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
                   : <p>No frequency listed</p>}
               </div>
             ))}
+          {via.length > 0 && (
+            <p><strong>On the way:</strong> {via.map(a => `${a.code} ${contactFrequencies(a.frequencies)[0]?.value ?? '–'}`).join(' · ')}</p>
+          )}
         </div>
         <div>
           <h3 className="font-semibold">Emergency</h3>
@@ -336,9 +375,10 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
           {data.swedenControl.length > 0 && (
             <>
               <h3 className="mt-2 font-semibold">Sweden Control (class G, flight information)</h3>
-              {data.swedenControl.map((s, i) => (
+              {data.swedenControl.slice(0, MAX_SECTORS).map((s, i) => (
                 <p key={i} className="tabular-nums">{Math.round(s.fromNm)}–{Math.round(s.toNm)} NM: {swedenControlText(s.sector)} ({s.sector.sector})</p>
               ))}
+              {data.swedenControl.length > MAX_SECTORS && <p>and {data.swedenControl.length - MAX_SECTORS} more further on</p>}
             </>
           )}
         </div>
@@ -348,7 +388,7 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
           <h3 className="font-semibold">Airspace along the route</h3>
           <table className="w-full border-collapse tabular-nums">
             <tbody>
-              {along.map((c, i) => (
+              {along.slice(0, MAX_AIRSPACES).map((c, i) => (
                 <tr key={i} className="border-b border-black/30 align-top">
                   <td className="whitespace-nowrap pr-2">{Math.round(c.fromNm)}–{Math.round(c.toNm)} NM</td>
                   <td className="pr-2 font-semibold">{c.airspace.name}{c.airspace.icaoClass ? ` (${c.airspace.icaoClass})` : ''}</td>
@@ -358,6 +398,7 @@ const Frequencies: React.FC<{ data: BriefingData }> = ({ data }) => {
               ))}
             </tbody>
           </table>
+          {along.length > MAX_AIRSPACES && <p>and {along.length - MAX_AIRSPACES} more further on: see the airspace list in the app.</p>}
         </div>
       )}
       <div className="mt-2 grid grid-cols-4 gap-2 text-[8pt]">

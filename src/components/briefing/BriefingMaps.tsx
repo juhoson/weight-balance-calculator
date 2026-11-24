@@ -135,7 +135,7 @@ export const RouteChart: React.FC<{ points: BriefingMapPoint[] }> = ({ points })
 export const AirfieldMaps: React.FC<{ points: BriefingMapPoint[]; local: boolean; vrps: Record<string, Vrp[]> }> = ({ points, local, vrps }) => {
   const dep = points[0], arr = points[points.length - 1];
   const map = (at: BriefingMapPoint, label: string) => (
-    <PrintMap points={points} vrps={vrps[at.code] ?? []} height={300} title={`${label}: ${at.code}`}
+    <PrintMap points={points} vrps={vrps[at.code] ?? []} height={270} title={`${label}: ${at.code}`}
       view={{ kind: 'centre', at, zoom: AREA_ZOOM, around: vrps[at.code] }}/>
   );
   return (
