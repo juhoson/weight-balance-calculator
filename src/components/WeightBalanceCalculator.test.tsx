@@ -17,6 +17,7 @@ jest.mock('../lib/openMeteo', () => ({ ...jest.requireActual('../lib/openMeteo')
 const mockedRoute = fetchRouteWeather as jest.MockedFunction<typeof fetchRouteWeather>;
 const mockedWinds = forecastAlongRoute as jest.MockedFunction<typeof forecastAlongRoute>;
 /** The airport codes and altitude of the last forecast asked for. */
+const forecastCalls = () => mockedWinds.mock.calls.map(([route, altitudeFt, departure]) => [route.map(p => p.code), altitudeFt, departure]);
 const lastForecast = () => { const [route, altitudeFt, departure] = mockedWinds.mock.calls[mockedWinds.mock.calls.length - 1]; return [route.map(p => p.code), altitudeFt, departure]; };
 jest.mock('./route/RouteMap', () => ({ airports }: { airports: Array<{ code: string }> }) => (
   <div data-testid="route-map">{airports.map(a => a.code).join(' ')}</div>
@@ -254,7 +255,10 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
   // Descent at cruise speed from 3,000 ft to ESGG's circuit altitude (506 + 1,000 ft): 3 min.
   expect(screen.getByText(/Top of climb/).parentElement).toHaveTextContent(/Top of descent 171 NM out, .* \(0:03 to circuit altitude, 1,506 ft\)/);
   expect(screen.getByDisplayValue('2:05')).toBeInTheDocument();
-  expect(lastForecast()).toEqual([['ESSX', 'ESGG'], 3000, null]);
+  // The cruise altitude, then every altitude up to FL100 for the suggestions (from the cache).
+  expect(forecastCalls()[0]).toEqual([['ESSX', 'ESGG'], 3000, null]);
+  await waitFor(() => expect(lastForecast()).toEqual([['ESSX', 'ESGG'], 10000, null]));
+  expect(screen.getByRole('region', { name: 'Suggested cruise altitudes' })).toBeInTheDocument();
   const log = screen.getByRole('table', { name: 'Nav log' });
   expect(log).toHaveTextContent(/ESSX → ESGG · 175 NM · 2:02 · var \d°E/);
   expect(screen.getAllByText('231/20')).toHaveLength(7);

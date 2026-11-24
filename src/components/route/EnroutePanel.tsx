@@ -11,6 +11,8 @@ import { type RoutePlan, warningsOf } from '../../lib/enroute';
 import RouteProfileChart from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
 import type { AvoidHandler } from '../../lib/avoidAirspace';
+import type { Suggestions } from '../../lib/suggestAltitude';
+import AltitudeSuggestions from './AltitudeSuggestions';
 
 interface EnroutePanelProps {
   altitudeFt: number;
@@ -31,6 +33,10 @@ interface EnroutePanelProps {
   airspaces?: AirspaceCheck[];
   /** Offers going under or over an airspace tapped on the profile chart. */
   avoid?: AvoidHandler;
+  /** Cruise altitudes compared in their own forecast; null while comparing. */
+  suggestions?: Suggestions | null;
+  suggestMaxFt?: number;
+  onSuggestMaxChange?: (ft: number) => void;
 }
 
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
@@ -48,7 +54,7 @@ export function localInputValue(d: Date): string {
 /** Cruise altitude and departure time; the route flown in the forecast as a profile and a nav log. */
 const EnroutePanel: React.FC<EnroutePanelProps> = ({
   altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
-  onClimbRatesChange, airspaces, avoid,
+  onClimbRatesChange, airspaces, avoid, suggestions = null, suggestMaxFt, onSuggestMaxChange,
 }) => {
   const now = new Date();
   const maxDeparture = new Date(now.getTime() + 46 * 3600_000);
@@ -128,6 +134,10 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             </ul>
           )}
 
+          {suggestMaxFt !== undefined && onSuggestMaxChange && (
+            <AltitudeSuggestions suggestions={suggestions} altitudeFt={altitudeFt} currentMinutes={plan.minutes}
+              maxFt={suggestMaxFt} onMaxChange={onSuggestMaxChange} onPick={onAltitudeChange}/>
+          )}
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
           <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}/>
           <NavLog plan={plan}/>

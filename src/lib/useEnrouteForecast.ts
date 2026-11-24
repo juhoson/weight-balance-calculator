@@ -112,3 +112,68 @@ export function useClimbRates(aircraftKey: string): [ClimbRates, (patch: Partial
   }, [aircraftKey]);
   return [rates, set];
 }
+
+/** The lowest altitude compared for a suggestion. */
+export const SUGGEST_FROM_FT = 1000;
+export const DEFAULT_SUGGEST_MAX_FT = 10000;
+const SUGGEST_MAX_KEY = 'suggestMaxFt';
+export const validSuggestMax = (ft: number) => ft >= SUGGEST_FROM_FT + 500 && ft <= MAX_ALTITUDE_FT;
+
+/** The altitudes compared: every 500 ft from 1,000 ft up to the highest the pilot will go. */
+export const altitudesUpTo = (maxFt: number) =>
+  Array.from({ length: Math.max(0, Math.floor((maxFt - SUGGEST_FROM_FT) / 500) + 1) }, (_, i) => SUGGEST_FROM_FT + i * 500);
+
+/** The highest altitude to suggest (FL100 unless set), remembered in this browser. */
+export function useSuggestMax(): [number, (ft: number) => void] {
+  const [ft, setFt] = React.useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(SUGGEST_MAX_KEY));
+      return validSuggestMax(saved) ? saved : DEFAULT_SUGGEST_MAX_FT;
+    } catch {
+      return DEFAULT_SUGGEST_MAX_FT;
+    }
+  });
+  const set = React.useCallback((value: number) => {
+    setFt(value);
+    if (validSuggestMax(value)) {
+      try { localStorage.setItem(SUGGEST_MAX_KEY, String(value)); } catch { /* not remembered; fine */ }
+    }
+  }, []);
+  return [ft, set];
+}
+
+/**
+ * The same forecast at each altitude from 1,000 ft to `maxFt`, for comparing them. Asked only once the
+ * main forecast has arrived, and one after the other, so they're all built from its cached data
+ * (Open-Meteo is asked for every level at once) rather than asking again.
+ */
+export function useAltitudeForecasts(trip: RouteWeather | null, departure: Date | null,
+  main: EnrouteForecastState, maxFt: number): Map<number, EnrouteForecast> | null {
+  const [byAltitude, setByAltitude] = React.useState<Map<number, EnrouteForecast> | null>(null);
+  const routeKey = trip
+    ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival].map(a => `${a.code}:${a.lat}:${a.lon}`).join('|')
+    : '';
+  const departureMs = departure ? Math.floor(departure.getTime() / 60_000) * 60_000 : 0;
+  // Waits for the main forecast; changing the cruise altitude alone doesn't compare again.
+  const ready = !!main.data?.available && !main.loading;
+  const key = routeKey && validSuggestMax(maxFt) ? `${routeKey}#${departureMs}#${maxFt}#${main.data?.times[0] ?? ''}` : '';
+  const [doneKey, setDoneKey] = React.useState('');
+  React.useEffect(() => {
+    if (key !== doneKey) setByAltitude(null);
+    if (!key || !ready || key === doneKey) return;
+    let cancelled = false;
+    const route = routeKey.split('|').map(p => { const [code, lat, lon] = p.split(':'); return { code, lat: Number(lat), lon: Number(lon) }; });
+    (async () => {
+      const out = new Map<number, EnrouteForecast>();
+      for (const ft of altitudesUpTo(maxFt)) {
+        if (cancelled) return;
+        const f = await forecastAlongRoute(route, ft, departureMs ? new Date(departureMs) : null);
+        if (!f.available) return;
+        out.set(ft, f);
+      }
+      if (!cancelled) { setByAltitude(out); setDoneKey(key); }
+    })().catch(() => { /* no suggestions; the main forecast still shows */ });
+    return () => { cancelled = true; };
+  }, [key, ready, doneKey, routeKey, departureMs, maxFt]);
+  return byAltitude;
+}
