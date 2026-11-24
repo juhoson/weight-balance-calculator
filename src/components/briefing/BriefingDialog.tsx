@@ -7,13 +7,21 @@ import { fetchPointInfo } from '../../api/backend';
 import { track } from '../../lib/analytics';
 import BriefingPack, { type AirportFrequencies, BRIEFING_SECTIONS, type BriefingData, type BriefingSection } from './BriefingPack';
 
-const SECTIONS_KEY = 'briefingSections';
+/** The sections left out (so a section added later starts ticked). */
+const OFF_KEY = 'briefingSectionsOff';
+/** Before maps: the sections ticked. */
+const OLD_KEY = 'briefingSections';
+const OLD_SECTIONS: BriefingSection[] = ['overview', 'weather', 'frequencies', 'emergency'];
 const ALL: BriefingSection[] = BRIEFING_SECTIONS.map(s => s.id);
+/** Printed anyway if the maps take longer than this to load. */
+const MAX_WAIT_MS = 20_000;
 
 function loadSections(): BriefingSection[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? 'null');
-    if (Array.isArray(saved)) return ALL.filter(s => saved.includes(s));
+    const off = JSON.parse(localStorage.getItem(OFF_KEY) ?? 'null');
+    if (Array.isArray(off)) return ALL.filter(s => !off.includes(s));
+    const old = JSON.parse(localStorage.getItem(OLD_KEY) ?? 'null');
+    if (Array.isArray(old)) return ALL.filter(s => old.includes(s) || !OLD_SECTIONS.includes(s));
   } catch {
     // Not saved yet.
   }
@@ -62,13 +70,24 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
     document.body.classList.add('print-briefing');
     const done = () => setPrinting(false);
     window.addEventListener('afterprint', done);
-    // A browser without afterprint: back on the next tap or key.
-    const later = window.setTimeout(() => {
-      window.addEventListener('pointerdown', done, { once: true });
-      window.addEventListener('keydown', done, { once: true });
-    }, 500);
-    // A moment for the pack (and its chart) to lay out.
-    const t = window.setTimeout(() => window.print(), 100);
+    // A browser without afterprint: back on the next tap or key after printing.
+    let later = 0;
+    // Once the pack has laid out and every map has its tiles (or it's taken too long).
+    const started = Date.now();
+    let t = 0;
+    const check = () => {
+      const waiting = document.querySelector('.briefing-pack [data-map-ready="false"]');
+      if (waiting && Date.now() - started < MAX_WAIT_MS) {
+        t = window.setTimeout(check, 200);
+        return;
+      }
+      window.print();
+      later = window.setTimeout(() => {
+        window.addEventListener('pointerdown', done, { once: true });
+        window.addEventListener('keydown', done, { once: true });
+      }, 500);
+    };
+    t = window.setTimeout(check, 100);
     return () => {
       window.clearTimeout(t);
       window.clearTimeout(later);
@@ -83,7 +102,7 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
   const toggle = (s: BriefingSection) => {
     const next = sections.includes(s) ? sections.filter(x => x !== s) : ALL.filter(x => x === s || sections.includes(x));
     setSections(next);
-    try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    try { localStorage.setItem(OFF_KEY, JSON.stringify(ALL.filter(x => !next.includes(x)))); } catch { /* private mode */ }
   };
   const waiting = sections.includes('frequencies') && freqs === null;
 
@@ -112,7 +131,7 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
           </fieldset>
           <p className="text-xs text-muted-foreground">
             The emergency checklist is generic for a single-engine piston aeroplane, with this aircraft&apos;s speeds: your POH/AFM
-            takes precedence. Maps come in a later version.
+            takes precedence. With maps, printing starts once they have loaded.
           </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
@@ -124,6 +143,11 @@ const BriefingButton: React.FC<{ data: Omit<BriefingData, 'airportFrequencies'> 
           </div>
         </DialogContent>
       </Dialog>
+      {printing && (
+        <p role="status" className="fixed inset-x-0 top-4 z-[60] mx-auto flex w-fit items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-lg print:hidden">
+          <Loader2 className="h-4 w-4 animate-spin"/> Preparing the briefing pack…
+        </p>
+      )}
       {printing && data && createPortal(
         <div className="briefing-pack"><BriefingPack data={{ ...data, airportFrequencies: freqs }} sections={sections}/></div>,
         document.body,

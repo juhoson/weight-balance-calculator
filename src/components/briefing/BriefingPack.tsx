@@ -12,11 +12,16 @@ import type { CalculationSummary } from '../ResultsPanel';
 import { VERDICT_TEXT, verdictOf } from '../ResultsPanel';
 import RouteProfileChart from '../route/RouteProfileChart';
 import { NavLog } from '../route/EnroutePanel';
+import { lazyWithReload } from '../../lib/lazyWithReload';
 
-export type BriefingSection = 'overview' | 'weather' | 'frequencies' | 'emergency';
+// Leaflet loads only for a pack with maps.
+const BriefingMaps = lazyWithReload(() => import('./BriefingMaps'));
+
+export type BriefingSection = 'overview' | 'maps' | 'weather' | 'frequencies' | 'emergency';
 
 export const BRIEFING_SECTIONS: Array<{ id: BriefingSection; label: string; detail: string }> = [
   { id: 'overview', label: 'Overview', detail: 'Route, legs, times, fuel, weight and balance, the profile and the nav log' },
+  { id: 'maps', label: 'Maps', detail: 'The whole route, and the departure and arrival areas, with airspace' },
   { id: 'weather', label: 'Weather briefing', detail: 'METAR and TAF along the route, decoded, and the en-route forecast' },
   { id: 'frequencies', label: 'Frequencies', detail: 'Airports, airspace along the route, Sweden Control and emergency, in one box' },
   { id: 'emergency', label: 'Emergency checklist', detail: 'Generic single-engine piston memory items and the MAYDAY call, in one box' },
@@ -78,6 +83,14 @@ const BriefingPack: React.FC<{ data: BriefingData; sections: BriefingSection[] }
         <p className="text-right text-[8pt]">Prepared {new Date().toISOString().slice(0, 16).replace('T', ' ')}Z<br/>flightplanningtool.com</p>
       </header>
       {has('overview') && <Overview data={data}/>}
+      {has('maps') && (
+        <Section title="Maps">
+          <React.Suspense fallback={<div data-map-ready="false">Loading the maps…</div>}>
+            <BriefingMaps local={data.trip.distanceNm === 0}
+              points={[data.trip.departure, ...(data.trip.waypoints ?? []), data.trip.arrival].map(a => ({ code: a.code, lat: a.lat, lon: a.lon }))}/>
+          </React.Suspense>
+        </Section>
+      )}
       {has('weather') && <Weather data={data}/>}
       {has('frequencies') && <Frequencies data={data}/>}
       {has('emergency') && <Emergency data={data}/>}

@@ -238,9 +238,12 @@ input::-webkit-inner-spin-button {
   visibility: hidden;
 }
 
-/* The briefing pack: printed on its own, never shown on screen. */
+/* The briefing pack: printed on its own. On screen it is laid out out of sight, so its maps can load. */
 .briefing-pack {
-  display: none;
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: 186mm;
 }
 @media print {
   body.print-briefing > *:not(.briefing-pack) {
@@ -248,6 +251,8 @@ input::-webkit-inner-spin-button {
   }
   body.print-briefing .briefing-pack {
     display: block !important;
+    position: static;
+    width: auto;
   }
   .briefing-pack {
     -webkit-print-color-adjust: exact;
