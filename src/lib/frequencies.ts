@@ -11,11 +11,14 @@ export function frequencyText(f: Frequency): string {
   return name ? `${f.value} ${name}` : f.value;
 }
 
-/** The ones to call (not ATIS, ground or delivery), primary first. */
-export function contactFrequencies(list: Frequency[]): Frequency[] {
-  return list
-    .filter(f => !['ATIS', 'GND', 'DEL'].includes(f.kind))
-    .sort((a, b) => Number(b.primary) - Number(a.primary));
+const KIND_ORDER: Frequency['kind'][] = ['TWR', 'AFIS', 'INFO', 'APP', 'CENTER', 'FIS', 'GND', 'RADIO', 'CTAF', 'GLIDING', 'OTHER'];
+
+/** The ones to call (not ATIS or delivery): tower, AFIS, approach, ground, radio, the primary first within each. */
+export function contactFrequencies(list: Frequency[] | null | undefined): Frequency[] {
+  const rank = (f: Frequency) => { const i = KIND_ORDER.indexOf(f.kind); return i < 0 ? KIND_ORDER.length : i; };
+  return (list ?? [])
+    .filter(f => !['ATIS', 'DEL'].includes(f.kind))
+    .sort((a, b) => rank(a) - rank(b) || Number(b.primary) - Number(a.primary));
 }
 
 /** Whether an altitude (ft above sea level) is inside an airspace's limits; AGL limits taken over sea-level ground. */
@@ -33,6 +36,18 @@ export function uncontrolledBelow(airspaces: AirspaceView[]): string | null {
   if (airspaces.some(a => a.lower.datum === 'GND' && a.lower.ft === 0)) return null;
   const lowest = airspaces.reduce((lo, a) => (a.lower.ft < lo.lower.ft ? a : lo));
   return lowest.lower.label;
+}
+
+/**
+ * Who to call outside controlled airspace. In Sweden that's Sweden Control (flight information
+ * and flight following), on a frequency that depends on the sector.
+ */
+export function classGHint(info: PointInfo): string {
+  const swedish = info.airports.length > 0 && info.airports.every(a => a.code.startsWith('ES'))
+    || info.airspaces.some(a => /SUECIA|SWEDEN/i.test(a.name));
+  return swedish
+    ? 'Call Sweden Control for flight information or flight following; the frequency for your sector is on the chart.'
+    : 'Call the flight information service (FIS); its frequency is on the chart.';
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c] as string));
@@ -57,8 +72,8 @@ export function pointInfoHtml(info: PointInfo): string {
   });
   const below = uncontrolledBelow(info.airspaces);
   return '<div class="point-info">'
-    + (rows.length ? rows.join('') : '<div class="pi-sub">No airspace listed here: uncontrolled (class G).</div>')
-    + (below ? `<div class="pi-sub">Below ${esc(below)}: no airspace listed, uncontrolled (class G).</div>` : '')
+    + (rows.length ? rows.join('') : `<div class="pi-sub">No airspace listed here: uncontrolled (class G). ${esc(classGHint(info))}</div>`)
+    + (below ? `<div class="pi-sub">Below ${esc(below)}: no airspace listed, uncontrolled (class G). ${esc(classGHint(info))}</div>` : '')
     + (airports.length ? `<div class="pi-head">Nearest airports</div>${airports.join('')}` : '')
     + '<div class="pi-note">openAIP · not for navigation</div></div>';
 }

@@ -12,8 +12,9 @@ const ctr: AirspaceView = {
 test('names a frequency, and lists the ones to call primary first', () => {
   expect(frequencyText(f('130.605', 'TWR', 'VÄSTERÅS TOWER'))).toBe('130.605 VÄSTERÅS TOWER');
   expect(frequencyText(f('123.650', 'RADIO'))).toBe('123.650 Radio');
-  expect(contactFrequencies([f('127.555', 'ATIS'), f('125.955', 'APP'), f('130.605', 'TWR', null, true)]).map(x => x.value))
-    .toEqual(['130.605', '125.955']);
+  expect(contactFrequencies([f('127.555', 'ATIS'), f('121.905', 'GND'), f('125.955', 'APP'), f('122.330', 'AFIS'), f('130.605', 'TWR', null, true)]).map(x => x.value))
+    .toEqual(['130.605', '122.330', '125.955', '121.905']);
+  expect(contactFrequencies(undefined)).toEqual([]);
 });
 
 test('altitude inside the limits', () => {
@@ -39,5 +40,8 @@ test('a map popup lists the airspaces with their frequencies and escapes names',
 test('under a high control area the air below is uncontrolled', () => {
   const cta = { ...ctr, id: 'cta', name: 'CTA', lower: { ft: 9500, datum: 'STD' as const, label: 'FL95' } };
   expect(pointInfoHtml({ lat: 0, lon: 0, airspaces: [cta], airports: [] })).toContain('Below FL95: no airspace listed, uncontrolled (class G).');
+  // In Sweden: Sweden Control.
+  expect(pointInfoHtml({ lat: 0, lon: 0, airspaces: [{ ...cta, name: 'CTA SUECIA' }], airports: [] })).toContain('Call Sweden Control for flight information or flight following');
+  expect(pointInfoHtml({ lat: 0, lon: 0, airspaces: [cta], airports: [] })).toContain('Call the flight information service (FIS)');
   expect(pointInfoHtml({ lat: 0, lon: 0, airspaces: [ctr, cta], airports: [] })).not.toContain('Below');
 });

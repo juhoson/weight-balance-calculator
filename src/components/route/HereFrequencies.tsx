@@ -2,7 +2,7 @@ import React from 'react';
 import { Loader2, LocateFixed, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { fetchPointInfo } from '../../api/backend';
-import { containsAltitude, contactFrequencies, frequencyText, uncontrolledBelow } from '../../lib/frequencies';
+import { classGHint, containsAltitude, contactFrequencies, frequencyText, uncontrolledBelow } from '../../lib/frequencies';
 import { distanceNm } from '../../lib/openMeteo';
 import type { PointInfo } from '../../types/route';
 
@@ -100,7 +100,7 @@ const Here: React.FC<{ info: PointInfo; altitudeFt: number | null; at: Date }> =
         {' '}· {at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
       </p>
       {shown.length === 0
-        ? <p>No airspace listed here: uncontrolled (class G). Use the FIS frequency on the chart.</p>
+        ? <p>No airspace listed here: uncontrolled (class G). {classGHint(info)}</p>
         : (
           <ul className="space-y-1">
             {shown.map(a => {
@@ -124,7 +124,7 @@ const Here: React.FC<{ info: PointInfo; altitudeFt: number | null; at: Date }> =
           </ul>
         )}
       {uncontrolledBelow(info.airspaces) && (
-        <p>Below {uncontrolledBelow(info.airspaces)}: no airspace listed, uncontrolled (class G). Use the FIS frequency on the chart.</p>
+        <p>Below {uncontrolledBelow(info.airspaces)}: no airspace listed, uncontrolled (class G). {classGHint(info)}</p>
       )}
       {info.airports.length > 0 && (
         <div>

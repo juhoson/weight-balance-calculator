@@ -5,12 +5,13 @@ import WeatherCard from './WeatherCard';
 import SavedRoutesButton from './SavedRoutesDialog';
 import ImportFlightPlanButton, { MAX_IMPORTED_WAYPOINTS } from './ImportFlightPlanDialog';
 import { Button } from '../ui/Button';
+import { lazyWithReload } from '../../lib/lazyWithReload';
 import type { RouteWeatherState } from '../../lib/useRouteWeather';
 import type { PlannedRoute } from '../../lib/route';
 import type { AirportInfo } from '../../types/route';
 
 // Leaflet (~150 kB) loads only once there is a route to show.
-const RouteMap = React.lazy(() => import('./RouteMap'));
+const RouteMap = lazyWithReload(() => import('./RouteMap'));
 
 /** A route may have at most this many waypoints (the backend's limit). */
 const MAX_WAYPOINTS = MAX_IMPORTED_WAYPOINTS;

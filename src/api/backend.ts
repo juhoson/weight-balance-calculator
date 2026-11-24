@@ -107,14 +107,31 @@ export function fetchMapStatus(): Promise<MapStatus> {
 }
 
 /** The airspaces near a route (departure, waypoints, arrival in order). Public. */
-export function fetchAirspacesAlong(points: Array<{ lat: number; lon: number }>): Promise<AirspaceView[]> {
+/**
+ * Bumped when the airspace answers change shape: browsers keep them for an hour, and an answer
+ * from before frequencies existed crashed the new code (2026-11-24).
+ */
+const AIRSPACE_API_VERSION = '2';
+
+/** Missing lists as empty, so an answer from an older backend can't break the page. */
+function normalizeAirspace(a: AirspaceView): AirspaceView {
+  return { ...a, frequencies: Array.isArray(a.frequencies) ? a.frequencies : [], polygon: Array.isArray(a.polygon) ? a.polygon : [] };
+}
+
+export async function fetchAirspacesAlong(points: Array<{ lat: number; lon: number }>): Promise<AirspaceView[]> {
   const route = points.map(p => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join(';');
-  return request<AirspaceView[]>(`/api/map/airspaces?${new URLSearchParams({ route })}`);
+  const list = await request<AirspaceView[]>(`/api/map/airspaces?${new URLSearchParams({ route, v: AIRSPACE_API_VERSION })}`);
+  return Array.isArray(list) ? list.map(normalizeAirspace) : [];
 }
 
 /** The airspaces above a point and the nearest airports' frequencies. Public. */
-export function fetchPointInfo(lat: number, lon: number): Promise<PointInfo> {
-  return request<PointInfo>(`/api/map/here?${new URLSearchParams({ lat: lat.toFixed(4), lon: lon.toFixed(4) })}`);
+export async function fetchPointInfo(lat: number, lon: number): Promise<PointInfo> {
+  const info = await request<PointInfo>(`/api/map/here?${new URLSearchParams({ lat: lat.toFixed(4), lon: lon.toFixed(4), v: AIRSPACE_API_VERSION })}`);
+  return {
+    ...info,
+    airspaces: (info.airspaces ?? []).map(normalizeAirspace),
+    airports: (info.airports ?? []).map(a => ({ ...a, frequencies: Array.isArray(a.frequencies) ? a.frequencies : [] })),
+  };
 }
 
 /** Leaflet URL template for the airspace overlay (openAIP, proxied by the backend). */
