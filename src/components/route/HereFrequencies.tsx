@@ -137,7 +137,7 @@ const Here: React.FC<{ info: PointInfo; altitudeFt: number | null; at: Date }> =
         </div>
       )}
       <p className="text-[11px] text-muted-foreground">
-        GPS altitude is not pressure altitude and can be off by a few hundred feet. Frequencies from openAIP; check the chart.
+        GPS altitude is not pressure altitude and can be off by a few hundred feet. Frequencies from openAIP, Sweden Control sectors from the AIP (ENR 6.1); check the chart.
       </p>
     </>
   );

@@ -30,6 +30,7 @@ import AirspacePanel from './route/AirspacePanel';
 import { altitudeAlong, checkCrossings, crossingsAlong, type PathProfile, stillAirProfile } from '../lib/airspace';
 import { useAirspaces } from '../lib/useAirspaces';
 import EnroutePanel from './route/EnroutePanel';
+import { swedenControlAlong } from '../lib/swedenControl';
 import {useClimbRates, useCruiseAltitude, useEnrouteForecast, validAltitude, validRate} from '../lib/useEnrouteForecast';
 import {CIRCUIT_HEIGHT_FT, legsOf, planRoute, roundUpTo5, trueAirspeed, type VerticalProfile} from '../lib/enroute';
 import SharedRouteBanner from './route/SharedRouteBanner';
@@ -750,6 +751,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       { totalNm: total, fieldFt: trip.arrival.elevationFt ?? 0 });
     return { checks, basis };
   }, [trip, airspaces.data, windPlan, vertical, cruiseKt, altitudeFt, climbRates.climbFpm, climbRates.descentFpm]);
+  const swedenControl = React.useMemo(
+    () => (trip ? swedenControlAlong([trip.departure, ...(trip.waypoints ?? []), trip.arrival]) : []), [trip]);
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
   const [manualTime, setManualTime] = React.useState(false);
   const viaKey = route.via.join(',');
@@ -859,7 +862,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               />
             )}
             {trip && (
-              <AirspacePanel state={airspaces} checks={airspaceCheck?.checks ?? []} basis={airspaceCheck?.basis ?? ''}/>
+              <AirspacePanel state={airspaces} checks={airspaceCheck?.checks ?? []} basis={airspaceCheck?.basis ?? ''} swedenControl={swedenControl}/>
             )}
           </Section>
 

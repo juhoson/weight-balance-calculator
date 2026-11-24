@@ -1,4 +1,5 @@
 import type { AirspaceView, Frequency, PointInfo } from '../types/route';
+import { swedenControlAdvice, swedenControlAt } from './swedenControl';
 
 const KIND_LABEL: Record<Frequency['kind'], string> = {
   TWR: 'Tower', APP: 'Approach', AFIS: 'AFIS', INFO: 'Information', RADIO: 'Radio', ATIS: 'ATIS', GND: 'Ground',
@@ -40,9 +41,11 @@ export function uncontrolledBelow(airspaces: AirspaceView[]): string | null {
 
 /**
  * Who to call outside controlled airspace. In Sweden that's Sweden Control (flight information
- * and flight following), on a frequency that depends on the sector.
+ * and flight following), on the frequency of the sector the point is in.
  */
 export function classGHint(info: PointInfo): string {
+  const here = swedenControlAt(info.lat, info.lon);
+  if (here) return swedenControlAdvice(here);
   const swedish = info.airports.length > 0 && info.airports.every(a => a.code.startsWith('ES'))
     || info.airspaces.some(a => /SUECIA|SWEDEN/i.test(a.name));
   return swedish
@@ -75,5 +78,5 @@ export function pointInfoHtml(info: PointInfo): string {
     + (rows.length ? rows.join('') : `<div class="pi-sub">No airspace listed here: uncontrolled (class G). ${esc(classGHint(info))}</div>`)
     + (below ? `<div class="pi-sub">Below ${esc(below)}: no airspace listed, uncontrolled (class G). ${esc(classGHint(info))}</div>` : '')
     + (airports.length ? `<div class="pi-head">Nearest airports</div>${airports.join('')}` : '')
-    + '<div class="pi-note">openAIP · not for navigation</div></div>';
+    + `<div class="pi-note">openAIP${swedenControlAt(info.lat, info.lon) ? ' · Sweden Control sectors from the AIP (ENR 6.1)' : ''} · not for navigation</div></div>`;
 }

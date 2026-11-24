@@ -6,12 +6,15 @@ import { adviceFor, type AirspaceCheck, MARGIN_FT } from '../../lib/airspace';
 import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import type { AirspacesState } from '../../lib/useAirspaces';
 import type { Frequency } from '../../types/route';
+import { SWEDEN_CONTROL_URL, type SwedenControlLeg, swedenControlText } from '../../lib/swedenControl';
 
 interface AirspacePanelProps {
   state: AirspacesState;
   checks: AirspaceCheck[];
   /** How the altitudes were worked out, e.g. "climbing at 500 ft/min to 4,500 ft". */
   basis: string;
+  /** Who to call in class G along the route, where it's in Sweden. */
+  swedenControl?: SwedenControlLeg[];
 }
 
 const ft = (n: number) => Math.round(n).toLocaleString('en');
@@ -63,7 +66,7 @@ const activationText = (a: AirspaceCheck['airspace']['activation']) =>
   a === 'NOTAM' ? 'Active by NOTAM.' : a === 'request' ? 'Active on request.' : a === 'demand' ? 'Active on demand.' : '';
 
 /** The airspaces the planned flight path enters or passes close to, in route order. */
-const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis }) => {
+const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis, swedenControl = [] }) => {
   // Gliding sectors, sport areas and the like go in the second list, with what's passed over or under.
   const isInfo = (c: AirspaceCheck) => adviceFor(c.airspace).severity === 'info';
   const near = (c: AirspaceCheck) => c.status === 'inside' || c.status === 'close';
@@ -87,6 +90,7 @@ const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis }) =
         )}
       </div>
       <HereFrequencies/>
+      {swedenControl.length > 0 && <SwedenControlAlong legs={swedenControl}/>}
       {state.problem === 'off' && <p className="text-sm text-muted-foreground">The airspace check isn&apos;t available right now.</p>}
       {state.problem === 'error' && <p className="text-sm text-amber-700 dark:text-amber-300" role="status">openAIP could not be reached. Try again in a minute, or check the charts.</p>}
       {state.loading && !state.data && (
@@ -144,6 +148,27 @@ const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis }) =
     </section>
   );
 };
+
+/** The class G frequency stretch by stretch: Sweden Control (or Sweden Information) by ACC sector. */
+const SwedenControlAlong: React.FC<{ legs: SwedenControlLeg[] }> = ({ legs }) => (
+  <div className="space-y-0.5 rounded-md border border-border px-2 py-1.5 text-xs">
+    <p className="font-medium">Outside controlled airspace (class G): flight information and flight following</p>
+    <ul className="flex flex-wrap gap-x-3 gap-y-0.5 tabular-nums">
+      {legs.map((l, i) => (
+        <li key={i}>
+          <span className="text-muted-foreground">{legs.length > 1 ? `${nm(l.fromNm)}–${nm(l.toNm)} NM ` : ''}</span>
+          <span className="font-semibold">{swedenControlText(l.sector)}</span>
+          {l.sector.alternative && <span> or <span className="font-semibold">{l.sector.alternative.frequency}</span></span>}
+          <span className="text-muted-foreground"> ({l.sector.sector}{l.sector.exact ? '' : ', approx.'})</span>
+        </li>
+      ))}
+    </ul>
+    <p className="text-[11px] text-muted-foreground">
+      Sectors traced from the AIP&apos;s <a className="underline" href={SWEDEN_CONTROL_URL} target="_blank" rel="noreferrer">ENR 6.1 COM FREQ charts</a>,
+      approximate near sector boundaries; check the chart.
+    </p>
+  </div>
+);
 
 const Item: React.FC<{ c: AirspaceCheck }> = ({ c }) => {
   const advice = adviceFor(c.airspace);
