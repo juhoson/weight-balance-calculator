@@ -7,7 +7,7 @@ import { FormItem, FormLabel } from '../ui/Form';
 import {
   type ClimbRates, MAX_ALTITUDE_FT, MAX_RATE_FPM, MIN_ALTITUDE_FT, MIN_RATE_FPM, validAltitude, validRate, type EnrouteForecastState,
 } from '../../lib/useEnrouteForecast';
-import { type AltitudeHold, type RoutePlan, warningsOf } from '../../lib/enroute';
+import { type AltitudeHold, type RoutePlan, warningsOf, withStretchAltitude } from '../../lib/enroute';
 import AltitudeChanges from './AltitudeChanges';
 import RouteProfileChart from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
@@ -148,7 +148,13 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
               totalNm={plan.segments.reduce((sum, x) => Math.max(sum, x.segment.startNm + x.segment.distanceNm), 0)}/>
           )}
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
-          <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}/>
+          <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}
+            onLegAltitude={onHoldsChange && ((i, to) => {
+              const segs = plan.legs[i].segments;
+              const last = segs[segs.length - 1].segment;
+              const from = Math.round(segs[0].segment.startNm * 10) / 10, end = Math.round((last.startNm + last.distanceNm) * 10) / 10;
+              onHoldsChange(withStretchAltitude(holds, from, end, to, altitudeFt, `${plan.legs[i].leg.from} → ${plan.legs[i].leg.to}`));
+            })}/>
           <NavLog plan={plan}/>
 
           <p className="text-[11px] text-muted-foreground">

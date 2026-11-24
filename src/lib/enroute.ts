@@ -244,6 +244,22 @@ export function tidyHolds(holds: AltitudeHold[], totalNm: number): AltitudeHold[
 }
 
 /**
+ * The holds with one stretch (a leg) set to an altitude: whatever was there before is cut out, and at
+ * the cruise altitude nothing takes its place.
+ */
+export function withStretchAltitude(holds: AltitudeHold[], fromNm: number, toNm: number, ft: number, cruiseFt: number,
+  note?: string): AltitudeHold[] {
+  const out: AltitudeHold[] = [];
+  for (const h of holds) {
+    if (h.toNm <= fromNm + 0.05 || h.fromNm >= toNm - 0.05) { out.push(h); continue; }
+    if (h.fromNm < fromNm - 0.1) out.push({ ...h, toNm: fromNm });
+    if (h.toNm > toNm + 0.1) out.push({ ...h, fromNm: toNm });
+  }
+  if (ft !== cruiseFt) out.push({ fromNm, toNm, ft, ...(note ? { note } : {}) });
+  return out.sort((a, b) => a.fromNm - b.fromNm);
+}
+
+/**
  * The path with holds, in still air: climb at Vy from the departure, cruise, holds and the descent to
  * circuit altitude. The descent into a hold ends where it starts and the climb out starts where it
  * ends; between holds too short to get back to the cruise altitude, the flight stays where it is.
@@ -283,8 +299,9 @@ export function steppedPath(totalNm: number, v: VerticalProfile, cruiseTasKt: nu
       const start = cur.nm === 0 && st.ft > cur.ft ? 0 : Math.max(cur.nm, st.s - d);
       // Drawn as flown: still changing inside it. That matters only on the wrong side of it: still
       // below one above the cruise altitude (over something), or above one below it (under something).
+      // One starting at the departure is the climb out of it, never missed.
       const wrongSide = st.ft > cur.ft ? st.ft > v.cruiseFt : st.ft < v.cruiseFt;
-      if (start + d > st.s + 0.05 && wrongSide) missed.push(st.hold);
+      if (st.s > 0.05 && start + d > st.s + 0.05 && wrongSide) missed.push(st.hold);
       go(st.ft, start);
       return;
     }

@@ -140,3 +140,45 @@ it('"only here" holds the altitude just where the route crosses the tapped airsp
   expect(onHold).toHaveBeenCalledWith({ fromNm: 9, toNm: 41, ft: 2000, note: 'Under STOCKHOLM TMA' });
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+describe('altitude per leg', () => {
+  const at = (ft: number) => {
+    const plan = planRoute([{ from: 'ESSX', to: 'ESGG', distanceNm: 50, trueCourseDeg: 270 }],
+      { available: true, altitudeFt: ft, times: hours, segments: [segment(0), segment(1)] }, 100, new Date('2026-11-23T10:00:00Z'));
+    if (!plan.ok) throw new Error('no plan');
+    return plan.legs;
+  };
+
+  it('steps with the arrow keys and drags in 500 ft steps', () => {
+    const onLeg = jest.fn();
+    render(<RouteProfileChart legs={at(3000)} altitudeFt={3000} onLegAltitude={onLeg}/>);
+    const handle = screen.getByRole('slider', { name: 'Altitude on ESSX → ESGG' });
+    expect(handle).toHaveAttribute('aria-valuenow', '3000');
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+    expect(onLeg).toHaveBeenLastCalledWith(0, 3500);
+    fireEvent.keyDown(handle, { key: 'PageDown' });
+    expect(onLeg).toHaveBeenLastCalledWith(0, 2000);
+
+    // The chart runs 0-6,000 ft over 176 px from y = 30: 4,000 ft is at y ≈ 89.
+    // jsdom's pointer events carry no position: mouse events under the pointer names do.
+    const pointer = (type: string, clientY: number) => fireEvent(handle, new MouseEvent(type, { bubbles: true, clientY }));
+    pointer('pointerdown', 150);
+    pointer('pointermove', 90);
+    expect(handle).toHaveAttribute('aria-valuenow', '4000');
+    pointer('pointerup', 90);
+    expect(onLeg).toHaveBeenLastCalledWith(0, 4000);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); // a drag doesn't open the segment details
+  });
+
+  it('says when a leg is not at a VFR cruising level for its course', () => {
+    render(<RouteProfileChart legs={at(5500)} altitudeFt={5500} onLegAltitude={jest.fn()}/>);
+    // Westbound more than 3,000 ft above the ground: even thousands + 500.
+    expect(screen.getByRole('slider', { name: 'Altitude on ESSX → ESGG' }))
+      .toHaveAttribute('aria-valuetext', '5,500 ft, not a VFR cruising level for this course');
+  });
+
+  it('has no handles without somewhere to send the change', () => {
+    render(<RouteProfileChart legs={at(3000)} altitudeFt={3000}/>);
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+  });
+});

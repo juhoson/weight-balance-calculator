@@ -110,7 +110,8 @@ export function suggestAltitudes(input: SuggestInput): Suggestions {
   return { options, suggested, bestWinds, common, stepped };
 }
 
-const isLevelFor = (ft: number, groundFt: number | null, magneticCourse: number) =>
+/** A VFR cruising level for the course where it must be one (more than 3,000 ft above the ground). */
+export const isCruisingLevel = (ft: number, groundFt: number | null, magneticCourse: number) =>
   groundFt === null || ft <= groundFt + SEMICIRCULAR_ABOVE_FT || isLevel(ft, magneticCourse);
 
 /**
@@ -139,7 +140,7 @@ function steppedSuggestion(input: SuggestInput, plans: Map<number, OkPlan>, comm
       const flyable = (s.cloudBaseFt === null || s.cloudBaseFt >= a + CLOUD_MARGIN_FT)
         && !(s.cloudBaseFt !== null && s.cloudBaseFt <= a && s.freezingLevelFt !== null && s.freezingLevelFt <= a)
         && (s.segment.groundFt === null || a >= s.segment.groundFt + TERRAIN_MARGIN_FT)
-        && isLevelFor(a, s.segment.groundFt, s.magneticCourse);
+        && isCruisingLevel(a, s.segment.groundFt, s.magneticCourse);
       return flyable ? (s.segment.distanceNm / s.triangle.groundSpeedKt) * 60 + inArea(i, a) * AIRSPACE_PENALTY_MIN : Infinity;
     });
   });

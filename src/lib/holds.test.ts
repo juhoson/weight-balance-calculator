@@ -1,4 +1,4 @@
-import { cruiseTas, levelAt, planRoute, steppedPath, tidyHolds, type VerticalProfile, warningsOf } from './enroute';
+import { cruiseTas, levelAt, planRoute, steppedPath, tidyHolds, type VerticalProfile, warningsOf, withStretchAltitude } from './enroute';
 import { altitudeAlongPoints } from './airspace';
 import type { EnrouteForecast, EnrouteSegment } from '../types/route';
 
@@ -89,5 +89,25 @@ describe('cruise true airspeed by altitude', () => {
     if (!plan.ok) throw new Error('no plan');
     expect(plan.segments.map(s => s.tasKt)).toEqual([120, 100, 120, 120]);
     expect(plan.segments[1].groundSpeedKt).toBeCloseTo(100);
+  });
+});
+
+describe('altitude per stretch (a leg)', () => {
+  const holds = [{ fromNm: 20, toNm: 60, ft: 2000, note: 'Under X' }];
+  it('cuts out what was there and puts the new altitude in its place', () => {
+    expect(withStretchAltitude(holds, 40, 80, 6500, 4500, 'B → C')).toEqual([
+      { fromNm: 20, toNm: 40, ft: 2000, note: 'Under X' }, { fromNm: 40, toNm: 80, ft: 6500, note: 'B → C' }]);
+    expect(withStretchAltitude(holds, 30, 50, 4500, 4500)).toEqual([
+      { fromNm: 20, toNm: 30, ft: 2000, note: 'Under X' }, { fromNm: 50, toNm: 60, ft: 2000, note: 'Under X' }]);
+    expect(withStretchAltitude(holds, 0, 100, 4500, 4500)).toEqual([]);
+  });
+
+  it('a first leg above the cruise is the climb out of the departure, not missed; legs join without a step back to cruise', () => {
+    const legsAt = withStretchAltitude(withStretchAltitude([], 0, 40, 6500, 4500), 40, 100, 5500, 4500);
+    const { path, missed } = steppedPath(100, { ...v, holds: legsAt }, 120);
+    expect(missed).toEqual([]);
+    expect(path[1].ft).toBe(6500);
+    expect(path.some(p => p.ft === 4500)).toBe(false);
+    expect(altitudeAlongPoints(path)(40)).toBe(5500); // down to the next leg's altitude by the waypoint
   });
 });

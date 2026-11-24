@@ -6,6 +6,8 @@ import { contactFrequencies, frequencyText } from '../../lib/frequencies';
 import { SEVERITY_STYLE } from './AirspacePanel';
 import { type AvoidHandler, canAvoid, holdFor } from '../../lib/avoidAirspace';
 import AvoidAirspace from './AvoidAirspace';
+import { isCruisingLevel } from '../../lib/suggestAltitude';
+import { vfrLevel } from '../../lib/avoidAirspace';
 
 interface RouteProfileChartProps {
   legs: LegPlan[];
@@ -16,7 +18,13 @@ interface RouteProfileChartProps {
   airspaces?: AirspaceCheck[];
   /** Offers going under or over a tapped airspace. */
   avoid?: AvoidHandler;
+  /** Makes each leg's altitude a handle to drag (or step with the arrow keys). */
+  onLegAltitude?: (leg: number, ft: number) => void;
 }
+
+/** The highest altitude a leg can be dragged to. */
+const LEG_MAX_FT = 18000;
+const LEG_MIN_FT = 500;
 
 const HEIGHT = 240;
 const M = { top: 30, right: 10, bottom: 34, left: 40 };
@@ -51,9 +59,10 @@ type Active = { kind: 'segment'; i: number } | { kind: 'airspace'; ids: number[]
  * segment (the wind strip along the top always works) for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<Active | null>(null);
+  const [dragging, setDragging] = React.useState<{ leg: number; ft: number } | null>(null);
   React.useEffect(() => {
     if (active === null) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setActive(null); };
@@ -69,7 +78,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
   if (segments.length === 0) return null;
 
   const totalNm = segments.reduce((sum, s) => Math.max(sum, s.segment.startNm + s.segment.distanceNm), 0);
-  const highest = profile ? profile.topFt : altitudeFt;
+  const highest = Math.max(profile ? profile.topFt : altitudeFt, dragging?.ft ?? 0);
   const topFt = Math.min(20000, Math.max(6000, Math.ceil((highest + 3000) / 2000) * 2000));
   const plotW = Math.max(100, width - M.left - M.right);
   const plotH = HEIGHT - M.top - M.bottom;
@@ -89,6 +98,25 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
   const terrain = segments.map(s => s.segment.groundFt ?? 0);
   const boundaries = legs.map(l => l.segments[0]?.segment.startNm).filter((nm): nm is number => nm !== undefined);
   const codes = [...legs.map(l => l.leg.from), legs[legs.length - 1].leg.to];
+  // Each leg's altitude (its middle), and whether it's a VFR cruising level for the leg's courses.
+  const legLevels = legs.map((l, i) => {
+    const segs = l.segments;
+    if (segs.length === 0) return null;
+    const mid = segs[Math.floor(segs.length / 2)];
+    const ft = dragging?.leg === i ? dragging.ft : mid.altitudeFt;
+    const level = segs.every(sg => isCruisingLevel(ft, sg.segment.groundFt, sg.magneticCourse));
+    return {
+      i, ft, level, mc: mid.magneticCourse, name: `${l.leg.from} → ${l.leg.to}`,
+      x0: x(segs[0].segment.startNm), x1: x(segs[segs.length - 1].segment.startNm + segs[segs.length - 1].segment.distanceNm),
+    };
+  });
+  const legMaxFt = Math.min(LEG_MAX_FT, topFt);
+  const clampFt = (ft: number) => Math.min(legMaxFt, Math.max(LEG_MIN_FT, Math.round(ft / 500) * 500));
+  const ftFromPointer = (e: React.PointerEvent<SVGElement>) => {
+    const box = e.currentTarget.ownerSVGElement?.getBoundingClientRect();
+    if (!box || !Number.isFinite(e.clientY)) return null;
+    return clampFt(((M.top + plotH - (e.clientY - box.top)) / plotH) * topFt);
+  };
   const shown = active?.kind === 'segment' ? segments[active.i] : null;
   const activeSegment = active?.kind === 'segment' ? active.i : null;
   // Boxes that reach into the chart, widest first so narrow ones stay on top. Gliding sectors and
@@ -126,6 +154,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud (darker = more)</span>
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
+        {onLegAltitude && <span>Drag a leg&apos;s altitude up or down to change it there (amber: not a VFR cruising level for its course)</span>}
         {shownAirspaces.length > 0 && (
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-blue-600 bg-blue-500/15 dark:border-blue-400"/> Airspace (tap for limits and frequency)</span>
         )}
@@ -257,6 +286,57 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
                 setActive({ kind: 'airspace', ids: [i], x: (x0 + x1) / 2, below: (top + bottom) / 2 < M.top + plotH / 2 });
               }}/>
           ))}
+
+          {/* Each leg's altitude: drag it up or down, or step it with the arrow keys. */}
+          {onLegAltitude && legLevels.map(lv => {
+            if (!lv) return null;
+            const cx = (lv.x0 + lv.x1) / 2, cy = y(lv.ft);
+            const label = lv.ft.toLocaleString('en');
+            const w = label.length * 6 + 10;
+            const set = (ft: number) => { if (ft !== legs[lv.i].segments[Math.floor(legs[lv.i].segments.length / 2)].altitudeFt) onLegAltitude(lv.i, ft); };
+            const hint = lv.level ? ''
+              : ` Not a VFR cruising level for ${pad3(lv.mc)}° magnetic: ${vfrLevel(lv.ft, lv.mc, 'down').toLocaleString('en')} or ${vfrLevel(lv.ft, lv.mc, 'up').toLocaleString('en')} ft.`;
+            return (
+              <g key={`leg-${lv.i}`}>
+                {dragging?.leg === lv.i && (
+                  <line x1={lv.x0} x2={lv.x1} y1={cy} y2={cy} className="stroke-primary" strokeWidth={1.5} strokeDasharray="4 3"/>
+                )}
+                <g role="slider" tabIndex={0} aria-label={`Altitude on ${lv.name}`} aria-valuemin={LEG_MIN_FT} aria-valuemax={legMaxFt}
+                  aria-valuenow={lv.ft} aria-valuetext={`${label} ft${lv.level ? '' : ', not a VFR cruising level for this course'}`}
+                  className="cursor-ns-resize outline-none [&:focus-visible>rect]:stroke-[3px]" style={{ touchAction: 'none' }}
+                  onPointerDown={e => {
+                    e.stopPropagation();
+                    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+                    setActive(null);
+                    setDragging({ leg: lv.i, ft: lv.ft });
+                  }}
+                  onPointerMove={e => {
+                    if (dragging?.leg !== lv.i) return;
+                    const ft = ftFromPointer(e);
+                    if (ft !== null && ft !== dragging.ft) setDragging({ leg: lv.i, ft });
+                  }}
+                  onPointerUp={e => {
+                    e.stopPropagation();
+                    if (dragging?.leg !== lv.i) return;
+                    setDragging(null);
+                    set(dragging.ft);
+                  }}
+                  onPointerCancel={() => setDragging(null)}
+                  onKeyDown={e => {
+                    const by = { ArrowUp: 500, ArrowDown: -500, PageUp: 1000, PageDown: -1000 }[e.key];
+                    if (!by) return;
+                    e.preventDefault();
+                    set(clampFt(lv.ft + by));
+                  }}>
+                  <title>{`${lv.name}: ${label} ft. Drag up or down to change it on this leg.${hint}`}</title>
+                  <rect x={cx - w / 2} y={cy - 8} width={w} height={16} rx={8}
+                    className={lv.level ? 'fill-background stroke-primary' : 'fill-amber-50 stroke-amber-600 dark:fill-amber-950'} strokeWidth={1.5}/>
+                  <text x={cx} y={cy} dy="0.33em" textAnchor="middle"
+                    className={`text-[10px] font-semibold tabular-nums ${lv.level ? 'fill-foreground' : 'fill-amber-800 dark:fill-amber-200'}`}>{label}</text>
+                </g>
+              </g>
+            );
+          })}
         </svg>
         {shown && (
           <Tooltip s={shown} left={x(shown.segment.startNm + shown.segment.distanceNm / 2)} width={width}
