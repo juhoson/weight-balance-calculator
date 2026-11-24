@@ -117,7 +117,7 @@ const AltitudeSuggestions: React.FC<AltitudeSuggestionsProps> = ({
       <p className="flex gap-1 text-[11px] text-muted-foreground">
         <Wind className="mt-0.5 h-3 w-3 shrink-0"/>
         <span>
-          Each altitude in its own forecast wind, with the same climb and descent. Best: clear of cloud, icing and terrain, then the least
+          Each altitude in its own forecast wind and at its own estimated true airspeed (faster higher up, to full-throttle altitude), with the same climb and descent rates. Best: clear of cloud, icing and terrain, then the least
           airspace to call or ask for, then the fastest. More than 3,000 ft above the ground, only the VFR cruising levels for the course.
           {s?.stepped && ' "With altitude changes" is shown when up to four changes of altitude beat every single one.'}
         </span>

@@ -34,7 +34,7 @@ import EnroutePanel from './route/EnroutePanel';
 import { swedenControlAlong } from '../lib/swedenControl';
 import {useAltitudeForecasts, useClimbRates, useCruiseAltitude, useEnrouteForecast, useForecastsAt, useSuggestMax, validAltitude, validRate} from '../lib/useEnrouteForecast';
 import {type OkPlan, suggestAltitudes} from '../lib/suggestAltitude';
-import {type AltitudeHold, CIRCUIT_HEIGHT_FT, legsOf, levelAt, type PathPoint, planRoute, roundUpTo5, steppedPath, tidyHolds, trueAirspeed, type VerticalProfile} from '../lib/enroute';
+import {type AltitudeHold, CIRCUIT_HEIGHT_FT, cruiseTas, legsOf, levelAt, type PathPoint, planRoute, roundUpTo5, steppedPath, tidyHolds, trueAirspeed, type VerticalProfile} from '../lib/enroute';
 import SharedRouteBanner from './route/SharedRouteBanner';
 import {useRouteWeather} from '../lib/useRouteWeather';
 import type {RouteWeather} from '../types/route';
@@ -687,6 +687,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   // With the en-route forecast, each ~25 NM segment is timed at its groundspeed in the wind
   // forecast for when it's flown.
   const [altitudeFt, setAltitudeFt] = useCruiseAltitude();
+  // The book speed by altitude: faster higher up at the same power, up to full-throttle altitude.
+  const powerPct = parseInt(inputs.powerSetting, 10) || 75;
+  const tasAtFt = React.useCallback((ft: number) => cruiseTas(cruiseKt, ft, powerPct), [cruiseKt, powerPct]);
+  const tasKt = Math.round(tasAtFt(altitudeFt));
   const [departure, setDeparture] = React.useState(''); // datetime-local; empty = now
   const departureAt = React.useMemo(() => {
     const t = departure ? new Date(departure).getTime() : NaN;
@@ -695,7 +699,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   // Only ask for the forecast when the flight can happen: loading within limits, and enough fuel
   // without wind. (Not with the wind: a headwind failing the fuel check would drop the forecast,
   // which would pass the check again.)
-  const noWindMinutes = trip ? flightMinutes(trip.distanceNm, cruiseKt) : 0;
+  const noWindMinutes = trip ? flightMinutes(trip.distanceNm, tasKt) : 0;
   const plannedAircraft = aircraftList[selectedAircraft];
   let blockedReason: string | null = null;
   if (trip && plannedAircraft && cruise) {
@@ -782,8 +786,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       });
       flown = { ...data, segments };
     }
-    return planRoute(legs, flown, cruiseKt, departureAt ?? new Date(), vertical);
-  }, [trip, blockedReason, forecast.data, cruiseKt, departureAt, altitudeFt, vertical, activeHolds, altitudeForecasts, holdForecasts]);
+    return planRoute(legs, flown, tasAtFt, departureAt ?? new Date(), vertical);
+  }, [trip, blockedReason, forecast.data, cruiseKt, tasAtFt, departureAt, altitudeFt, vertical, activeHolds, altitudeForecasts, holdForecasts]);
   const windMinutes = windPlan?.ok ? roundUpTo5(windPlan.minutes) : 0;
 
   // Airspace along the route, checked against the planned climb, cruise and descent.
@@ -797,10 +801,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     const total = trip.distanceNm;
     const v = verticalFor(cruiseFt);
     const path = v && cruiseKt > 0
-      ? pointsOf(stillAirProfile(total, { ...v, cruiseTasKt: cruiseKt }))
+      ? pointsOf(stillAirProfile(total, { ...v, cruiseTasKt: tasAtFt(cruiseFt) }))
       : [{ nm: 0, ft: cruiseFt }, { nm: total, ft: cruiseFt }];
     return checkPath(trip, crossings, path);
-  }, [trip, crossings, verticalFor, cruiseKt]);
+  }, [trip, crossings, verticalFor, cruiseKt, tasAtFt]);
   const airspaceCheck = React.useMemo(() => {
     if (!trip || !crossings) return null;
     const total = trip.distanceNm;
@@ -813,14 +817,14 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       path = p.path;
       basis = `for the planned path to ${Math.round(p.topFt).toLocaleString('en')} ft (${fpm}${changes}, in the forecast wind)`;
     } else if (vertical && cruiseKt > 0 && validAltitude(altitudeFt)) {
-      path = activeHolds.length ? steppedPath(total, vertical, cruiseKt).path : pointsOf(stillAirProfile(total, { ...vertical, cruiseTasKt: cruiseKt }));
+      path = activeHolds.length ? steppedPath(total, vertical, tasKt).path : pointsOf(stillAirProfile(total, { ...vertical, cruiseTasKt: tasKt }));
       basis = `for the planned path to ${Math.round(Math.max(...path.map(p => p.ft))).toLocaleString('en')} ft (${fpm}${changes}, no wind)`;
     } else {
       path = [{ nm: 0, ft: altitudeFt }, { nm: total, ft: altitudeFt }];
       basis = `at ${altitudeFt.toLocaleString('en')} ft the whole way`;
     }
     return { checks: checkPath(trip, crossings, path), basis };
-  }, [trip, crossings, windPlan, vertical, cruiseKt, altitudeFt, activeHolds, climbRates.climbFpm, climbRates.descentFpm]);
+  }, [trip, crossings, windPlan, vertical, cruiseKt, tasKt, altitudeFt, activeHolds, climbRates.climbFpm, climbRates.descentFpm]);
   const avoid = React.useMemo<AvoidHandler | undefined>(() => {
     if (!trip || !airspaceCheck) return undefined;
     const route = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
@@ -843,9 +847,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       return checkPath(trip, crossings, plan.profile?.path ?? [{ nm: 0, ft }, { nm: total, ft }]);
     };
     return suggestAltitudes({
-      legs: legsOf(trip), forecasts: altitudeForecasts, tasKt: cruiseKt, departure: departureAt ?? new Date(), verticalFor, airspaceFor,
+      legs: legsOf(trip), forecasts: altitudeForecasts, tasKt: tasAtFt, departure: departureAt ?? new Date(), verticalFor, airspaceFor,
     });
-  }, [trip, altitudeForecasts, cruiseKt, departureAt, verticalFor, crossings]);
+  }, [trip, altitudeForecasts, cruiseKt, tasAtFt, departureAt, verticalFor, crossings]);
   const swedenControl = React.useMemo(
     () => (trip ? swedenControlAlong([trip.departure, ...(trip.waypoints ?? []), trip.arrival]) : []), [trip]);
   const routeMinutes = trip ? windMinutes || noWindMinutes : 0;
@@ -955,7 +959,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 blockedReason={blockedReason}
                 forecast={forecast}
                 plan={windPlan}
-                tasKt={cruiseKt}
+                tasKt={tasKt}
                 vyKt={vyKt}
                 climbRates={climbRates}
                 onClimbRatesChange={setClimbRates}
@@ -1065,10 +1069,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                       ? <>Set by you. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline"
                         onClick={() => setManualTime(false)}>Use the route time ({fmtTime(routeMinutes)})</button></>
                       : windMinutes > 0 && windPlan?.ok
-                        ? <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt in the forecast wind at {altitudeFt.toLocaleString('en')} ft
+                        ? <>From the route: {Math.round(trip.distanceNm)} NM at {tasKt} kt true airspeed in the forecast wind at {altitudeFt.toLocaleString('en')} ft
                           {windPlan.profile ? `, climbing at ${vyKt} kt and ${climbRates.climbFpm} ft/min` : ''},
                           average groundspeed {Math.round(trip.distanceNm / (windPlan.minutes / 60))} kt{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>
-                        : <>From the route: {Math.round(trip.distanceNm)} NM at {cruiseKt} kt, no wind{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>}
+                        : <>From the route: {Math.round(trip.distanceNm)} NM at {tasKt} kt true airspeed, no wind{(trip.legs?.length ?? 1) > 1 ? `, ${trip.legs?.length} legs` : ''}.</>}
                   </p>
                 )}
               </div>

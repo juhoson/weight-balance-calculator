@@ -153,7 +153,8 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
 
           <p className="text-[11px] text-muted-foreground">
             Forecast at {ft(data?.altitudeFt ?? altitudeFt)} ft for when each segment is flown, at {tasKt} kt true airspeed;
-            the climb and descent use the same wind. Fuel is counted at the cruise fuel flow throughout.
+            the climb and descent use the same wind. The true airspeed is estimated from the book cruise speed, taken at 3,000 ft:
+            about 1.5% faster per 1,000 ft higher at the same power, up to where full throttle can&apos;t hold it, then slower. Fuel is counted at the cruise fuel flow throughout.
             Headings are magnetic (World Magnetic Model 2025). Cloud base is estimated from the model&apos;s humidity by height.
             Model forecast from <a className="underline" href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo.com</a> (CC BY 4.0),
             not an official aviation forecast - get an official briefing before flight.

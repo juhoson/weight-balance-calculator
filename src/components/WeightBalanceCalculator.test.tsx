@@ -269,8 +269,10 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
 
   fireEvent.change(screen.getByLabelText('Cruise altitude'), { target: { value: '5500' } });
   await waitFor(() => expect(lastForecast()).toEqual([['ESSX', 'ESGG'], 5500, null]));
-  // 77 kt -> 136 min -> 2:20
-  expect(await screen.findByDisplayValue('2:20')).toBeInTheDocument();
+  // Faster higher up: 111 kt true at 5,500 ft (107 kt at 3,000 ft, +1.5% per 1,000 ft) - 30 kt = 81 kt
+  // -> 130 min, +4 min for the longer climb -> 2:15 (at the book 107 kt it would be 2:20).
+  expect(await screen.findByDisplayValue('2:15')).toBeInTheDocument();
+  expect(screen.getByText(/NM at 111 kt true airspeed in the forecast wind at 5,500 ft/)).toBeInTheDocument();
   expect(localStorage.getItem('cruiseAltitudeFt')).toBe('5500');
 });
 
@@ -343,7 +345,7 @@ it('a route with a waypoint asks for weather via it and counts all legs', async 
   });
   render(<WeightBalanceCalculator />);
   await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSX', 'ESGG', ['ESCF']));
-  expect(await screen.findByText(/From the route: 200 NM at 107 kt, no wind, 2 legs/)).toBeInTheDocument();
+  expect(await screen.findByText(/From the route: 200 NM at 107 kt true airspeed, no wind, 2 legs/)).toBeInTheDocument();
   expect(screen.getByText(/ESSX → ESCF: 80 NM, 200° true/)).toBeInTheDocument();
   expect(screen.getByLabelText('Waypoint 1')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Remove waypoint 1' }));

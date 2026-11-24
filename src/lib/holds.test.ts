@@ -1,4 +1,4 @@
-import { levelAt, planRoute, steppedPath, tidyHolds, type VerticalProfile, warningsOf } from './enroute';
+import { cruiseTas, levelAt, planRoute, steppedPath, tidyHolds, type VerticalProfile, warningsOf } from './enroute';
 import { altitudeAlongPoints } from './airspace';
 import type { EnrouteForecast, EnrouteSegment } from '../types/route';
 
@@ -70,4 +70,24 @@ it('plans each segment at the altitude it is flown, with the extra climb timed a
 
   // Cloud at 2,500 ft is only too close where the flight is above 2,000 ft.
   expect(warningsOf(held.segments, 4500).nearCloud.map(s => s.altitudeFt)).toEqual([4500, 4500, 4500]);
+});
+
+describe('cruise true airspeed by altitude', () => {
+  it('is the book speed at 3,000 ft, faster up to full throttle, slower above it', () => {
+    expect(cruiseTas(110, 3000, 75)).toBeCloseTo(110);
+    expect(cruiseTas(110, 7000, 75)).toBeCloseTo(110 * 1.105 / 1.045);
+    expect(cruiseTas(110, 9000, 75)).toBeLessThan(cruiseTas(110, 7000, 75));
+    expect(cruiseTas(110, 9000, 65)).toBeGreaterThan(cruiseTas(110, 7000, 65)); // less power: full throttle higher up
+    expect(cruiseTas(110, 1000, 75)).toBeLessThan(110);
+  });
+
+  it('times each segment at the true airspeed for the altitude it is flown at', () => {
+    const legs = [{ from: 'A', to: 'B', distanceNm: 100, trueCourseDeg: 270 }];
+    const dep = new Date('2026-11-23T10:00:00Z');
+    const byFt = (ft: number) => (ft > 3000 ? 120 : 100);
+    const plan = planRoute(legs, forecast([0, 0, 0, 0]), byFt, dep, { ...v, holds: [{ fromNm: 25, toNm: 50, ft: 2000 }] });
+    if (!plan.ok) throw new Error('no plan');
+    expect(plan.segments.map(s => s.tasKt)).toEqual([120, 100, 120, 120]);
+    expect(plan.segments[1].groundSpeedKt).toBeCloseTo(100);
+  });
 });

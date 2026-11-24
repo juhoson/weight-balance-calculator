@@ -105,6 +105,8 @@ export interface SegmentPlan {
   layers: CloudLayer[];
   /** The altitude it's flown at: the cruise altitude, or a hold's. */
   altitudeFt: number;
+  /** Cruise true airspeed at that altitude. */
+  tasKt: number;
 }
 
 export interface LegPlan {
@@ -178,13 +180,15 @@ export function legsOf(route: RouteWeather): RouteLeg[] {
  * Each segment in the forecast for the middle of the time it's flown: the wind an hour into the
  * flight is the forecast for that hour at that place.
  */
-export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: number, departure: Date,
+export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, airspeed: Airspeed, departure: Date,
   vertical?: VerticalProfile): RoutePlan {
   const segments: SegmentPlan[] = [];
   let at = departure.getTime();
   for (const segment of forecast.segments) {
     const leg = legs[segment.leg];
     if (!leg) return { ok: false, reason: 'no-forecast', leg: legs[legs.length - 1] };
+    const altitudeFt = levelAt(segment.startNm + segment.distanceNm / 2, vertical?.cruiseFt ?? forecast.altitudeFt, vertical?.holds);
+    const tasKt = tasAt(airspeed, altitudeFt);
     // Guess the middle of the segment at airspeed, then once more at the groundspeed found.
     let minutes = (segment.distanceNm / tasKt) * 60;
     let found: { wind: Wind; triangle: Triangle } | null = null;
@@ -209,12 +213,12 @@ export function planRoute(legs: RouteLeg[], forecast: EnrouteForecast, tasKt: nu
       cloudBaseFt: hour < 0 ? null : segment.cloudBaseFt[hour] ?? null,
       freezingLevelFt: hour < 0 ? null : segment.freezingLevelFt[hour] ?? null,
       layers: hour < 0 ? [] : segment.layers[hour] ?? [],
-      altitudeFt: levelAt(segment.startNm + segment.distanceNm / 2, vertical?.cruiseFt ?? forecast.altitudeFt, vertical?.holds),
+      altitudeFt, tasKt,
     });
     at += minutes * 60_000;
   }
   if (segments.length === 0) return { ok: false, reason: 'no-forecast', leg: legs[0] };
-  const profile = vertical ? withProfile(segments, vertical, departure, tasKt) : null;
+  const profile = vertical ? withProfile(segments, vertical, departure, tasAt(airspeed, vertical.cruiseFt)) : null;
   const legPlans: LegPlan[] = legs.map((leg, i) => {
     const own = segments.filter(s => s.segment.leg === i);
     return { leg, segments: own, minutes: own.reduce((sum, s) => sum + s.minutes, 0) };
@@ -393,6 +397,26 @@ function withProfile(segments: SegmentPlan[], v: VerticalProfile, departure: Dat
     tocAt, todAt, path, missed,
   };
 }
+
+/** The book cruise speed is taken as the true airspeed at this altitude. */
+export const BOOK_SPEED_AT_FT = 3000;
+
+/** Where full throttle can no longer hold the power (normally aspirated): about 7,000 ft at 75%, 3,000 ft higher per 10% less. */
+export const fullThrottleFt = (powerPct: number) => 7000 + (75 - Math.min(100, Math.max(40, powerPct))) * 300;
+
+/**
+ * Cruise true airspeed at an altitude, an estimate: at the same power about 1.5% faster per 1,000 ft
+ * up to full-throttle altitude, then about 1% slower per 1,000 ft as the power falls off.
+ */
+export function cruiseTas(bookKt: number, ft: number, powerPct = 75): number {
+  const top = fullThrottleFt(powerPct);
+  const gain = (h: number) => (0.015 * Math.min(h, top) - 0.01 * Math.max(0, h - top)) / 1000;
+  return (bookKt * (1 + gain(Math.max(0, ft)))) / (1 + gain(BOOK_SPEED_AT_FT));
+}
+
+/** The cruise true airspeed: the same at every altitude, or by altitude. */
+export type Airspeed = number | ((ft: number) => number);
+export const tasAt = (airspeed: Airspeed, ft: number) => (typeof airspeed === 'number' ? airspeed : airspeed(ft));
 
 /** Circuit altitude: the descent ends this far above the arrival field. */
 export const CIRCUIT_HEIGHT_FT = 1000;

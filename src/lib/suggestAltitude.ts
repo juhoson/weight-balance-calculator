@@ -1,5 +1,5 @@
 import { adviceFor, type AirspaceCheck, MARGIN_FT } from './airspace';
-import { type AltitudeHold, CLOUD_MARGIN_FT, planRoute, type RoutePlan, TERRAIN_MARGIN_FT, type VerticalProfile, warningsOf } from './enroute';
+import { type Airspeed, type AltitudeHold, CLOUD_MARGIN_FT, planRoute, type RoutePlan, tasAt, TERRAIN_MARGIN_FT, type VerticalProfile, warningsOf } from './enroute';
 import { SEMICIRCULAR_ABOVE_FT } from './avoidAirspace';
 import type { EnrouteForecast, RouteLeg } from '../types/route';
 
@@ -52,7 +52,8 @@ export interface SuggestInput {
   legs: RouteLeg[];
   /** The forecast at each altitude to compare. */
   forecasts: Map<number, EnrouteForecast>;
-  tasKt: number;
+  /** Cruise true airspeed, by altitude when it varies. */
+  tasKt: Airspeed;
   departure: Date;
   /** The climb and descent to an altitude; undefined flies it level all the way. */
   verticalFor: (ft: number) => VerticalProfile | undefined;
@@ -88,7 +89,7 @@ export function suggestAltitudes(input: SuggestInput): Suggestions {
     if (w.lowTerrain.length) problems.push('less than 1,000 ft above the terrain');
 
     const bases = plan.segments.map(s => s.cloudBaseFt).filter((b): b is number => b !== null);
-    const windKt = plan.segments.reduce((s, x) => s + (x.triangle.groundSpeedKt - input.tasKt) * x.segment.distanceNm, 0) / (total || 1);
+    const windKt = plan.segments.reduce((s, x) => s + (x.triangle.groundSpeedKt - x.tasKt) * x.segment.distanceNm, 0) / (total || 1);
     const all = input.airspaceFor(plan, ft).filter(matters).map(c => c.airspace.name);
     raw.push({
       ft, minutes: plan.minutes, windKt, problems, enters: [], notLevelOn,
@@ -146,7 +147,7 @@ function steppedSuggestion(input: SuggestInput, plans: Map<number, OkPlan>, comm
   const climbExtra = (from: number, to: number) => {
     const v = input.verticalFor(to);
     if (!v || to <= from) return 0;
-    return ((to - from) / v.climbFpm) * (1 - v.climbTasKt / input.tasKt);
+    return ((to - from) / v.climbFpm) * (1 - v.climbTasKt / tasAt(input.tasKt, to));
   };
   const departureFt = input.verticalFor(alts[0])?.departureFt ?? 0;
 
@@ -217,7 +218,7 @@ function steppedSuggestion(input: SuggestInput, plans: Map<number, OkPlan>, comm
   const bases = plan.segments.map((x, i) => (x.cloudBaseFt === null ? null : x.cloudBaseFt - levels[i])).filter((b): b is number => b !== null);
   const option: SteppedOption = {
     ft: cruiseFt, holds, minutes: plan.minutes, problems: [], enters, notLevelOn: [],
-    windKt: plan.segments.reduce((sum, x) => sum + (x.triangle.groundSpeedKt - input.tasKt) * x.segment.distanceNm, 0) / (total || 1),
+    windKt: plan.segments.reduce((sum, x) => sum + (x.triangle.groundSpeedKt - x.tasKt) * x.segment.distanceNm, 0) / (total || 1),
     belowCloudFt: bases.length ? Math.min(...bases) : null,
   };
   if (best && !(option.minutes < best.minutes - STEPPED_GAIN_MIN || option.enters.length < best.enters.length)) return null;
