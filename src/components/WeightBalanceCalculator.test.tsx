@@ -16,6 +16,9 @@ const mockedRoute = fetchRouteWeather as jest.MockedFunction<typeof fetchRouteWe
 const mockedWinds = forecastAlongRoute as jest.MockedFunction<typeof forecastAlongRoute>;
 /** The airport codes and altitude of the last forecast asked for. */
 const lastForecast = () => { const [route, altitudeFt, departure] = mockedWinds.mock.calls[mockedWinds.mock.calls.length - 1]; return [route.map(p => p.code), altitudeFt, departure]; };
+jest.mock('./route/RouteMap', () => ({ airports }: { airports: Array<{ code: string }> }) => (
+  <div data-testid="route-map">{airports.map(a => a.code).join(' ')}</div>
+));
 jest.mock('./CGEnvelopeVisualization', () => () => <div data-testid="envelope" />);
 let mockUser: { id: number; email: string; displayName: string } | null = null;
 jest.mock('../api/useAuth', () => ({ useAuth: () => ({ user: mockUser, signOutReason: null }) }));

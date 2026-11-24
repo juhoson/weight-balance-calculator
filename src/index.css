@@ -178,3 +178,17 @@ input::-webkit-inner-spin-button {
     animation: wind-flow var(--wind-duration, 2s) linear infinite, wind-gust 1.6s ease-in-out infinite;
   }
 }
+
+/* Route map: a dark base map in dark mode; the airspace overlay keeps its colours. */
+.dark .route-map .basemap-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.85);
+}
+.route-map .leaflet-tooltip.route-map-label {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: none;
+}
+.route-map .leaflet-tooltip.route-map-label::before {
+  display: none;
+}

@@ -94,6 +94,21 @@ export function fetchAirframes(club?: string | null): Promise<AirframeView[]> {
   return request<AirframeView[]>(club ? `/api/airframes?${new URLSearchParams({ club })}` : '/api/airframes');
 }
 
+export interface MapStatus {
+  /** False when the server has no openAIP key: the map then shows the route only. */
+  airspace: boolean;
+  minZoom: number;
+  maxZoom: number;
+}
+
+/** Whether the route map's airspace overlay is available. Public. */
+export function fetchMapStatus(): Promise<MapStatus> {
+  return request<MapStatus>('/api/map/status');
+}
+
+/** Leaflet URL template for the airspace overlay (openAIP, proxied by the backend). */
+export const AIRSPACE_TILE_URL = `${API_BASE}/api/map/airspace/{z}/{x}/{y}.png`;
+
 /** The generic version of each model. Public. */
 export function fetchGenericTypes(): Promise<GenericTypeView[]> {
   return request<GenericTypeView[]>('/api/aircraft-types/generic');

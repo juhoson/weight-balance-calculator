@@ -9,6 +9,9 @@ import type { RouteWeatherState } from '../../lib/useRouteWeather';
 import type { PlannedRoute } from '../../lib/route';
 import type { AirportInfo } from '../../types/route';
 
+// Leaflet (~150 kB) loads only once there is a route to show.
+const RouteMap = React.lazy(() => import('./RouteMap'));
+
 /** A route may have at most this many waypoints (the backend's limit). */
 const MAX_WAYPOINTS = MAX_IMPORTED_WAYPOINTS;
 
@@ -130,6 +133,11 @@ const RouteSection: React.FC<RouteSectionProps> = ({
                 : <p className="text-xs text-muted-foreground">True course {pad3(data.trueCourseDeg)}°</p>}
             </div>
           )
+      )}
+      {data && (
+        <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
+          <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}/>
+        </React.Suspense>
       )}
       {weather.error && <p className="text-sm text-red-600" role="alert">{weather.error}</p>}
       {data && !data.weatherAvailable && (
