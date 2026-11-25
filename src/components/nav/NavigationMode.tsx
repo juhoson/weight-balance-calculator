@@ -8,6 +8,7 @@ import {
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
 import { useAuth } from '../../api/useAuth';
+import { fixesNear } from '../../lib/swedenFixes';
 import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl } from '../../lib/offlineMap';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
@@ -52,6 +53,7 @@ const AIRSPACE_MAX_ZOOM = 10;
 /** Visual reporting points this far either side of the route are drawn, whichever airport they belong to. */
 const VRP_CORRIDOR_NM = 15;
 const SHOW_VRP_KEY = 'nav.showVrp';
+const SHOW_FIX_KEY = 'nav.showIfrFixes';
 type Vrp = { name: string; lat: number; lon: number; compulsory: boolean };
 
 /** Every visual reporting point near the route: the map area around it, asked in parts the server allows (5° × 10°). */
@@ -108,6 +110,18 @@ function useWakeLock(active: boolean): void {
       lock?.release().catch(() => undefined);
     };
   }, [active]);
+}
+
+/** A map layer shown or not, as the pilot last chose on this device. */
+function useShown(key: string, initial: boolean): [boolean, () => void] {
+  const [shown, setShown] = React.useState(() => {
+    try { const v = localStorage.getItem(key); return v == null ? initial : v === 'yes'; } catch { return initial; }
+  });
+  const toggle = () => setShown(v => {
+    try { localStorage.setItem(key, v ? 'no' : 'yes'); } catch { /* private mode */ }
+    return !v;
+  });
+  return [shown, toggle];
 }
 
 function useGlideRatio(): [number, (n: number) => void] {
@@ -203,6 +217,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const mapRef = React.useRef<L.Map | null>(null);
   /** The reporting points, a layer of their own so they can be switched off; it outlives a redrawn map. */
   const vrpLayer = React.useRef(L.layerGroup());
+  const fixLayer = React.useRef(L.layerGroup());
   const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline; trail: L.Polyline } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
@@ -251,6 +266,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
     route.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    fixLayer.current.addTo(map);
     vrpLayer.current.addTo(map);
     const trail = L.polyline(trailRef.current.map(p => [p.lat, p.lon] as [number, number]),
       { color: '#1e3a8a', weight: 3, opacity: 0.75, interactive: false }).addTo(map);
@@ -284,13 +300,18 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       return !seen.has(key) && !!seen.add(key);
     });
   }, [reportingPoints, nearVrps]);
-  const [showVrp, setShowVrp] = React.useState(() => {
-    try { return localStorage.getItem(SHOW_VRP_KEY) !== 'no'; } catch { return true; }
-  });
-  const toggleVrp = () => setShowVrp(v => {
-    try { localStorage.setItem(SHOW_VRP_KEY, v ? 'no' : 'yes'); } catch { /* private mode */ }
-    return !v;
-  });
+  const [showVrp, toggleVrp] = useShown(SHOW_VRP_KEY, true);
+  // The AIP's IFR/GNSS fixes near the route: off until asked for, to keep a VFR map clear.
+  const [showFix, toggleFix] = useShown(SHOW_FIX_KEY, false);
+  const fixes = React.useMemo(() => fixesNear(route, VRP_CORRIDOR_NM), [route]);
+  React.useEffect(() => {
+    const layer = fixLayer.current;
+    layer.clearLayers();
+    if (!showFix) return;
+    fixes.forEach(p => L.marker([p.lat, p.lon], {
+      icon: L.divIcon({ className: 'fix-marker', iconSize: [9, 9] }), keyboard: false, interactive: false,
+    }).bindTooltip(p.name, { permanent: true, direction: 'right', offset: [4, 0], className: 'route-map-label fix-label' }).addTo(layer));
+  }, [fixes, showFix]);
   React.useEffect(() => {
     const layer = vrpLayer.current;
     layer.clearLayers();
@@ -632,6 +653,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <button type="button" aria-pressed={showVrp} onClick={toggleVrp} title="Visual reporting points"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showVrp ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             VRP
+          </button>
+          <button type="button" aria-pressed={showFix} onClick={toggleFix} title="IFR/GNSS fixes (AIP ENR 4.4)"
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showFix ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            IFR
           </button>
         </div>
         {!follow && fix && (

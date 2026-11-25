@@ -294,6 +294,20 @@ input::-webkit-inner-spin-button {
 .route-map .leaflet-tooltip.nav-vrp-label {
   font-size: 11px;
 }
+/* IFR/GNSS fixes (navigation mode): a small grey diamond, the name in capitals beside it. */
+.fix-marker {
+  width: 9px !important;
+  height: 9px !important;
+  transform-origin: center;
+  border: 2px solid #475569;
+  background: #ffffff;
+  rotate: 45deg;
+}
+.route-map .leaflet-tooltip.fix-label {
+  color: #475569;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 /* Zoomed out on the planning map, the names would crowd each other: the marker's title has them. */
 .route-map--far .leaflet-tooltip.vrp-label {
   display: none;

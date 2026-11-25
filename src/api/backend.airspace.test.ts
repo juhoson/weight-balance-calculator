@@ -7,5 +7,5 @@ test('an airspace answer from an older backend, without frequencies, reads as no
   (global as unknown as { fetch: unknown }).fetch = fetchMock;
   const list = await fetchAirspacesAlong([{ lat: 59, lon: 16 }, { lat: 60, lon: 17 }]);
   expect(list[0].frequencies).toEqual([]);
-  expect(String(fetchMock.mock.calls[0][0])).toContain('v=2');
+  expect(String(fetchMock.mock.calls[0][0])).toContain('v=3');
 });
