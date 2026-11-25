@@ -7,6 +7,13 @@ import {initAnalytics} from './lib/analytics';
 
 initAnalytics();
 
+// Keeps the app and a route's map for the navigation mode without a connection (public/sw.js).
+if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${process.env.PUBLIC_URL}/sw.js`).catch(() => undefined);
+  });
+}
+
 const root = ReactDOM.createRoot(
     document.getElementById('root') as HTMLElement
 );

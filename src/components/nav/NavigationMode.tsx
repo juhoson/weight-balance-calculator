@@ -2,7 +2,11 @@ import React from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Crosshair, Radio, TriangleAlert, X } from 'lucide-react';
-import { AIRSPACE_TILE_URL, fetchAirportsAlong, fetchMapStatus } from '../../api/backend';
+import {
+  AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
+} from '../../api/backend';
+import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
+import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl } from '../../lib/offlineMap';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
 import { type SwedenControlLeg, swedenControlAt, swedenControlText } from '../../lib/swedenControl';
@@ -26,6 +30,8 @@ export interface NavigationModeProps {
   /** For the demo flight. */
   cruiseKt: number;
   cruiseAltFt: number;
+  /** Signed in: a flight flown with GPS can be saved to the account when it ends. */
+  signedIn?: boolean;
   onClose: () => void;
 }
 
@@ -36,6 +42,21 @@ const ROUTE_COLOR = '#d946ef';
 /** The demo flight runs this many times faster than real time. */
 const DEMO_SPEEDUP = 4;
 const RATIO_KEY = 'nav.glideRatio';
+/** Base map tiles kept for offline from this zoom; airspace tiles up to AIRSPACE_MAX_ZOOM (shown enlarged beyond). */
+const OFFLINE_MIN_ZOOM = 6;
+const AIRSPACE_MAX_ZOOM = 10;
+const PROTOMAPS_CREDIT = '<a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> '
+  + '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+
+/** Whether the self-hosted base map covers the whole route. */
+const basemapCovers = (status: MapStatus | null | undefined, route: Array<{ lat: number; lon: number }>) => {
+  const b = status?.basemap?.bounds;
+  return !!b && route.every(p => p.lon >= b[0] && p.lat >= b[1] && p.lon <= b[2] && p.lat <= b[3]);
+};
+/** A light aircraft from above, nose up: turned to the track on the map. */
+const AIRPLANE_SVG = '<svg viewBox="0 0 32 32" width="32" height="32"><path d="M16 2c1.2 0 1.6 1.2 1.6 2.5V10l11.4.5v3l-11.4.5-.2 9.5 4.6.7v2.4l-5 .4-1 2-1-2-5-.4v-2.4l4.6-.7-.2-9.5L3 13.5v-3l11.4-.5V4.5C14.4 3.2 14.8 2 16 2z" fill="#0f172a" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+/** A new trail point once the aircraft has moved this far. */
+const TRAIL_STEP_M = 30;
 
 const ft = (n: number) => Math.round(n).toLocaleString('en');
 const nmText = (n: number) => (n < 10 ? n.toFixed(1) : String(Math.round(n)));
@@ -80,7 +101,7 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, onClose,
+  trip, airspaces, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, signedIn = false, onClose,
 }) => {
   const route = React.useMemo(() => [trip.departure, ...(trip.waypoints ?? []), trip.arrival], [trip]);
   const labels = React.useMemo(() => routeLabels(route.map(a => a.code)), [route]);
@@ -88,16 +109,17 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const [fix, setFix] = React.useState<Fix | null>(null);
   const [gpsError, setGpsError] = React.useState<string | null>(null);
   const [follow, setFollow] = React.useState(true);
-  const [sheet, setSheet] = React.useState<null | 'freq' | 'emergency'>(null);
+  const [sheet, setSheet] = React.useState<null | 'freq' | 'emergency' | 'end'>(null);
   const [directTo, setDirectTo] = React.useState<AirportInfo | null>(null);
   const [airfields, setAirfields] = React.useState<AirportInfo[]>(route.filter(a => a.type !== 'point'));
   const [airfieldsState, setAirfieldsState] = React.useState<'loading' | 'ok' | 'error'>('loading');
   const [ratio, setRatio] = useGlideRatio();
+  const closeRef = React.useRef<() => void>(onClose);
   useWakeLock(started !== null);
 
   // Escape closes; the page doesn't scroll underneath.
   React.useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (sheet) setSheet(null); else onClose(); } };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (sheet) setSheet(null); else closeRef.current(); } };
     document.addEventListener('keydown', key);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -149,19 +171,49 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<L.Map | null>(null);
-  const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline } | null>(null);
+  const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline; trail: L.Polyline } | null>(null);
+  /** Where the aircraft has been, for the trail on the map. */
+  const trailRef = React.useRef<TrackPoint[]>([]);
+  /** What the server has: the airspace overlay, and the self-hosted base map (undefined until asked). */
+  const [status, setStatus] = React.useState<MapStatus | null | undefined>(undefined);
   React.useEffect(() => {
-    if (!started || !container.current) return;
+    let live = true;
+    Promise.resolve().then(() => fetchMapStatus()).then(s => { if (live) setStatus(s ?? null); }, () => { if (live) setStatus(null); });
+    return () => { live = false; };
+  }, []);
+  const ownBasemap = basemapCovers(status, route);
+  React.useEffect(() => {
+    if (!started || !container.current || status === undefined) return;
     const map = L.map(container.current, { zoomSnap: 0.5, minZoom: 5, maxZoom: 13, attributionControl: false, zoomControl: false });
     L.control.attribution({ prefix: false, position: 'bottomleft' }).addTo(map);
     L.control.zoom({ position: 'topright' }).addTo(map);
-    L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_CREDIT, className: 'basemap-tiles' }).addTo(map);
     let live = true;
-    fetchMapStatus().then(s => {
-      if (live && s?.airspace) {
-        L.tileLayer(AIRSPACE_TILE_URL, { minZoom: s.minZoom, maxNativeZoom: s.maxZoom, maxZoom: 19, attribution: OPENAIP_CREDIT }).addTo(map);
+    const airspace = () => {
+      if (live && status?.airspace) {
+        L.tileLayer(AIRSPACE_TILE_URL, {
+          minZoom: status.minZoom, maxNativeZoom: Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM), maxZoom: 19, attribution: OPENAIP_CREDIT,
+        }).addTo(map);
       }
-    }, () => undefined);
+    };
+    const osm = () => {
+      if (live) L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_CREDIT, className: 'basemap-tiles' }).addTo(map);
+    };
+    // Our own vector base map where it covers the route (kept offline); else OpenStreetMap's, online only.
+    if (ownBasemap && status?.basemap) {
+      const { maxZoom } = status.basemap;
+      import('protomaps-leaflet')
+        .then(({ leafletLayer }) => {
+          if (!live) return;
+          (leafletLayer({
+            url: BASEMAP_TILE_URL, maxDataZoom: maxZoom, maxZoom: 19, lang: 'en', attribution: PROTOMAPS_CREDIT,
+            flavor: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+          }) as unknown as L.Layer).addTo(map);
+        }, osm)
+        .then(airspace);
+    } else {
+      osm();
+      airspace();
+    }
     const pts = route.map(a => L.latLng(a.lat, a.lon));
     L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(map);
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
@@ -171,18 +223,40 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       icon: L.divIcon({ className: p.compulsory ? 'vrp-marker vrp-marker--compulsory' : 'vrp-marker', iconSize: [12, 11] }),
       keyboard: false, interactive: false,
     }).bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label' }).addTo(map));
+    const trail = L.polyline(trailRef.current.map(p => [p.lat, p.lon] as [number, number]),
+      { color: '#1e3a8a', weight: 3, opacity: 0.75, interactive: false }).addTo(map);
     const glide = L.circle(pts[0], { radius: 0, color: '#16a34a', weight: 2, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
     const direct = L.polyline([], { color: '#dc2626', weight: 4, dashArray: '10 8', interactive: false }).addTo(map);
     const marker = L.marker(pts[0], {
-      icon: L.divIcon({ className: 'nav-ownship', iconSize: [36, 36], html: '<svg viewBox="0 0 36 36" width="36" height="36"><path d="M18 2 L30 32 L18 25 L6 32 Z" fill="#0f172a" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/></svg>' }),
+      icon: L.divIcon({ className: 'nav-ownship', iconSize: [32, 32], html: AIRPLANE_SVG }),
       keyboard: false, interactive: false, zIndexOffset: 1000,
     }).addTo(map);
-    own.current = { marker, glide, direct };
+    own.current = { marker, glide, direct, trail };
     map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
     map.on('dragstart', () => setFollow(false));
     mapRef.current = map;
     return () => { live = false; map.remove(); mapRef.current = null; own.current = null; };
-  }, [started, route, labels, reportingPoints]);
+  }, [started, status, ownBasemap, route, labels, reportingPoints]);
+
+  // On start, the route's map is kept for flying without a connection.
+  const [offline, setOffline] = React.useState<OfflineProgress | null>(null);
+  React.useEffect(() => {
+    if (!started || status === undefined || !canKeepOffline()) return;
+    const urls: string[] = [];
+    if (ownBasemap && status?.basemap) {
+      const max = status.basemap.maxZoom;
+      tilesAlong(route, Math.max(OFFLINE_MIN_ZOOM, status.basemap.minZoom), max).forEach(t => urls.push(tileUrl(BASEMAP_TILE_URL, t)));
+    }
+    if (status?.airspace) {
+      tilesAlong(route, Math.max(OFFLINE_MIN_ZOOM, status.minZoom), Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM))
+        .forEach(t => urls.push(tileUrl(AIRSPACE_TILE_URL, t)));
+    }
+    if (!urls.length) return;
+    const abort = new AbortController();
+    setOffline({ done: 0, total: urls.length, failed: 0 });
+    keepOffline(urls, setOffline, abort.signal).then(setOffline, () => undefined);
+    return () => abort.abort();
+  }, [started, status, ownBasemap, route]);
 
   // Where everything is now.
   const leg = fix ? activeLeg(route, fix) : null;
@@ -200,6 +274,13 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (!map || !o || !fix) return;
     const at = L.latLng(fix.lat, fix.lon);
     o.marker.setLatLng(at);
+    const last = trailRef.current[trailRef.current.length - 1];
+    if (!last || at.distanceTo([last.lat, last.lon]) >= TRAIL_STEP_M) {
+      trailRef.current = thinned([...trailRef.current, { lat: fix.lat, lon: fix.lon, altFt: fix.altFt == null ? null : Math.round(fix.altFt), at: fix.at }]);
+      o.trail.addLatLng(at);
+      // A GPS flight is kept on the device as it goes (every few points), so a reload doesn't lose it.
+      if (started === 'gps' && trailRef.current.length % 5 === 0) storeTrack(trailRef.current);
+    }
     const svg = o.marker.getElement()?.querySelector('svg');
     if (svg) {
       svg.style.transform = `rotate(${fix.trackDeg ?? 0}deg)`;
@@ -208,7 +289,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     o.glide.setLatLng(at).setRadius((glideNm ?? 0) * 1852);
     o.direct.setLatLngs(directTo ? [at, [directTo.lat, directTo.lon]] : []);
     if (follow) map.panTo(at, { animate: true });
-  }, [fix, glideNm, directTo, follow]);
+  }, [fix, glideNm, directTo, follow, started]);
 
   const recenter = () => {
     setFollow(true);
@@ -228,11 +309,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             <li><strong className="text-slate-100">For situational awareness only, not for navigation.</strong> Fly by the official charts and your instruments.</li>
             <li>Altitude is GPS altitude, not pressure altitude: it can be 100 ft or more off.</li>
             <li>Keep the app in front with the screen on: the browser stops the GPS when it&apos;s hidden.</li>
-            <li>Needs a connection for the map for now.</li>
+            <li>The route&apos;s map is saved when you start, for flying without a connection: start while you still have one.</li>
           </ul>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500"
-              onClick={() => { setStarted('gps'); document.documentElement.requestFullscreen?.().catch(() => undefined); }}>
+              onClick={() => {
+                // A flight recorded in the last half hour (the page reloaded) carries on.
+                trailRef.current = loadTrack();
+                setStarted('gps');
+                document.documentElement.requestFullscreen?.().catch(() => undefined);
+              }}>
               Start with GPS
             </button>
             <button type="button" className="rounded-md border border-slate-500 px-4 py-2 hover:bg-slate-800" onClick={() => setStarted('demo')}>
@@ -245,10 +331,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     );
   }
 
-  const close = () => {
+  const exit = () => {
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined);
     onClose();
   };
+  // A GPS flight ends on its own page: save it (signed in) or let it go.
+  const close = () => {
+    if (started === 'gps' && trailRef.current.length >= 2) setSheet('end');
+    else exit();
+  };
+  closeRef.current = close;
   const cell = 'flex flex-col items-center justify-center px-1 py-1';
   const big = 'text-xl font-bold tabular-nums leading-tight sm:text-2xl';
   const small = 'text-[10px] uppercase tracking-wide text-slate-400';
@@ -306,6 +398,15 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         <div ref={container} className="route-map absolute inset-0" aria-label="Navigation map"/>
         <div className="pointer-events-none absolute left-2 top-2 z-[1000] flex flex-col gap-1 text-xs">
           <span className="rounded bg-amber-500 px-1.5 py-0.5 font-bold text-slate-950">EXPERIMENTAL · not for navigation</span>
+          {offline && (
+            <span className={`rounded px-1.5 py-0.5 font-semibold text-white ${offline.done < offline.total ? 'bg-slate-700' : offline.failed ? 'bg-amber-600' : 'bg-emerald-700'}`}>
+              {offline.done < offline.total
+                ? `Saving the map for offline… ${Math.round((offline.done / offline.total) * 100)}%`
+                : offline.failed
+                  ? `Map offline, ${offline.failed} tiles missing`
+                  : ownBasemap ? 'Map saved for offline' : 'Airspace saved for offline (base map needs a connection here)'}
+            </span>
+          )}
           {started === 'demo' && <span className="rounded bg-sky-600 px-1.5 py-0.5 font-semibold text-white">DEMO FLIGHT ({DEMO_SPEEDUP}× speed)</span>}
           {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
         </div>
@@ -317,6 +418,13 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         {sheet === 'freq' && (
           <Sheet title="Frequencies" onClose={() => setSheet(null)}>
             <FrequencyList route={route} airspaces={airspaces} swedenControl={swedenControl} alongNm={leg?.alongNm ?? null}/>
+          </Sheet>
+        )}
+        {sheet === 'end' && (
+          <Sheet title="End flight" onClose={() => setSheet(null)}>
+            <EndFlight points={trailRef.current} signedIn={signedIn}
+              defaultName={trackName(trip.departure.code, trip.arrival.code, trailRef.current[0]?.at ?? Date.now())}
+              onDone={() => { clearTrack(); exit(); }} onKeepFlying={() => setSheet(null)}/>
           </Sheet>
         )}
         {sheet === 'emergency' && (
@@ -408,6 +516,65 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <TriangleAlert className="h-5 w-5"/> EMERGENCY
         </button>
       </div>
+    </div>
+  );
+};
+
+/** Ending a GPS flight: save it to the account (then get its KML), or close without. */
+const EndFlight: React.FC<{
+  points: TrackPoint[]; signedIn: boolean; defaultName: string; onDone: () => void; onKeepFlying: () => void;
+}> = ({ points, signedIn, defaultName, onDone, onKeepFlying }) => {
+  const [name, setName] = React.useState(defaultName);
+  const [state, setState] = React.useState<'idle' | 'saving' | { id: number } | { error: string }>('idle');
+  const stats = trackStats(points);
+  const save = () => {
+    setState('saving');
+    saveTrack(name.trim() || defaultName, points).then(
+      t => { clearTrack(); setState({ id: t.id }); },
+      e => setState({ error: e instanceof Error && e.message ? `${e.message} The flight stays on this device: try again when you have a connection.` : 'Could not save the flight.' }),
+    );
+  };
+  const btn = 'rounded-md px-4 py-2 font-semibold';
+  const saved = typeof state === 'object' && 'id' in state ? state.id : null;
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="tabular-nums">{nmText(stats.nm)} NM in {stats.minutes} min, {points.length} points.</p>
+      {saved != null ? (
+        <>
+          <p className="font-semibold text-emerald-400">Saved to My flights.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`}
+              onClick={() => { downloadTrackKml(saved).catch(() => undefined); }}>
+              Download KML (Google Earth)
+            </button>
+            <button type="button" className={`${btn} bg-emerald-600 hover:bg-emerald-500`} onClick={onDone}>Close navigation mode</button>
+          </div>
+        </>
+      ) : signedIn ? (
+        <>
+          <label className="block text-xs text-slate-300">
+            Name
+            <input value={name} maxLength={100} onChange={e => setName(e.target.value)}
+              className="mt-1 block w-full rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"/>
+          </label>
+          {typeof state === 'object' && 'error' in state && <p className="text-amber-300" role="alert">{state.error}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={`${btn} bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60`} disabled={state === 'saving'} onClick={save}>
+              {state === 'saving' ? 'Saving…' : 'Save flight'}
+            </button>
+            <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`} onClick={onKeepFlying}>Keep flying</button>
+            <button type="button" className={`${btn} text-slate-300 hover:bg-slate-800`} onClick={onDone}>Close without saving</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-slate-300">Sign in to save your flights and download them as KML for Google Earth.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`} onClick={onKeepFlying}>Keep flying</button>
+            <button type="button" className={`${btn} text-slate-300 hover:bg-slate-800`} onClick={onDone}>Close</button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

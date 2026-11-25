@@ -100,6 +100,8 @@ export interface MapStatus {
   airspace: boolean;
   minZoom: number;
   maxZoom: number;
+  /** The self-hosted base map (vector tiles), when the server has one: its zooms and [west, south, east, north]. */
+  basemap?: { minZoom: number; maxZoom: number; bounds: [number, number, number, number] };
 }
 
 /** Whether the route map's airspace overlay is available. Public. */
@@ -130,6 +132,45 @@ export function fetchAerodrome(code: string): Promise<AerodromeInfo> {
   return request<AerodromeInfo>(`/api/map/aerodrome/${encodeURIComponent(code)}`);
 }
 
+/** A flight the navigation mode recorded (signed in): stored without its points. */
+export interface FlightTrack {
+  id: number;
+  name: string;
+  startedAt: string;
+  endedAt: string;
+  distanceNm: number;
+  pointCount: number;
+}
+
+export interface TrackPoint { lat: number; lon: number; altFt: number | null; at: number }
+
+export function saveTrack(name: string, points: TrackPoint[]): Promise<FlightTrack> {
+  return request<FlightTrack>('/api/tracks', { method: 'POST', body: JSON.stringify({ name, points }) });
+}
+
+export function listTracks(): Promise<FlightTrack[]> {
+  return request<FlightTrack[]>('/api/tracks');
+}
+
+export async function deleteTrack(id: number): Promise<void> {
+  await request<void>(`/api/tracks/${id}`, { method: 'DELETE' });
+}
+
+/** Saves the flight's KML (for Google Earth) to the device. */
+export async function downloadTrackKml(id: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/tracks/${id}/kml`);
+  if (!res.ok) throw new ApiError(res.status, 'Could not download the flight.', null);
+  const name = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `flight-${id}.kml`;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 /** The airports in a part of the map (at most 5° north to south) and their reporting points. Public. */
 export async function fetchMapArea(south: number, west: number, north: number, east: number): Promise<MapArea> {
   const f = (n: number) => n.toFixed(2);
@@ -154,6 +195,8 @@ export async function fetchPointInfo(lat: number, lon: number): Promise<PointInf
 
 /** Leaflet URL template for the airspace overlay (openAIP, proxied by the backend). */
 export const AIRSPACE_TILE_URL = `${API_BASE}/api/map/airspace/{z}/{x}/{y}.png`;
+/** The self-hosted base map's vector tiles (see MapStatus.basemap). */
+export const BASEMAP_TILE_URL = `${API_BASE}/api/map/base/{z}/{x}/{y}.mvt`;
 
 /** The generic version of each model. Public. */
 export function fetchGenericTypes(): Promise<GenericTypeView[]> {

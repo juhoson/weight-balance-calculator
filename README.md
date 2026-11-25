@@ -127,6 +127,15 @@ Railway builds the `Dockerfile`: the app is built for the site root and served b
 (`BACKEND_URL`, default `http://backend.railway.internal:8080`). The browser sees a single site, so
 there is no CORS. Deploy the backend first when the frontend needs something new from it.
 
+### Offline (navigation mode)
+
+`public/sw.js` is a small service worker (registered in production builds only). It answers map tiles
+from the cache the navigation mode fills for a route when it starts (`src/lib/offlineMap.ts`), keeps the
+app's files and the route's data (route, airspaces, airports) for opening it without a connection, and
+leaves everything else (sign-in, saved routes) to the network. The base map comes from the backend's
+self-hosted extract (see weight-balance-backend's README); where it doesn't cover the route, the
+navigation mode uses OpenStreetMap's tiles, which aren't kept offline.
+
 ### The old address
 
 The app used to live at https://songer.se/weight-balance/ (Loopia). That folder now holds only a

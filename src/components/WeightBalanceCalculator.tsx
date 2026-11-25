@@ -50,6 +50,7 @@ import {Navigation} from 'lucide-react';
 
 // Leaflet and the mode itself load only when it's opened.
 const NavigationMode = lazyWithReload(() => import('./nav/NavigationMode'));
+const MyFlightsButton = lazyWithReload(() => import('./nav/MyFlights'));
 
 export interface CalculatorInputs {
     pilotWeight: number;
@@ -1016,6 +1017,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 <Button type="button" variant="outline" size="sm" onClick={() => { setNavigating(true); track('navigation-mode'); }}>
                   <Navigation className="mr-1 h-4 w-4"/> Navigation mode
                 </Button>
+                {userId !== null && <React.Suspense fallback={null}><MyFlightsButton/></React.Suspense>}
                 <span className="text-xs text-muted-foreground">Experimental: the route on a moving map with GPS, the airspace you&apos;re in and the nearest airfields. Not for navigation.</span>
               </div>
             )}
@@ -1029,6 +1031,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                   bestGlideKt={perf?.bestGlideSpeed ? Math.round(perf.speedUnit === 'MPH' ? perf.bestGlideSpeed * MPH_TO_KT : perf.bestGlideSpeed) : null}
                   cruiseKt={tasKt}
                   cruiseAltFt={altitudeFt}
+                  signedIn={userId !== null}
                   onClose={() => setNavigating(false)}
                 />
               </React.Suspense>
