@@ -115,7 +115,8 @@ const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({ onSuccess, onEr
       try {
         const { SocialLogin } = await import('@capgo/capacitor-social-login');
         await SocialLogin.initialize({ google: { webClientId: nativeConfig.webClientId, iOSClientId: nativeConfig.iosClientId, mode: 'online' } });
-        const { result } = await SocialLogin.login({ provider: 'google', options: { scopes: ['email', 'profile'] } });
+        // No scopes: email and profile are the default, and Android refuses any list on a stock activity.
+        const { result } = await SocialLogin.login({ provider: 'google', options: {} });
         const idToken = 'idToken' in result ? result.idToken : null;
         if (!idToken) throw new Error('Google sign-in gave no account.');
         await session.signInWithGoogle(idToken);

@@ -70,5 +70,7 @@
 	<string>The navigation mode shows where you are on the route, your ground speed and track, and the airspace around you.</string>
 	<key>UIRequiresFullScreen</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
