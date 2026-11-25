@@ -6,7 +6,7 @@ import { parsePosition, positionCode, positionText, routeLabels } from '../../li
 import { pointInfoHtml } from '../../lib/frequencies';
 import { asRoutePoint, type RouteReportingPoint } from '../../lib/useRouteWeather';
 import type { MapArea } from '../../types/route';
-import { fixesIn, type SignificantPoint } from '../../lib/swedenFixes';
+import { fixesAiracText, fixesIn, fixesOutOfDate, type SignificantPoint } from '../../lib/swedenFixes';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
 export interface MapAirport {
@@ -642,7 +642,8 @@ function fixMarker(f: SignificantPoint): L.Marker {
 
 const fixHtml = (f: SignificantPoint, code: string) =>
   `<strong>${escapeHtml(f.name)}</strong><br>IFR/GNSS fix (AIP ENR 4.4)${f.routes ? `: ${escapeHtml(f.routes)}` : ''}`
-  + `<br>${positionText(code) ?? ''}`;
+  + `<br>${positionText(code) ?? ''}`
+  + `<br>${fixesOutOfDate() ? `<strong>${fixesAiracText()}, out of date: check the AIP.</strong>` : fixesAiracText()}`;
 
 /** A reporting point: a blue triangle (filled when compulsory) with its name beside it. */
 function vrpMarker(p: RouteReportingPoint): L.Marker {

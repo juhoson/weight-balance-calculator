@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
 Sweden's significant points (AIP ENR 4.4, name-code designators) as src/data/swedenFixes.json,
-for the navigation map. Run on each AIRAC cycle with the eAIP page's URL:
+for the navigation map. Run on each AIRAC cycle with the eAIP page's URL and the amendment's effective date (the app
+warns once that cycle, 28 days, is over):
 
   curl -sS -o /tmp/enr44.html "https://www.aro.lfv.se/content/eaip/<AMDT folder>/eAIP/ES-ENR%204.4-en-GB.html"
-  python3 scripts/enr44-fixes.py /tmp/enr44.html "<source text>" "<url>" > src/data/swedenFixes.json
+  python3 scripts/enr44-fixes.py /tmp/enr44.html "<source text>" "<url>" YYYY-MM-DD > src/data/swedenFixes.json
 """
 import html
 import json
 import re
 import sys
 
-page, source, url = sys.argv[1], sys.argv[2], sys.argv[3]
+page, source, url, effective = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', effective):
+    sys.exit('The effective date as YYYY-MM-DD, e.g. 2026-11-26')
 s = open(page, encoding='utf-8', errors='replace').read()
 # Amendment marks: a deleted entry is struck out, not gone.
 s = re.sub(r'<(span|div)[^>]*class="[^"]*deleted[^"]*"[^>]*>.*?</\1>', '', s, flags=re.S)
@@ -30,5 +33,5 @@ for m in row.finditer(text):
                    'lon': round(-lon if m.group(9) == 'W' else lon, 5), 'routes': '' if routes == '-' else routes})
 if len(points) < 100:
     sys.exit(f'Only {len(points)} points found: has the page changed?')
-json.dump({'source': source, 'sourceUrl': url, 'points': points}, sys.stdout, ensure_ascii=False, separators=(',', ':'))
+json.dump({'source': source, 'sourceUrl': url, 'effective': effective, 'points': points}, sys.stdout, ensure_ascii=False, separators=(',', ':'))
 print()

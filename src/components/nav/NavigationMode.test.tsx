@@ -281,3 +281,16 @@ test('the IFR/GNSS fixes from the AIP near the route: shown at first, switched o
   expect(document.querySelector('.fix-marker')).toBeNull();
   expect(localStorage.getItem('nav.showIfrFixes')).toBe('no');
 });
+
+test('IFR fixes past their AIRAC cycle: a warning while they are shown', async () => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2027, 0, 30));
+  try {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+    expect(await screen.findByText(/IFR fixes are from AIRAC 26 Nov 2026, out of date now/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'IFR' }));
+    expect(screen.queryByText(/IFR fixes are from AIRAC/)).toBeNull();
+  } finally {
+    jest.restoreAllMocks();
+  }
+});

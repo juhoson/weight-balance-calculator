@@ -9,7 +9,7 @@ import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } fro
 import { clearNavSession, type NavSession, saveNavSession, updateNavSession } from '../../lib/navSession';
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
 import { useAuth } from '../../api/useAuth';
-import { fixesNear } from '../../lib/swedenFixes';
+import { fixesAiracText, fixesNear, fixesOutOfDate } from '../../lib/swedenFixes';
 import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl } from '../../lib/offlineMap';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
@@ -547,6 +547,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           )}
         </div>
+
+        {showFix && fixes.length > 0 && fixesOutOfDate() && (
+          <div className="order-2 bg-amber-600 px-3 py-0.5 text-[11px] font-semibold text-white">
+            IFR fixes are from {fixesAiracText()}, out of date now: check the AIP before using them.
+          </div>
+        )}
 
         {/* Takes the rest of the panel in landscape when no page is open, keeping the buttons at the bottom. */}
         {!sheet && <div className="order-4 hidden lg:landscape:block lg:landscape:flex-1"/>}
