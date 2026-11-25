@@ -301,8 +301,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     });
   }, [reportingPoints, nearVrps]);
   const [showVrp, toggleVrp] = useShown(SHOW_VRP_KEY, true);
-  // The AIP's IFR/GNSS fixes near the route: off until asked for, to keep a VFR map clear.
-  const [showFix, toggleFix] = useShown(SHOW_FIX_KEY, false);
+  // The AIP's IFR/GNSS fixes near the route.
+  const [showFix, toggleFix] = useShown(SHOW_FIX_KEY, true);
   const fixes = React.useMemo(() => fixesNear(route, VRP_CORRIDOR_NM), [route]);
   React.useEffect(() => {
     const layer = fixLayer.current;

@@ -244,13 +244,14 @@ test('a tower zone shows its ATIS and ground too; class G around a non-controlle
   expect(within(screen.getByRole('status', { name: 'Airspace here' })).getByText(/SWEDEN CONTROL|Sweden Control/)).toBeInTheDocument();
 });
 
-test('the IFR/GNSS fixes from the AIP: off at first, switched on near the route', async () => {
+test('the IFR/GNSS fixes from the AIP near the route: shown at first, switched off and on', async () => {
   open();
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   const ifr = await screen.findByRole('button', { name: 'IFR' });
-  expect(ifr).toHaveAttribute('aria-pressed', 'false');
-  expect(document.querySelector('.fix-marker')).toBeNull();
+  expect(ifr).toHaveAttribute('aria-pressed', 'true');
+  // Drawn once the map is there (after the server's map status).
+  await waitFor(() => expect(document.querySelectorAll('.fix-marker').length).toBeGreaterThan(0));
   fireEvent.click(ifr);
-  expect(document.querySelectorAll('.fix-marker').length).toBeGreaterThan(0);
-  expect(localStorage.getItem('nav.showIfrFixes')).toBe('yes');
+  expect(document.querySelector('.fix-marker')).toBeNull();
+  expect(localStorage.getItem('nav.showIfrFixes')).toBe('no');
 });
