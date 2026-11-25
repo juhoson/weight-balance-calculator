@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import ClubHint from './ClubHint';
 import { fetchMyClubs } from '../../api/backend';
 
@@ -14,7 +14,7 @@ const clubs = [{ id: 10, name: 'Club A', homeAirport: null, role: null }];
 beforeEach(() => localStorage.clear());
 
 it('points someone without a club to the profile page', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const onOpenProfile = jest.fn();
   (fetchMyClubs as jest.Mock).mockResolvedValue(clubs);
   render(<ClubHint onOpenProfile={onOpenProfile} />);
@@ -25,7 +25,7 @@ it('points someone without a club to the profile page', async () => {
 });
 
 it('stays away once dismissed', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (fetchMyClubs as jest.Mock).mockResolvedValue(clubs);
   const { unmount } = render(<ClubHint onOpenProfile={jest.fn()} />);
   await user.click(await screen.findByRole('button', { name: 'Dismiss' }));

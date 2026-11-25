@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import AuthDialog from './AuthDialog';
 import { AuthError, fetchAuthProviders, session } from '../../api/session';
 import { fetchClubNames } from '../../api/backend';
@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 
 it('signs in and closes', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const onOpenChange = jest.fn();
   signIn.mockResolvedValue({ id: 1, email: 'pilot@example.com', displayName: 'Pilot' });
   render(<AuthDialog open onOpenChange={onOpenChange} />);
@@ -40,7 +40,7 @@ it('signs in and closes', async () => {
 });
 
 it('shows the server message and stays open on failure', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const onOpenChange = jest.fn();
   signIn.mockRejectedValue(new AuthError(401, 'Invalid email or password'));
   render(<AuthDialog open onOpenChange={onOpenChange} />);
@@ -54,7 +54,7 @@ it('shows the server message and stays open on failure', async () => {
 });
 
 it('creates an account from the register mode', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   register.mockResolvedValue({ id: 2, email: 'new@example.com', displayName: 'New Pilot' });
   render(<AuthDialog open onOpenChange={jest.fn()} />);
 
@@ -68,7 +68,7 @@ it('creates an account from the register mode', async () => {
 });
 
 it('asks which club you fly with when registering', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (fetchClubNames as jest.Mock).mockResolvedValue([{ id: 10, name: 'Club A' }, { id: 20, name: 'Club B' }]);
   register.mockResolvedValue({ id: 2, email: 'new@example.com', displayName: 'New Pilot' });
   render(<AuthDialog open onOpenChange={jest.fn()} />);
@@ -84,7 +84,7 @@ it('asks which club you fly with when registering', async () => {
 });
 
 it('sends a reset link from "Forgot password?" without revealing whether the account exists', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const requestPasswordReset = session.requestPasswordReset as jest.Mock;
   requestPasswordReset.mockResolvedValue(undefined);
   render(<AuthDialog open onOpenChange={jest.fn()} />);

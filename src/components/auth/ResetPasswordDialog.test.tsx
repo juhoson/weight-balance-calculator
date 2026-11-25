@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import ResetPasswordDialog from './ResetPasswordDialog';
 import { AuthError, fetchAuthProviders, session } from '../../api/session';
 
@@ -23,7 +23,7 @@ it('stays hidden on a normal page load', () => {
 
 it('opens from an emailed link and removes the token from the address bar', async () => {
   window.history.replaceState(null, '', '/weight-balance/#reset-token=abc123');
-  const user = userEvent.setup();
+  const user = setupUser();
   resetPassword.mockResolvedValue(undefined);
   render(<ResetPasswordDialog />);
 
@@ -41,7 +41,7 @@ it('opens from an emailed link and removes the token from the address bar', asyn
 
 it('greets an invited member and sets their first password', async () => {
   window.history.replaceState(null, '', '/weight-balance/#invite-token=inv456');
-  const user = userEvent.setup();
+  const user = setupUser();
   resetPassword.mockResolvedValue(undefined);
   render(<ResetPasswordDialog />);
 
@@ -57,7 +57,7 @@ it('greets an invited member and sets their first password', async () => {
 
 it('explains an expired invite', async () => {
   window.history.replaceState(null, '', '/weight-balance/#invite-token=old');
-  const user = userEvent.setup();
+  const user = setupUser();
   resetPassword.mockRejectedValue(new AuthError(400, 'Invalid or expired reset link'));
   render(<ResetPasswordDialog />);
   await user.type(screen.getByLabelText('Password'), 'first password');
@@ -68,7 +68,7 @@ it('explains an expired invite', async () => {
 
 it('catches mismatched passwords before sending', async () => {
   window.history.replaceState(null, '', '/weight-balance/#reset-token=abc123');
-  const user = userEvent.setup();
+  const user = setupUser();
   render(<ResetPasswordDialog />);
   await user.type(screen.getByLabelText('New password'), 'new password');
   await user.type(screen.getByLabelText('Repeat new password'), 'other password');
@@ -79,7 +79,7 @@ it('catches mismatched passwords before sending', async () => {
 
 it('explains an expired or used link', async () => {
   window.history.replaceState(null, '', '/weight-balance/#reset-token=old');
-  const user = userEvent.setup();
+  const user = setupUser();
   resetPassword.mockRejectedValue(new AuthError(400, 'Invalid or expired reset link'));
   render(<ResetPasswordDialog />);
   await user.type(screen.getByLabelText('New password'), 'new password');

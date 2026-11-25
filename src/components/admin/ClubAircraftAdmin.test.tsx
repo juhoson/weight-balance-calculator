@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import ClubAircraftAdmin from './ClubAircraftAdmin';
 import {
   addClubAircraft,
@@ -56,7 +56,7 @@ it('lists the club\'s aircraft with how many pilots use them, and the change log
 });
 
 it('asks before removing, saying who loses the aircraft', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (removeClubAircraft as jest.Mock).mockResolvedValue(undefined);
   render(<ClubAircraftAdmin access={access} />);
   await user.click(await screen.findByRole('button', { name: 'Remove SE-KMI' }));
@@ -68,7 +68,7 @@ it('asks before removing, saying who loses the aircraft', async () => {
 });
 
 it('edits from the current values and saves only after the changes are confirmed', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (previewClubAircraftEdit as jest.Mock).mockResolvedValue({
     review: {
       standard: { id: 1, code: 'PA28-161', name: 'Piper PA-28-161', status: 'CURATED', aiModel: null, aiNotes: null },

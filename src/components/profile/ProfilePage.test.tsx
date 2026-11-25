@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import ProfilePage from './ProfilePage';
 import { fetchMyClubs, joinClub, leaveClub } from '../../api/backend';
 import type { MyClub } from '../../types/profile';
@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 it('shows the account and joins a club', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (joinClub as jest.Mock).mockResolvedValue([{ ...clubA, role: 'MEMBER' }, clubB]);
   render(<ProfilePage />);
 
@@ -33,7 +33,7 @@ it('shows the account and joins a club', async () => {
 });
 
 it('leaves a club, but a club admin has to ask a site admin', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (fetchMyClubs as jest.Mock).mockResolvedValue([{ ...clubA, role: 'ADMIN' }, { ...clubB, role: 'MEMBER' }]);
   (leaveClub as jest.Mock).mockResolvedValue([{ ...clubA, role: 'ADMIN' }, clubB]);
   render(<ProfilePage />);
@@ -48,7 +48,7 @@ it('leaves a club, but a club admin has to ask a site admin', async () => {
 });
 
 it('shows the server\'s reason when a change fails', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   (joinClub as jest.Mock).mockRejectedValue(new Error('Unknown club'));
   render(<ProfilePage />);
   await user.click(await screen.findByRole('button', { name: 'Join Club B' }));

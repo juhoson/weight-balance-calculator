@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import AdminPage from './AdminPage';
 import {
   deleteMember,
@@ -54,7 +54,7 @@ beforeEach(() => {
 const row = async (name: string) => (await screen.findByText(name)).closest('li') as HTMLElement;
 
 it('lets a club admin send links, but not disable or delete accounts', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   mocked(sendPasswordLink).mockResolvedValue({ kind: 'RESET', email: 'anna@example.com' });
   render(<AdminPage access={clubAdmin} />);
 
@@ -74,7 +74,7 @@ it('lets a club admin send links, but not disable or delete accounts', async () 
 });
 
 it('shows the server\'s reason when an action is refused', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   mocked(sendPasswordLink).mockRejectedValue(new Error('A link was sent to this member less than a minute ago.'));
   render(<AdminPage access={clubAdmin} />);
   await user.click(within(await row('Anna')).getByRole('button', { name: 'Send reset link' }));
@@ -82,7 +82,7 @@ it('shows the server\'s reason when an action is refused', async () => {
 });
 
 it('asks before a site admin disables or deletes an account', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   mocked(setMemberDisabled).mockResolvedValue({ ...anna, status: 'DISABLED' });
   mocked(deleteMember).mockResolvedValue(undefined);
   render(<AdminPage access={siteAdmin} />);
@@ -105,7 +105,7 @@ it('asks before a site admin disables or deletes an account', async () => {
 });
 
 it('lets a site admin make someone a club admin', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   mocked(setClubRole).mockResolvedValue({ ...anna, clubs: [{ clubId: 10, clubName: 'Club A', role: 'ADMIN' }] });
   render(<AdminPage access={siteAdmin} />);
   await user.click(within(await row('Anna')).getByRole('button', { name: 'member' }));
@@ -114,7 +114,7 @@ it('lets a site admin make someone a club admin', async () => {
 });
 
 it('removes a member from the club after asking', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   mocked(removeFromClub).mockResolvedValue({ ...anna, clubs: [] });
   render(<AdminPage access={clubAdmin} />);
   await user.click(within(await row('Anna')).getByRole('button', { name: 'Remove Anna from Club A' }));
@@ -124,7 +124,7 @@ it('removes a member from the club after asking', async () => {
 });
 
 it('invites someone to the club admin\'s club and reloads the list', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const newcomer = member(4, 'Newcomer', { status: 'INVITED', hasPassword: false });
   mocked(inviteMember).mockResolvedValue({ outcome: 'INVITED', emailSent: true, member: newcomer });
   render(<AdminPage access={clubAdmin} />);
@@ -142,7 +142,7 @@ it('invites someone to the club admin\'s club and reloads the list', async () =>
 });
 
 it('filters by club and searches', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   render(<AdminPage access={siteAdmin} />);
   await screen.findByText('Anna');
   await user.selectOptions(screen.getByLabelText('Club'), 'Club B');

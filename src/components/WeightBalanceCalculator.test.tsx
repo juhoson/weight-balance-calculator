@@ -1,6 +1,6 @@
 import React, { Profiler } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../test/setupUser';
 import WeightBalanceCalculator from './WeightBalanceCalculator';
 import { fetchAirframes, fetchAirspacesAlong, fetchGenericTypes, fetchRouteWeather, fetchSharedRoute } from '../api/backend';
 import { forecastAlongRoute } from '../lib/openMeteo';
@@ -133,7 +133,7 @@ it('signed in: the generic aircraft can be hidden, and the list searched by regi
   await waitFor(() => expect(screen.queryByText(/typical values for the model/)).not.toBeInTheDocument());
   expect(localStorage.getItem('hideGenericAircraft.v1.7')).toBe('true');
 
-  const user = userEvent.setup();
+  const user = setupUser();
   const picker = screen.getByRole('combobox', { name: 'Aircraft' });
   await user.click(picker);
   await user.keyboard('{Control>}a{/Control}mbc');
@@ -182,7 +182,7 @@ it('picking a club aircraft moves a remembered route to its home airfield, but k
   // On load the pilot's own route stays.
   await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESGG', 'ESMS', []));
 
-  const user = userEvent.setup();
+  const user = setupUser();
   const pick = async (text: string, reg: RegExp) => {
     await user.click(await screen.findByRole('combobox', { name: 'Aircraft' }));
     await user.keyboard(`{Control>}a{/Control}${text}`);
@@ -206,7 +206,7 @@ it('picking a club aircraft keeps a trip that already starts at its home airfiel
   ]);
   render(<WeightBalanceCalculator />);
   await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESOW', 'ESGG', []));
-  const user = userEvent.setup();
+  const user = setupUser();
   await user.click(await screen.findByRole('combobox', { name: 'Aircraft' }));
   await user.keyboard('{Control>}a{/Control}mbc');
   await user.click(await screen.findByRole('option', { name: /SE-MBC/ }));
@@ -282,7 +282,8 @@ it('does not ask for the en-route forecast when the fuel does not cover the trip
   await screen.findByText(/From the route: 175 NM/);
   fireEvent.change(screen.getByLabelText('Fuel amount'), { target: { value: '40' } });
   expect(await screen.findByText(/Not enough fuel for this route even without wind/)).toBeInTheDocument();
-  await new Promise(r => setTimeout(r, 900));
+  // Past the forecast's debounce, inside act: the calculator updates meanwhile.
+  await act(() => new Promise(r => setTimeout(r, 900)));
   expect(mockedWinds).not.toHaveBeenCalled();
 
   fireEvent.change(screen.getByLabelText('Fuel amount'), { target: { value: '150' } });
@@ -403,7 +404,7 @@ it('enforces a max landing weight below the MTOW and a max zero-fuel weight', as
 });
 
 it('a side-by-side two-seater shows two seats and ignores rear-seat weights from another aircraft', async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const twoSeater = genericFromBuiltin('PA28-161 (SE-KMI)');
   twoSeater.spec.code = 'C152';
   twoSeater.spec.name = 'Cessna 152';

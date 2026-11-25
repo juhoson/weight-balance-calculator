@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { setupUser } from '../../test/setupUser';
 import ImportReview from './ImportReview';
 import AddAircraftPage from './AddAircraftPage';
 import { ApiError, confirmImport, previewImport } from '../../api/backend';
@@ -103,7 +103,7 @@ describe('ImportReview', () => {
   });
 
   it('keeps saving disabled until every alert is confirmed', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     mockedConfirm.mockResolvedValue({ airframeId: 7, aircraftTypeId: 9, usesStandard: false, acknowledgedAlerts: 2 });
     const { props } = renderReview();
 
@@ -128,7 +128,7 @@ describe('ImportReview', () => {
   });
 
   it('unchecking an alert blocks saving again', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderReview(preview({ deviations: [mtowAlert], alertsRequiringAcknowledgement: ['mtow'] }));
     const box = screen.getByRole('checkbox');
     await user.click(box);
@@ -138,7 +138,7 @@ describe('ImportReview', () => {
   });
 
   it('shows the server re-check when it finds alerts that still need confirming', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const newAlert = deviation({ field: 'envelope.limits.aftCG', label: 'Aft CG limit', unit: 'm' });
     mockedConfirm.mockRejectedValue(new ApiError(422, 'Acknowledge every alert', {
       message: 'Acknowledge every alert',
@@ -158,7 +158,7 @@ describe('ImportReview', () => {
   });
 
   it('explains a duplicate registration', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     mockedConfirm.mockRejectedValue(new ApiError(409, 'You already have an aircraft SE-XYZ', null));
     renderReview(preview({ deviations: [], alertsRequiringAcknowledgement: [], matchesStandard: true }));
     await user.click(screen.getByRole('button', { name: 'Save SE-XYZ' }));
@@ -206,7 +206,7 @@ describe('AddAircraftPage', () => {
   });
 
   it('goes from details to values to review, starting from a built-in aircraft', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     mockedPreview.mockResolvedValue(preview({ deviations: [envelopeWarning], alertsRequiringAcknowledgement: [] }));
     render(<AddAircraftPage />);
 

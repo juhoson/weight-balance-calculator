@@ -2,7 +2,7 @@ import * as React from 'react';
 import type {SeatLayoutKind} from '../lib/seatLayout';
 import {User} from 'lucide-react';
 import {CalculatorInputs} from './WeightBalanceCalculator';
-import {Dialog, DialogContent, DialogHeader, DialogTitle} from './ui/Dialog';
+import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from './ui/Dialog';
 import {NumberInput} from './ui/NumberInput';
 
 interface SeatLayoutProps {
@@ -214,6 +214,7 @@ const SeatLayout: React.FC<SeatLayoutProps> = ({weights, layout, onChange}) => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Enter Passenger Weight</DialogTitle>
+            <DialogDescription>The weight in this seat, in kg, with anything carried on the lap.</DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <NumberInput
