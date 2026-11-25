@@ -1,9 +1,10 @@
 import data from '../data/swedenFixes.json';
 import { activeLeg } from './navigation';
+import { aipOutOfDate, airacText, type AipDates } from './aipData';
 
 /**
  * Sweden's significant points: the five-letter IFR and GNSS fixes of the airways, SIDs and STARs,
- * from the AIP's ENR 4.4 (see `source`; scripts/enr44-fixes.py makes the file for a new AIRAC).
+ * from the AIP's ENR 4.4 (see `source`; scripts/update-aip.py keeps the file current).
  */
 export interface SignificantPoint {
   name: string;
@@ -16,17 +17,13 @@ export interface SignificantPoint {
 const POINTS = (data as { points: SignificantPoint[] }).points;
 export const SWEDEN_FIXES_SOURCE: string = data.source;
 export const SWEDEN_FIXES_URL: string = data.sourceUrl;
-/** The AIRAC amendment's effective date, midnight UTC. */
-export const SWEDEN_FIXES_EFFECTIVE: number = Date.parse(`${data.effective}T00:00:00Z`);
+const DATES: AipDates = data;
 
-const AIRAC_MS = 28 * 86_400_000;
-
-/** Past the AIRAC cycle the file is from: a newer amendment is in force, which may move or remove points. */
-export const fixesOutOfDate = (now = Date.now()) => now >= SWEDEN_FIXES_EFFECTIVE + AIRAC_MS;
+/** Past the AIRAC cycle the file was checked against: a newer amendment may move or remove points. */
+export const fixesOutOfDate = (now = Date.now()) => aipOutOfDate(DATES, now);
 
 /** "AIRAC 26 Nov 2026". */
-export const fixesAiracText = () =>
-  `AIRAC ${new Date(SWEDEN_FIXES_EFFECTIVE).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}`;
+export const fixesAiracText = () => airacText(DATES);
 
 /** The points within `nm` either side of the route (or around its one point). */
 export function fixesNear(route: Array<{ lat: number; lon: number }>, nm: number): SignificantPoint[] {

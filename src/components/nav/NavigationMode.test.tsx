@@ -51,7 +51,14 @@ beforeEach(() => {
   (fetchMapArea as jest.Mock).mockResolvedValue({ airports: [], reportingPoints: [], complete: true, reportingPointsAvailable: true });
 });
 
-const open = (onClose = jest.fn()) => render(
+/** Renders and lets the mocked loads (map status, airfields, reporting points) settle inside act. */
+async function settled(ui: React.ReactElement) {
+  let result: ReturnType<typeof render> | undefined;
+  await act(async () => { result = render(ui); });
+  return result as ReturnType<typeof render>;
+}
+
+const open = (onClose = jest.fn()) => settled(
   <NavigationMode trip={trip} airspaces={[ctr]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
     cruiseKt={110} cruiseAltFt={3500} onClose={onClose}/>,
 );
@@ -60,7 +67,7 @@ test('a VFR navigation aid: the terms are accepted once, with the account', asyn
   signedIn(null);
   (acceptNavTerms as jest.Mock).mockResolvedValue({});
   const onClose = jest.fn();
-  const { unmount } = open(onClose);
+  const { unmount } = await open(onClose);
   expect(screen.getByText(/A VFR navigation aid/)).toBeInTheDocument();
   expect(screen.getByText(/Check the AIP and NOTAMs before flight/)).toBeInTheDocument();
   const start = screen.getByRole('button', { name: 'Demo flight' });
@@ -71,34 +78,34 @@ test('a VFR navigation aid: the terms are accepted once, with the account', asyn
   expect(await screen.findByText('Next ESSB')).toBeInTheDocument();
   unmount();
   // Accepted on this device even before the account has it (no connection): not asked again here.
-  open();
+  await open();
   expect(screen.queryByLabelText('I understand and accept this')).toBeNull();
   expect(screen.getByRole('button', { name: 'Demo flight' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 });
 
-test('signed out: asks to sign in, nothing to start', () => {
+test('signed out: asks to sign in, nothing to start', async () => {
   (useAuth as jest.Mock).mockReturnValue({ user: null, signOutReason: null });
-  open();
+  await open();
   expect(screen.getByText('Sign in to use navigation mode.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Start with GPS' })).toBeDisabled();
 });
 
-test('shows when the airspace was downloaded, and warns once it is older than an AIRAC cycle', () => {
+test('shows when the airspace was downloaded, and warns once it is older than an AIRAC cycle', async () => {
   const day = 86_400_000;
-  const { unmount } = render(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - day} reportingPoints={[]}
+  const { unmount } = await settled(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - day} reportingPoints={[]}
     swedenControl={[]} bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(screen.getByText(/Airspace: openAIP \(volunteers\), downloaded .*No NOTAMs/)).toBeInTheDocument();
   unmount();
-  render(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - 31 * day} reportingPoints={[]}
+  await settled(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - 31 * day} reportingPoints={[]}
     swedenControl={[]} bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(screen.getByText(/Airspace data is 31 days old: update it with a connection/)).toBeInTheDocument();
 });
 
 test('the demo flight shows speed, track, the next point and the airspace it is in', async () => {
-  open();
+  await open();
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('DEMO FLIGHT (4× speed)')).toBeInTheDocument();
   expect(screen.getByText('110')).toBeInTheDocument(); // GS
@@ -120,7 +127,7 @@ test('emergency lists the nearest airfields within glide; Direct to steers to on
     return 1;
   });
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
-  open();
+  await open();
   fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
   await screen.findByText('Next ESSB');
   expect(screen.getByText('3,000')).toBeInTheDocument();
@@ -155,7 +162,7 @@ test('with the server\'s own base map: drawn from it, and the route\'s tiles are
     delete: async () => true,
   };
   global.fetch = jest.fn(async () => ({ status: 200 })) as unknown as typeof fetch;
-  open();
+  await open();
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('Map saved for offline', {}, { timeout: 5000 })).toBeInTheDocument();
   expect(leafletLayer).toHaveBeenCalledWith(expect.objectContaining({ url: '/api/map/base/{z}/{x}/{y}.mvt', maxDataZoom: 11 }));
@@ -174,7 +181,7 @@ test('a GPS flight ends on its own page: saved to the account, then its KML', as
   (saveTrack as jest.Mock).mockResolvedValue({ id: 7, name: 'x', startedAt: '', endedAt: '', distanceNm: 1, pointCount: 2 });
   (downloadTrackKml as jest.Mock).mockResolvedValue(undefined);
   const onClose = jest.fn();
-  render(<NavigationMode trip={trip} airspaces={[]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
+  await settled(<NavigationMode trip={trip} airspaces={[]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
     cruiseKt={110} cruiseAltFt={3500} signedIn onClose={onClose}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
   const at = (lat: number, t: number) => act(() => tick({ timestamp: t, coords: { latitude: lat, longitude: 16.7, altitude: 600, speed: 50, heading: 0, accuracy: 8 } } as GeolocationPosition));
@@ -211,7 +218,7 @@ test('resumed after a reload with no connection: says so, and the emergency list
     return 1;
   });
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
-  render(<NavigationMode trip={trip} airspaces={[ctr]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
+  await settled(<NavigationMode trip={trip} airspaces={[ctr]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
     cruiseKt={110} cruiseAltFt={3500} signedIn onClose={jest.fn()}
     resumed={{ airfields: [esow, essb, essx], nearVrps: [{ name: 'KOLBÄCK', lat: 59.57, lon: 16.25, compulsory: false }] }}/>);
   expect(screen.getByText(/ESOW → ESSB was still going when the page closed/)).toBeInTheDocument();
@@ -224,9 +231,9 @@ test('resumed after a reload with no connection: says so, and the emergency list
   expect(within(sheet).queryByText(/airfield list couldn/)).toBeNull();
 });
 
-test('the demo flight closes straight away: nothing to save', () => {
+test('the demo flight closes straight away: nothing to save', async () => {
   const onClose = jest.fn();
-  open(onClose);
+  await open(onClose);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   fireEvent.click(screen.getByRole('button', { name: 'Close navigation mode' }));
   expect(onClose).toHaveBeenCalled();
@@ -240,7 +247,7 @@ test('the reporting points near the route are on the map, whichever airport they
       { airport: 'ESKN', name: 'FAR AWAY', lat: 58.7, lon: 16.9, compulsory: true },
     ],
   });
-  open();
+  await open();
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('KOLBÄCK')).toBeInTheDocument();
   expect(screen.queryByText('FAR AWAY')).toBeNull();
@@ -257,13 +264,13 @@ test('a tower zone shows its ATIS and ground too; class G around a non-controlle
   const withAtis: AirspaceView = { ...ctr, frequencies: [...ctr.frequencies,
     { value: '127.555', name: 'VÄSTERÅS ATIS', kind: 'ATIS', primary: false, source: 'ESOW' },
     { value: '121.905', name: 'VÄSTERÅS GROUND', kind: 'GND', primary: false, source: 'ESOW' }] };
-  const { unmount } = render(<NavigationMode trip={trip} airspaces={[withAtis]} reportingPoints={[]} swedenControl={[]}
+  const { unmount } = await settled(<NavigationMode trip={trip} airspaces={[withAtis]} reportingPoints={[]} swedenControl={[]}
     bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('ATIS 127.555 · GND 121.905')).toBeInTheDocument();
   unmount();
   const tia: AirspaceView = { ...ctr, id: 'tia', name: 'GLIDING AREA', type: 'OTHER', icaoClass: 'G', frequencies: [] };
-  render(<NavigationMode trip={trip} airspaces={[tia]} reportingPoints={[]} swedenControl={[]}
+  await settled(<NavigationMode trip={trip} airspaces={[tia]} reportingPoints={[]} swedenControl={[]}
     bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('Class G around')).toBeInTheDocument();
@@ -271,7 +278,7 @@ test('a tower zone shows its ATIS and ground too; class G around a non-controlle
 });
 
 test('the IFR/GNSS fixes from the AIP near the route: shown at first, switched off and on', async () => {
-  open();
+  await open();
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   const ifr = await screen.findByRole('button', { name: 'IFR' });
   expect(ifr).toHaveAttribute('aria-pressed', 'true');
@@ -282,15 +289,26 @@ test('the IFR/GNSS fixes from the AIP near the route: shown at first, switched o
   expect(localStorage.getItem('nav.showIfrFixes')).toBe('no');
 });
 
-test('IFR fixes past their AIRAC cycle: a warning while they are shown', async () => {
+test('IFR fixes and navaids past their AIRAC cycle: a warning while they are shown', async () => {
   jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2027, 0, 30));
   try {
-    open();
+    await open();
     fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
-    expect(await screen.findByText(/IFR fixes are from AIRAC 26 Nov 2026, out of date now/)).toBeInTheDocument();
+    expect(await screen.findByText(/IFR fixes and navaids are from AIRAC 26 Nov 2026, out of date now/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'IFR' }));
-    expect(screen.queryByText(/IFR fixes are from AIRAC/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'NAV' }));
+    expect(screen.queryByText(/are from AIRAC/)).toBeNull();
   } finally {
     jest.restoreAllMocks();
   }
+});
+
+test('the radio navaids near the route, with what to tune; switched off with NAV', async () => {
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+  expect(await screen.findByText('ARS 112.80')).toBeInTheDocument();
+  expect(screen.getByText('TEB 117.10')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'NAV' }));
+  expect(screen.queryByText('ARS 112.80')).toBeNull();
+  expect(localStorage.getItem('nav.showNavaids')).toBe('no');
 });

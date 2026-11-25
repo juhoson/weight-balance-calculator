@@ -10,6 +10,7 @@ import { clearNavSession, type NavSession, saveNavSession, updateNavSession } fr
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
 import { useAuth } from '../../api/useAuth';
 import { fixesAiracText, fixesNear, fixesOutOfDate } from '../../lib/swedenFixes';
+import { navaidsAiracText, navaidsNear, navaidsOutOfDate, navaidSvg } from '../../lib/swedenNavaids';
 import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl } from '../../lib/offlineMap';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
@@ -57,6 +58,9 @@ const AIRSPACE_MAX_ZOOM = 10;
 const VRP_CORRIDOR_NM = 15;
 const SHOW_VRP_KEY = 'nav.showVrp';
 const SHOW_FIX_KEY = 'nav.showIfrFixes';
+const SHOW_NAVAID_KEY = 'nav.showNavaids';
+/** Radio navaids this far from the route are drawn: a VOR is used well off it. */
+const NAVAID_RANGE_NM = 40;
 type Vrp = { name: string; lat: number; lon: number; compulsory: boolean };
 
 /** Every visual reporting point near the route: the map area around it, asked in parts the server allows (5° × 10°). */
@@ -222,6 +226,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   /** The reporting points, a layer of their own so they can be switched off; it outlives a redrawn map. */
   const vrpLayer = React.useRef(L.layerGroup());
   const fixLayer = React.useRef(L.layerGroup());
+  const navaidLayer = React.useRef(L.layerGroup());
   const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline; trail: L.Polyline } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
@@ -270,6 +275,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
     route.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    navaidLayer.current.addTo(map);
     fixLayer.current.addTo(map);
     vrpLayer.current.addTo(map);
     const trail = L.polyline(trailRef.current.map(p => [p.lat, p.lon] as [number, number]),
@@ -316,6 +322,20 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       icon: L.divIcon({ className: 'fix-marker', iconSize: [9, 9] }), keyboard: false, interactive: false,
     }).bindTooltip(p.name, { permanent: true, direction: 'right', offset: [4, 0], className: 'route-map-label fix-label' }).addTo(layer));
   }, [fixes, showFix]);
+  // The AIP's en-route radio navaids (VOR, DME) near the route, labelled with what to tune.
+  const [showNavaid, toggleNavaid] = useShown(SHOW_NAVAID_KEY, true);
+  const navaids = React.useMemo(() => navaidsNear(route, NAVAID_RANGE_NM), [route]);
+  React.useEffect(() => {
+    const layer = navaidLayer.current;
+    layer.clearLayers();
+    if (!showNavaid) return;
+    navaids.forEach(n => L.marker([n.lat, n.lon], {
+      icon: L.divIcon({ className: 'navaid-marker', iconSize: [14, 14], html: navaidSvg(n) }), keyboard: false, interactive: false,
+    }).bindTooltip(`${n.ident} ${n.frequency ?? n.channel ?? ''}`.trim(), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label navaid-label' })
+      .addTo(layer));
+  }, [navaids, showNavaid]);
+  const aipStale = (showFix && fixes.length > 0 && fixesOutOfDate()) ? fixesAiracText()
+    : (showNavaid && navaids.length > 0 && navaidsOutOfDate()) ? navaidsAiracText() : null;
   React.useEffect(() => {
     const layer = vrpLayer.current;
     layer.clearLayers();
@@ -548,9 +568,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           )}
         </div>
 
-        {showFix && fixes.length > 0 && fixesOutOfDate() && (
+        {aipStale && (
           <div className="order-2 bg-amber-600 px-3 py-0.5 text-[11px] font-semibold text-white">
-            IFR fixes are from {fixesAiracText()}, out of date now: check the AIP before using them.
+            IFR fixes and navaids are from {aipStale}, out of date now: check the AIP before using them.
           </div>
         )}
 
@@ -681,6 +701,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <button type="button" aria-pressed={showFix} onClick={toggleFix} title="IFR/GNSS fixes (AIP ENR 4.4)"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showFix ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             IFR
+          </button>
+          <button type="button" aria-pressed={showNavaid} onClick={toggleNavaid} title="Radio navaids: VOR, DME (AIP ENR 4.1)"
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showNavaid ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            NAV
           </button>
         </div>
         {!follow && fix && (

@@ -7,6 +7,7 @@ import { pointInfoHtml } from '../../lib/frequencies';
 import { asRoutePoint, type RouteReportingPoint } from '../../lib/useRouteWeather';
 import type { MapArea } from '../../types/route';
 import { fixesAiracText, fixesIn, fixesOutOfDate, type SignificantPoint } from '../../lib/swedenFixes';
+import { type Navaid, navaidsAiracText, navaidsIn, navaidsOutOfDate, navaidSvg, navaidText } from '../../lib/swedenNavaids';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
 export interface MapAirport {
@@ -36,6 +37,10 @@ const VRP_LABEL_ZOOM = 9;
 /** Whether the IFR/GNSS fixes layer is on, as last chosen on this device (on at first). */
 const SHOW_FIX_KEY = 'map.showIfrFixes';
 const fixesWanted = () => { try { return localStorage.getItem(SHOW_FIX_KEY) !== 'no'; } catch { return true; } };
+const SHOW_NAVAID_KEY = 'map.showNavaids';
+const navaidsWanted = () => { try { return localStorage.getItem(SHOW_NAVAID_KEY) !== 'no'; } catch { return true; } };
+/** From this zoom in the navaids show (there are few: about 40 in Sweden). */
+const NAVAID_ZOOM = 6;
 
 type At = { lat: number; lon: number };
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
@@ -176,6 +181,10 @@ const RouteMap: React.FC<RouteMapProps> = ({
     }
     overlays['IFR fixes'] = fixes;
     if (fixesWanted()) fixes.addTo(map);
+    // The AIP's en-route radio navaids in view; tap one for what to tune.
+    const navaids = L.layerGroup();
+    overlays.Navaids = navaids;
+    if (navaidsWanted()) navaids.addTo(map);
     // Lets the pilot hide the airspace to read the map underneath, or the fixes.
     L.control.layers(undefined, overlays, { collapsed: true, position: 'topright' }).addTo(map);
     const drawFixes = () => {
@@ -189,10 +198,18 @@ const RouteMap: React.FC<RouteMapProps> = ({
       });
     };
     map.on('moveend', drawFixes);
+    const drawNavaids = () => {
+      navaids.clearLayers();
+      if (!map.hasLayer(navaids) || map.getZoom() < NAVAID_ZOOM) return;
+      const b = map.getBounds().pad(0.1);
+      navaidsIn(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()).forEach(n => navaidMarker(n).addTo(navaids));
+    };
+    map.on('moveend', drawNavaids);
     const fixesSwitched = (e: L.LayersControlEvent) => {
-      if (e.layer !== fixes) return;
-      try { localStorage.setItem(SHOW_FIX_KEY, e.type === 'overlayadd' ? 'yes' : 'no'); } catch { /* private mode */ }
-      drawFixes();
+      const key = e.layer === fixes ? SHOW_FIX_KEY : e.layer === navaids ? SHOW_NAVAID_KEY : null;
+      if (!key) return;
+      try { localStorage.setItem(key, e.type === 'overlayadd' ? 'yes' : 'no'); } catch { /* private mode */ }
+      if (e.layer === fixes) drawFixes(); else drawNavaids();
     };
     map.on('overlayadd', fixesSwitched);
     map.on('overlayremove', fixesSwitched);
@@ -644,6 +661,19 @@ const fixHtml = (f: SignificantPoint, code: string) =>
   `<strong>${escapeHtml(f.name)}</strong><br>IFR/GNSS fix (AIP ENR 4.4)${f.routes ? `: ${escapeHtml(f.routes)}` : ''}`
   + `<br>${positionText(code) ?? ''}`
   + `<br>${fixesOutOfDate() ? `<strong>${fixesAiracText()}, out of date: check the AIP.</strong>` : fixesAiracText()}`;
+
+/** A radio navaid: its symbol, the ident and frequency beside it; tapped, what it is. */
+function navaidMarker(n: Navaid): L.Marker {
+  const m = L.marker([n.lat, n.lon], {
+    icon: L.divIcon({ className: 'navaid-marker', iconSize: [14, 14], html: navaidSvg(n) }), keyboard: false, bubblingMouseEvents: false,
+    title: navaidText(n),
+  });
+  m.bindTooltip(`${n.ident} ${n.frequency ?? n.channel ?? ''}`.trim(), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label navaid-label' });
+  m.bindPopup(`<strong>${escapeHtml(n.name)} ${escapeHtml(n.type)}</strong><br>${escapeHtml(n.ident)}`
+    + `${n.frequency ? ` · ${n.frequency} MHz` : ''}${n.channel ? ` · ${n.channel}` : ''}`
+    + `<br>Radio navaid (AIP ENR 4.1), ${navaidsOutOfDate() ? `<strong>${navaidsAiracText()}, out of date: check the AIP.</strong>` : navaidsAiracText()}`);
+  return m;
+}
 
 /** A reporting point: a blue triangle (filled when compulsory) with its name beside it. */
 function vrpMarker(p: RouteReportingPoint): L.Marker {

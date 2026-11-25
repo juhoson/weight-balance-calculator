@@ -1,0 +1,56 @@
+# Keeps the AIP data the app carries (IFR/GNSS fixes, radio navaids) current: daily, the
+# amendment in force is checked on LFV's eAIP, and a pull request opened when the files change,
+# on a new amendment or each AIRAC cycle (the app warns once the cycle checked is over).
+# Merge it and deploy the frontend. A failed run means the eAIP site has changed: see the log.
+#
+# Needs "Allow GitHub Actions to create and approve pull requests" in the repository's
+# Settings > Actions > General.
+name: AIP data
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild the data from the eAIP
+        run: python3 scripts/update-aip.py
+
+      - name: Open a pull request when it changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- src/data; then
+            echo "The AIP data is unchanged."
+            exit 0
+          fi
+          effective=$(jq -r .effective src/data/swedenFixes.json)
+          checked=$(jq -r .checked src/data/swedenFixes.json)
+          source=$(jq -r .source src/data/swedenFixes.json)
+          branch="aip-data/${effective}-checked-${checked}"
+          if git ls-remote --exit-code origin "refs/heads/${branch}" > /dev/null; then
+            echo "A pull request for ${branch} is already open."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
+          git switch -c "${branch}"
+          git add src/data
+          git commit -m "chore: AIP data from the amendment of ${effective}, checked for the AIRAC cycle of ${checked}"
+          git push origin "${branch}"
+          gh pr create --base main --head "${branch}" \
+            --title "AIP data: amendment of ${effective}, AIRAC cycle of ${checked}" \
+            --body "Rebuilt by scripts/update-aip.py from ${source}.
+
+          Merge and deploy the frontend: until then the app warns that the IFR fixes and navaids may be out of date once the cycle before ${checked} is over.
+
+          $(git diff --stat HEAD~1 -- src/data)"

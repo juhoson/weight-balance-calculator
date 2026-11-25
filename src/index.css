@@ -308,6 +308,16 @@ input::-webkit-inner-spin-button {
   font-size: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+/* Radio navaids: the symbol is the icon's SVG; the label in the navaid colour. */
+.navaid-marker {
+  background: none;
+  border: none;
+}
+.route-map .leaflet-tooltip.navaid-label {
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 700;
+}
 /* Zoomed out on the planning map, the names would crowd each other: the marker's title has them. */
 .route-map--far .leaflet-tooltip.vrp-label,
 .route-map--far .leaflet-tooltip.fix-label {

@@ -259,4 +259,18 @@ describe('with the map laid out', () => {
     await waitFor(() => expect(container.querySelector('.fix-marker')).toBeNull());
     expect(localStorage.getItem('map.showIfrFixes')).toBe('no');
   });
+
+  test('the radio navaids in view: ident and frequency, details when tapped; switched off in the layers', async () => {
+    localStorage.clear();
+    (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
+    const { container } = render(<RouteMap airports={route}/>);
+    expect(await screen.findByText('ARS 112.80')).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('AROS DVOR/DME ARS 112.80'));
+    expect(await screen.findByText(/ARS · 112.80 MHz · CH75X/)).toBeInTheDocument();
+    const toggle = Array.from(container.querySelectorAll<HTMLInputElement>('.leaflet-control-layers-selector'))
+      .find(i => i.parentElement?.textContent?.includes('Navaids')) as HTMLInputElement;
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.queryByText('ARS 112.80')).toBeNull());
+    expect(localStorage.getItem('map.showNavaids')).toBe('no');
+  });
 });
