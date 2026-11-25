@@ -42,7 +42,8 @@ import {routeChain} from '../lib/routePoint';
 import BriefingButton from './briefing/BriefingDialog';
 import type {BriefingData} from './briefing/BriefingPack';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
-import {nearestAirports} from '../api/backend';
+import {airspacesFetchedAt, nearestAirports} from '../api/backend';
+import AuthDialog from './auth/AuthDialog';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
 import {track} from '../lib/analytics';
 import {lazyWithReload} from '../lib/lazyWithReload';
@@ -626,6 +627,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const weather = useRouteWeather(route.from, route.to, route.via);
   const [locating, setLocating] = React.useState(false);
   const [navigating, setNavigating] = React.useState(false);
+  const [signInForNav, setSignInForNav] = React.useState(false);
+  // Signed in from the navigation button: straight on into navigation mode.
+  React.useEffect(() => {
+    if (signInForNav && userId !== null) { setSignInForNav(false); setNavigating(true); }
+  }, [signInForNav, userId]);
   const [locationError, setLocationError] = React.useState<string | null>(null);
   const [locatedCode, setLocatedCode] = React.useState<string | null>(null);
 
@@ -1014,11 +1020,16 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             )}
             {trip && trip.distanceNm > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => { setNavigating(true); track('navigation-mode'); }}>
+                <Button type="button" variant="outline" size="sm"
+                  onClick={() => { if (userId === null) setSignInForNav(true); else { setNavigating(true); track('navigation-mode'); } }}>
                   <Navigation className="mr-1 h-4 w-4"/> Navigation mode
                 </Button>
+                <AuthDialog open={signInForNav} onOpenChange={setSignInForNav}/>
                 {userId !== null && <React.Suspense fallback={null}><MyFlightsButton/></React.Suspense>}
-                <span className="text-xs text-muted-foreground">Experimental: the route on a moving map with GPS, the airspace you&apos;re in and the nearest airfields. Not for navigation.</span>
+                <span className="text-xs text-muted-foreground">
+                  VFR navigation aid (beta): the route on a moving map with GPS, the airspace you&apos;re in, the frequencies along
+                  the way and the nearest airfields, kept for flying without a connection.{userId === null && ' Sign in to use it.'}
+                </span>
               </div>
             )}
             {navigating && trip && (
@@ -1026,6 +1037,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 <NavigationMode
                   trip={trip}
                   airspaces={airspaces.data}
+                  airspacesFetchedAt={airspacesFetchedAt(airspaces.data)}
                   reportingPoints={weather.reportingPoints}
                   swedenControl={swedenControl}
                   bestGlideKt={perf?.bestGlideSpeed ? Math.round(perf.speedUnit === 'MPH' ? perf.bestGlideSpeed * MPH_TO_KT : perf.bestGlideSpeed) : null}

@@ -78,5 +78,5 @@ export function pointInfoHtml(info: PointInfo): string {
     + (rows.length ? rows.join('') : `<div class="pi-sub">No airspace listed here: uncontrolled (class G). ${esc(classGHint(info))}</div>`)
     + (below ? `<div class="pi-sub">Below ${esc(below)}: no airspace listed, uncontrolled (class G). ${esc(classGHint(info))}</div>` : '')
     + (airports.length ? `<div class="pi-head">Nearest airports</div>${airports.join('')}` : '')
-    + `<div class="pi-note">openAIP${swedenControlAt(info.lat, info.lon) ? ' · Sweden Control sectors from the AIP (ENR 6.1)' : ''} · not for navigation</div></div>`;
+    + `<div class="pi-note">openAIP${swedenControlAt(info.lat, info.lon) ? ' · Sweden Control sectors from the AIP (ENR 6.1)' : ''} · check the AIP and NOTAMs</div></div>`;
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { downloadTrackKml, fetchAirportsAlong, fetchMapStatus, saveTrack } from '../../api/backend';
+import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchMapStatus, saveTrack } from '../../api/backend';
+import { useAuth } from '../../api/useAuth';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 
 // Leaflet draws lines in SVG only where the browser has createSVGRect, which jsdom lacks.
@@ -12,10 +13,15 @@ jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
   fetchAirportsAlong: jest.fn(),
   saveTrack: jest.fn(),
+  acceptNavTerms: jest.fn(),
   downloadTrackKml: jest.fn(),
   AIRSPACE_TILE_URL: '/api/map/airspace/{z}/{x}/{y}.png',
   BASEMAP_TILE_URL: '/api/map/base/{z}/{x}/{y}.mvt',
 }));
+jest.mock('../../api/useAuth', () => ({ useAuth: jest.fn() }));
+const signedIn = (navTermsVersion: number | null = 1) => (useAuth as jest.Mock).mockReturnValue({
+  user: { id: 1, email: 'p@example.com', displayName: 'Pilot', navTermsVersion }, signOutReason: null,
+});
 // The real one is an ES module Jest can't load; a plain layer stands in.
 jest.mock('protomaps-leaflet', () => ({ leafletLayer: jest.fn() }));
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -37,6 +43,8 @@ const ctr: AirspaceView = {
 };
 
 beforeEach(() => {
+  localStorage.clear();
+  signedIn();
   (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
   (fetchAirportsAlong as jest.Mock).mockResolvedValue([esow, essb, essx]);
 });
@@ -46,12 +54,45 @@ const open = (onClose = jest.fn()) => render(
     cruiseKt={110} cruiseAltFt={3500} onClose={onClose}/>,
 );
 
-test('warns first that it is experimental; Cancel closes', () => {
+test('a VFR navigation aid: the terms are accepted once, with the account', async () => {
+  signedIn(null);
+  (acceptNavTerms as jest.Mock).mockResolvedValue({});
   const onClose = jest.fn();
-  open(onClose);
-  expect(screen.getByText(/situational awareness only, not for navigation/)).toBeInTheDocument();
+  const { unmount } = open(onClose);
+  expect(screen.getByText(/A VFR navigation aid/)).toBeInTheDocument();
+  expect(screen.getByText(/Check the AIP and NOTAMs before flight/)).toBeInTheDocument();
+  const start = screen.getByRole('button', { name: 'Demo flight' });
+  expect(start).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('I understand and accept this'));
+  fireEvent.click(start);
+  expect(acceptNavTerms).toHaveBeenCalledWith(1);
+  expect(await screen.findByText('Next ESSB')).toBeInTheDocument();
+  unmount();
+  // Accepted on this device even before the account has it (no connection): not asked again here.
+  open();
+  expect(screen.queryByLabelText('I understand and accept this')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Demo flight' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(onClose).toHaveBeenCalled();
+});
+
+test('signed out: asks to sign in, nothing to start', () => {
+  (useAuth as jest.Mock).mockReturnValue({ user: null, signOutReason: null });
+  open();
+  expect(screen.getByText('Sign in to use navigation mode.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Start with GPS' })).toBeDisabled();
+});
+
+test('shows when the airspace was downloaded, and warns once it is older than an AIRAC cycle', () => {
+  const day = 86_400_000;
+  const { unmount } = render(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - day} reportingPoints={[]}
+    swedenControl={[]} bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+  expect(screen.getByText(/Airspace: openAIP \(volunteers\), downloaded .*No NOTAMs/)).toBeInTheDocument();
+  unmount();
+  render(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - 31 * day} reportingPoints={[]}
+    swedenControl={[]} bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+  expect(screen.getByText(/Airspace data is 31 days old: update it with a connection/)).toBeInTheDocument();
 });
 
 test('the demo flight shows speed, track, the next point and the airspace it is in', async () => {

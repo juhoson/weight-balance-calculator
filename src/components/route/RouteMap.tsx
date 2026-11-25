@@ -591,7 +591,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
       </div>
       <p className="text-[11px] text-muted-foreground">
         {status?.airspace
-          ? 'Tap the map for the airspace and frequencies there. Airspace from openAIP, maintained by volunteers. Not for navigation: check the AIP, the official charts and NOTAMs.'
+          ? 'Tap the map for the airspace and frequencies there. Airspace from openAIP, maintained by volunteers: check the AIP, the official charts and NOTAMs.'
           : status === undefined ? '' : 'Airspace is not available right now; the map shows the route only.'}
         {!L.Browser.mobile && shown.length > 1 && ' Hover a leg for its length and course.'}
         {editable && ` ${L.Browser.mobile ? 'Tap' : 'Click'} ${labels[0]} to plot a new course from it, point by point.`}

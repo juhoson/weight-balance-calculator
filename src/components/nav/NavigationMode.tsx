@@ -3,9 +3,11 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Crosshair, Radio, TriangleAlert, X } from 'lucide-react';
 import {
-  AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
+  acceptNavTerms, AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
 } from '../../api/backend';
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
+import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
+import { useAuth } from '../../api/useAuth';
 import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl } from '../../lib/offlineMap';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
@@ -23,6 +25,8 @@ import {
 export interface NavigationModeProps {
   trip: RouteWeather;
   airspaces: AirspaceView[] | null;
+  /** When the airspace was downloaded, for showing its age. */
+  airspacesFetchedAt?: number | null;
   reportingPoints: RouteReportingPoint[];
   swedenControl: SwedenControlLeg[];
   /** The aircraft's best glide speed, if known. */
@@ -101,8 +105,11 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, signedIn = false, onClose,
+  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, signedIn = false, onClose,
 }) => {
+  const { user } = useAuth();
+  const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
+  const [agreed, setAgreed] = React.useState(false);
   const route = React.useMemo(() => [trip.departure, ...(trip.waypoints ?? []), trip.arrival], [trip]);
   const labels = React.useMemo(() => routeLabels(route.map(a => a.code)), [route]);
   const [started, setStarted] = React.useState<null | 'gps' | 'demo'>(null);
@@ -235,7 +242,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
     map.on('dragstart', () => setFollow(false));
     mapRef.current = map;
-    return () => { live = false; map.remove(); mapRef.current = null; own.current = null; };
+    // The map's box changes when a page opens below it or the tablet turns: Leaflet must measure again.
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => map.invalidateSize());
+    resized?.observe(container.current);
+    return () => { live = false; resized?.disconnect(); map.remove(); mapRef.current = null; own.current = null; };
   }, [started, status, ownBasemap, route, labels, reportingPoints]);
 
   // On start, the route's map is kept for flying without a connection.
@@ -296,32 +306,60 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (fix && mapRef.current) mapRef.current.panTo([fix.lat, fix.lon]);
   };
 
+  /** Starts, the terms accepted first: saved to the account, and on this device in case there's no connection. */
+  const begin = (mode: 'gps' | 'demo') => {
+    if (user && (user.navTermsVersion ?? 0) < NAV_TERMS_VERSION) {
+      markAcceptedHere(user.id);
+      acceptNavTerms(NAV_TERMS_VERSION).catch(() => undefined);
+    }
+    if (mode === 'gps') {
+      // A flight recorded in the last half hour (the page reloaded) carries on.
+      trailRef.current = loadTrack();
+      document.documentElement.requestFullscreen?.().catch(() => undefined);
+    }
+    setStarted(mode);
+  };
+
   if (!started) {
+    const canStart = !!user && (termsAccepted || agreed);
     return (
-      <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-950/95 p-4 text-slate-100" role="dialog" aria-modal="true" aria-label="Navigation mode">
-        <div className="max-w-md space-y-4">
-          <h2 className="text-xl font-semibold">Navigation mode <span className="rounded bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-slate-950">EXPERIMENTAL</span></h2>
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 text-slate-100" role="dialog" aria-modal="true" aria-label="Navigation mode">
+        <div className="max-w-lg space-y-4">
+          <h2 className="text-xl font-semibold">Navigation mode <span className="rounded bg-sky-600 px-1.5 py-0.5 text-xs font-bold text-white">BETA</span></h2>
           <p className="text-sm">
-            The map full screen with your GPS speed, track and altitude, the airspace you&apos;re in, the frequencies along the
-            route, and an emergency page with the nearest airfields.
+            A VFR navigation aid: the route on a moving map with your GPS speed, track and altitude, the airspace you&apos;re in,
+            the frequencies along the way, and an emergency page with the nearest airfields.
           </p>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-300">
-            <li><strong className="text-slate-100">For situational awareness only, not for navigation.</strong> Fly by the official charts and your instruments.</li>
-            <li>Altitude is GPS altitude, not pressure altitude: it can be 100 ft or more off.</li>
-            <li>Keep the app in front with the screen on: the browser stops the GPS when it&apos;s hidden.</li>
-            <li>The route&apos;s map is saved when you start, for flying without a connection: start while you still have one.</li>
-          </ul>
+          {!user ? (
+            <p className="rounded-md border border-amber-500 p-3 text-sm">Sign in to use navigation mode.</p>
+          ) : termsAccepted ? (
+            <p className="text-sm text-slate-300">
+              You remain responsible for the flight: check the AIP and NOTAMs, and navigate by what you see, the official charts
+              and your instruments.
+            </p>
+          ) : (
+            <div className="space-y-2 rounded-md border border-slate-600 p-3 text-sm">
+              <p className="font-semibold">Before you use it (asked once):</p>
+              <ul className="list-disc space-y-1 pl-5 text-slate-300">
+                {NAV_TERMS.map(t => <li key={t}>{t}</li>)}
+              </ul>
+              <label className="flex items-center gap-2 pt-1 font-semibold">
+                <input type="checkbox" className="h-5 w-5" checked={agreed} onChange={e => setAgreed(e.target.checked)}/>
+                I understand and accept this
+              </label>
+            </div>
+          )}
+          <p className="text-xs text-slate-400">
+            The route&apos;s map is saved when you start, for flying without a connection: start while you still have one.
+            Keep the app in front with the screen on.
+          </p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500"
-              onClick={() => {
-                // A flight recorded in the last half hour (the page reloaded) carries on.
-                trailRef.current = loadTrack();
-                setStarted('gps');
-                document.documentElement.requestFullscreen?.().catch(() => undefined);
-              }}>
+            <button type="button" disabled={!canStart} className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+              onClick={() => begin('gps')}>
               Start with GPS
             </button>
-            <button type="button" className="rounded-md border border-slate-500 px-4 py-2 hover:bg-slate-800" onClick={() => setStarted('demo')}>
+            <button type="button" disabled={!canStart} className="rounded-md border border-slate-500 px-4 py-2 hover:bg-slate-800 disabled:opacity-40"
+              onClick={() => begin('demo')}>
               Demo flight
             </button>
             <button type="button" className="rounded-md px-4 py-2 text-slate-300 hover:bg-slate-800" onClick={onClose}>Cancel</button>
@@ -341,8 +379,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     else exit();
   };
   closeRef.current = close;
-  const cell = 'flex flex-col items-center justify-center px-1 py-1';
-  const big = 'text-xl font-bold tabular-nums leading-tight sm:text-2xl';
+  const cell = 'flex flex-col items-center justify-center bg-slate-950 px-1 py-1 lg:landscape:py-2';
+  const big = 'text-xl font-bold tabular-nums leading-tight sm:text-2xl lg:landscape:text-3xl';
   const small = 'text-[10px] uppercase tracking-wide text-slate-400';
   const inside = here?.inside ?? [];
   const severityClass = (a: AirspaceView) => ({
@@ -350,71 +388,65 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }[adviceFor(a).severity]);
 
   return (
-    <div className="fixed inset-0 z-[2000] flex flex-col bg-slate-950 text-slate-100" role="dialog" aria-modal="true" aria-label="Navigation mode">
-      {/* Speed, track, altitude and where to. */}
-      <div className="grid grid-cols-[1fr_1fr_1fr_1.6fr_auto] divide-x divide-slate-700 border-b border-slate-700">
-        <div className={cell}><span className={small}>GS kt</span><span className={big}>{fix?.speedKt != null ? Math.round(fix.speedKt) : '-'}</span></div>
-        <div className={cell}><span className={small}>TRK °T</span><span className={big}>{fix?.trackDeg != null ? pad3(fix.trackDeg) : '-'}</span></div>
-        <div className={cell}><span className={small}>GPS alt ft</span><span className={big}>{fix?.altFt != null ? ft(fix.altFt) : '-'}</span></div>
-        <div className={`${cell} ${directTo ? 'bg-red-900' : ''}`}>
-          <span className={small}>{directTo ? 'Direct to' : 'Next'} {targetLabel}</span>
-          <span className={big}>{toTarget ? `${nmText(toTarget.nm)} NM` : '-'}</span>
-          <span className="text-xs tabular-nums text-slate-300">
-            {toTarget ? `${pad3(toTarget.deg)}° · ${eteText(toTarget.nm, fix?.speedKt ?? null)}` : ''}
-          </span>
-        </div>
-        <button type="button" aria-label="Close navigation mode" className="px-3 hover:bg-slate-800" onClick={close}><X className="h-5 w-5"/></button>
-      </div>
-
-      {/* The airspace here. */}
-      <div className="space-y-px text-sm" role="status" aria-label="Airspace here">
-        {!fix ? (
-          <div className="bg-slate-800 px-3 py-1.5">{gpsError ?? (started === 'demo' ? 'Starting the demo…' : 'Waiting for GPS…')}</div>
-        ) : airspaces == null ? (
-          <div className="bg-slate-800 px-3 py-1.5">Airspace not loaded.</div>
-        ) : inside.length ? inside.map(a => {
-          const f = contactFrequencies(a.frequencies)[0];
-          return (
-            <div key={a.id} className={`${severityClass(a)} flex flex-wrap items-baseline gap-x-2 px-3 py-1.5`}>
-              <strong>{a.name}</strong>
-              <span>{a.icaoClass ? `class ${a.icaoClass}` : a.type} · {a.lower.label}–{a.upper.label}</span>
-              {f && <span className="ml-auto font-semibold tabular-nums">{frequencyText(f)}</span>}
-            </div>
-          );
-        }) : (
-          <div className="flex flex-wrap items-baseline gap-x-2 bg-emerald-800 px-3 py-1.5">
-            <strong>Uncontrolled (class G)</strong>
-            {sweden && <span className="ml-auto font-semibold tabular-nums">{swedenControlText(sweden.sector)}</span>}
-          </div>
-        )}
-        {fix && here && here.above.length > 0 && (
-          <div className="bg-slate-800 px-3 py-1 text-xs text-slate-300">
-            Above: {here.above.slice(0, 2).map(a => `${a.name} from ${a.lower.label}`).join(' · ')}
-          </div>
-        )}
-      </div>
-
-      <div className="relative flex-1">
-        <div ref={container} className="route-map absolute inset-0" aria-label="Navigation map"/>
-        <div className="pointer-events-none absolute left-2 top-2 z-[1000] flex flex-col gap-1 text-xs">
-          <span className="rounded bg-amber-500 px-1.5 py-0.5 font-bold text-slate-950">EXPERIMENTAL · not for navigation</span>
-          {offline && (
-            <span className={`rounded px-1.5 py-0.5 font-semibold text-white ${offline.done < offline.total ? 'bg-slate-700' : offline.failed ? 'bg-amber-600' : 'bg-emerald-700'}`}>
-              {offline.done < offline.total
-                ? `Saving the map for offline… ${Math.round((offline.done / offline.total) * 100)}%`
-                : offline.failed
-                  ? `Map offline, ${offline.failed} tiles missing`
-                  : ownBasemap ? 'Map saved for offline' : 'Airspace saved for offline (base map needs a connection here)'}
+    <div className="fixed inset-0 z-[2000] flex flex-col bg-slate-950 text-slate-100 lg:landscape:flex-row" role="dialog" aria-modal="true" aria-label="Navigation mode">
+      {/* Portrait: everything stacked around the map. Landscape (a tablet on the knee): the map, and this panel on the right. */}
+      <aside className="contents lg:landscape:order-2 lg:landscape:flex lg:landscape:w-[380px] lg:landscape:shrink-0 lg:landscape:flex-col lg:landscape:border-l lg:landscape:border-slate-700">
+        {/* Speed, track, altitude and where to. */}
+        <div className="order-1 grid grid-cols-[1fr_1fr_1fr_1.6fr_auto] gap-px border-b border-slate-700 bg-slate-700 lg:landscape:grid-cols-2">
+          <div className={cell}><span className={small}>GS kt</span><span className={big}>{fix?.speedKt != null ? Math.round(fix.speedKt) : '-'}</span></div>
+          <div className={cell}><span className={small}>TRK °T</span><span className={big}>{fix?.trackDeg != null ? pad3(fix.trackDeg) : '-'}</span></div>
+          <div className={cell}><span className={small}>GPS alt ft</span><span className={big}>{fix?.altFt != null ? ft(fix.altFt) : '-'}</span></div>
+          <div className={`${cell} ${directTo ? '!bg-red-900' : ''}`}>
+            <span className={small}>{directTo ? 'Direct to' : 'Next'} {targetLabel}</span>
+            <span className={big}>{toTarget ? `${nmText(toTarget.nm)} NM` : '-'}</span>
+            <span className="text-xs tabular-nums text-slate-300">
+              {toTarget ? `${pad3(toTarget.deg)}° · ${eteText(toTarget.nm, fix?.speedKt ?? null)}` : ''}
             </span>
-          )}
-          {started === 'demo' && <span className="rounded bg-sky-600 px-1.5 py-0.5 font-semibold text-white">DEMO FLIGHT ({DEMO_SPEEDUP}× speed)</span>}
-          {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
-        </div>
-        {!follow && fix && (
-          <button type="button" onClick={recenter} className="absolute bottom-3 right-3 z-[1000] flex items-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm shadow-lg">
-            <Crosshair className="h-4 w-4"/> Centre
+          </div>
+          <button type="button" aria-label="Close navigation mode" onClick={close}
+            className="flex items-center justify-center gap-1 bg-slate-950 px-3 hover:bg-slate-800 lg:landscape:order-first lg:landscape:col-span-2 lg:landscape:justify-end lg:landscape:py-1.5 lg:landscape:text-sm">
+            <span className="hidden lg:landscape:inline">Close</span><X className="h-5 w-5"/>
           </button>
-        )}
+        </div>
+
+        {/* The airspace here. */}
+        <div className="order-2 space-y-px text-sm" role="status" aria-label="Airspace here">
+          {!fix ? (
+            <div className="bg-slate-800 px-3 py-1.5">{gpsError ?? (started === 'demo' ? 'Starting the demo…' : 'Waiting for GPS…')}</div>
+          ) : airspaces == null ? (
+            <div className="bg-slate-800 px-3 py-1.5">Airspace not loaded.</div>
+          ) : inside.length ? inside.map(a => {
+            const f = contactFrequencies(a.frequencies)[0];
+            return (
+              <div key={a.id} className={`${severityClass(a)} flex flex-wrap items-baseline gap-x-2 px-3 py-1.5`}>
+                <strong>{a.name}</strong>
+                <span>{a.icaoClass ? `class ${a.icaoClass}` : a.type} · {a.lower.label}–{a.upper.label}</span>
+                {f && <span className="ml-auto font-semibold tabular-nums">{frequencyText(f)}</span>}
+              </div>
+            );
+          }) : (
+            <div className="flex flex-wrap items-baseline gap-x-2 bg-emerald-800 px-3 py-1.5">
+              <strong>Uncontrolled (class G)</strong>
+              {sweden && <span className="ml-auto font-semibold tabular-nums">{swedenControlText(sweden.sector)}</span>}
+            </div>
+          )}
+          {fix && here && here.above.length > 0 && (
+            <div className="bg-slate-800 px-3 py-1 text-xs text-slate-300">
+            Above: {here.above.slice(0, 2).map(a => `${a.name} from ${a.lower.label}`).join(' · ')}
+            </div>
+          )}
+          {airspaces != null && airspacesFetchedAt != null && (
+            <div className={`px-3 py-0.5 text-[11px] ${dataAgeDays(airspacesFetchedAt) > AIRAC_DAYS ? 'bg-amber-600 font-semibold text-white' : 'bg-slate-900 text-slate-400'}`}>
+              {dataAgeDays(airspacesFetchedAt) > AIRAC_DAYS
+                ? `Airspace data is ${dataAgeDays(airspacesFetchedAt)} days old: update it with a connection. `
+                : 'Airspace: openAIP (volunteers), '}
+            downloaded {new Date(airspacesFetchedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. No NOTAMs: check them.
+            </div>
+          )}
+        </div>
+
+        {/* Takes the rest of the panel in landscape when no page is open, keeping the buttons at the bottom. */}
+        {!sheet && <div className="order-4 hidden lg:landscape:block lg:landscape:flex-1"/>}
         {sheet === 'freq' && (
           <Sheet title="Frequencies" onClose={() => setSheet(null)}>
             <FrequencyList route={route} airspaces={airspaces} swedenControl={swedenControl} alongNm={leg?.alongNm ?? null}/>
@@ -500,21 +532,43 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           </Sheet>
         )}
-      </div>
+        <div className="order-5 grid grid-cols-3 gap-2 border-t border-slate-700 p-2">
+          <button type="button" className="flex items-center justify-center gap-2 rounded-md bg-slate-800 py-3 font-semibold hover:bg-slate-700"
+            onClick={() => setSheet(sheet === 'freq' ? null : 'freq')}>
+            <Radio className="h-5 w-5"/> Frequencies
+          </button>
+          <button type="button" className="rounded-md bg-slate-800 py-3 font-semibold hover:bg-slate-700 disabled:opacity-50"
+            disabled={!directTo} onClick={() => setDirectTo(null)}>
+            {directTo ? 'Back to route' : 'On route'}
+          </button>
+          <button type="button" className="flex items-center justify-center gap-2 rounded-md bg-red-700 py-3 font-bold hover:bg-red-600"
+            onClick={() => setSheet(sheet === 'emergency' ? null : 'emergency')}>
+            <TriangleAlert className="h-5 w-5"/> EMERGENCY
+          </button>
+        </div>
+      </aside>
 
-      <div className="grid grid-cols-3 gap-2 border-t border-slate-700 p-2">
-        <button type="button" className="flex items-center justify-center gap-2 rounded-md bg-slate-800 py-3 font-semibold hover:bg-slate-700"
-          onClick={() => setSheet(sheet === 'freq' ? null : 'freq')}>
-          <Radio className="h-5 w-5"/> Frequencies
-        </button>
-        <button type="button" className="rounded-md bg-slate-800 py-3 font-semibold hover:bg-slate-700 disabled:opacity-50"
-          disabled={!directTo} onClick={() => setDirectTo(null)}>
-          {directTo ? 'Back to route' : 'On route'}
-        </button>
-        <button type="button" className="flex items-center justify-center gap-2 rounded-md bg-red-700 py-3 font-bold hover:bg-red-600"
-          onClick={() => setSheet(sheet === 'emergency' ? null : 'emergency')}>
-          <TriangleAlert className="h-5 w-5"/> EMERGENCY
-        </button>
+      <div className="relative order-3 min-h-0 flex-1 lg:landscape:order-1">
+        <div ref={container} className="route-map absolute inset-0" aria-label="Navigation map"/>
+        <div className="pointer-events-none absolute left-2 top-2 z-[1000] flex flex-col gap-1 text-xs">
+          <span className="rounded bg-slate-900/80 px-1.5 py-0.5 font-semibold text-slate-100">VFR navigation aid · beta</span>
+          {offline && (
+            <span className={`rounded px-1.5 py-0.5 font-semibold text-white ${offline.done < offline.total ? 'bg-slate-700' : offline.failed ? 'bg-amber-600' : 'bg-emerald-700'}`}>
+              {offline.done < offline.total
+                ? `Saving the map for offline… ${Math.round((offline.done / offline.total) * 100)}%`
+                : offline.failed
+                  ? `Map offline, ${offline.failed} tiles missing`
+                  : ownBasemap ? 'Map saved for offline' : 'Airspace saved for offline (base map needs a connection here)'}
+            </span>
+          )}
+          {started === 'demo' && <span className="rounded bg-sky-600 px-1.5 py-0.5 font-semibold text-white">DEMO FLIGHT ({DEMO_SPEEDUP}× speed)</span>}
+          {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
+        </div>
+        {!follow && fix && (
+          <button type="button" onClick={recenter} className="absolute bottom-3 right-3 z-[1000] flex items-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm shadow-lg">
+            <Crosshair className="h-4 w-4"/> Centre
+          </button>
+        )}
       </div>
     </div>
   );
@@ -584,7 +638,7 @@ const POINTS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-wes
 const compass = (deg: number) => POINTS[Math.round(deg / 45) % 8];
 
 const Sheet: React.FC<{ title: string; tone?: 'red'; onClose: () => void; children: React.ReactNode }> = ({ title, tone, onClose, children }) => (
-  <div className={`absolute inset-x-0 bottom-0 z-[1100] max-h-[75%] overflow-y-auto rounded-t-lg border-t-4 bg-slate-900 p-3 shadow-2xl ${tone === 'red' ? 'border-red-600' : 'border-slate-500'}`}
+  <div className={`order-4 max-h-[55%] shrink-0 overflow-y-auto border-t-4 bg-slate-900 p-3 lg:landscape:max-h-none lg:landscape:min-h-0 lg:landscape:flex-1 lg:landscape:shrink ${tone === 'red' ? 'border-red-600' : 'border-slate-500'}`}
     role="region" aria-label={title}>
     <div className="mb-2 flex items-center justify-between">
       <h3 className="text-lg font-bold">{title}</h3>

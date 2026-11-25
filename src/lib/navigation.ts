@@ -1,6 +1,6 @@
 /**
  * The navigation mode's sums: the GPS fix, which airspace the aircraft is in, the leg it's on,
- * and the airfields within gliding range. Situational awareness only; not for navigation.
+ * and the airfields within gliding range. A VFR navigation aid: the pilot stays responsible.
  */
 import type { AirportInfo, AirspaceView } from '../types/route';
 import { containsAltitude } from './frequencies';

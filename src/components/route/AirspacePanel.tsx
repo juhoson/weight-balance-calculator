@@ -145,7 +145,7 @@ const AirspacePanel: React.FC<AirspacePanelProps> = ({ state, checks, basis, swe
         </>
       )}
       <p className="text-[11px] text-muted-foreground">
-        From openAIP, maintained by volunteers. Not for navigation: check the AIP, the charts, NOTAMs and which areas are active.
+        From openAIP, maintained by volunteers: check the AIP, the charts, NOTAMs and which areas are active.
         Flight levels are compared as altitudes; AGL limits depend on the ground, so they count as close within 1,000 ft.
         A frequency marked &quot;from&quot; an airport is that airport&apos;s, as the area has none of its own in openAIP.
       </p>

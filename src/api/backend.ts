@@ -1,4 +1,4 @@
-import { authFetch } from './session';
+import { authFetch, session, type SessionUser } from './session';
 import type {
   AirframeImportRequest,
   AirframeView,
@@ -33,7 +33,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, onHeaders?: (headers: Headers) => void): Promise<T> {
   let response: Response;
   try {
     // Sends the access token when signed in; see session.ts.
@@ -44,6 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(0, 'Could not reach the aircraft database. Check your connection and try again.', null);
   }
+  if (response.headers) onHeaders?.(response.headers);
   const text = await response.text();
   let body: unknown = null;
   try {
@@ -121,15 +122,31 @@ function normalizeAirspace(a: AirspaceView): AirspaceView {
   return { ...a, frequencies: Array.isArray(a.frequencies) ? a.frequencies : [], polygon: Array.isArray(a.polygon) ? a.polygon : [] };
 }
 
+const fetchedAt = new WeakMap<AirspaceView[], number>();
+
+/** When the server gave this list (its Date header), so an answer kept offline shows its own age. */
+export const airspacesFetchedAt = (list: AirspaceView[] | null | undefined): number | null => (list && fetchedAt.get(list)) ?? null;
+
 export async function fetchAirspacesAlong(points: Array<{ lat: number; lon: number }>): Promise<AirspaceView[]> {
   const route = points.map(p => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join(';');
-  const list = await request<AirspaceView[]>(`/api/map/airspaces?${new URLSearchParams({ route, v: AIRSPACE_API_VERSION })}`);
-  return Array.isArray(list) ? list.map(normalizeAirspace) : [];
+  let date: number | null = null;
+  const list = await request<AirspaceView[]>(`/api/map/airspaces?${new URLSearchParams({ route, v: AIRSPACE_API_VERSION })}`,
+    undefined, h => { const d = Date.parse(h?.get('Date') ?? ''); date = Number.isFinite(d) ? d : null; });
+  const out = Array.isArray(list) ? list.map(normalizeAirspace) : [];
+  fetchedAt.set(out, date ?? Date.now());
+  return out;
 }
 
 /** An aerodrome's circuits and visual reporting points. Public. */
 export function fetchAerodrome(code: string): Promise<AerodromeInfo> {
   return request<AerodromeInfo>(`/api/map/aerodrome/${encodeURIComponent(code)}`);
+}
+
+/** The signed-in user accepts the navigation mode's terms; the account (and this device) keeps it. */
+export async function acceptNavTerms(version: number): Promise<SessionUser> {
+  const user = await request<SessionUser>('/api/users/me/nav-terms', { method: 'POST', body: JSON.stringify({ version }) });
+  session.updateUser(user);
+  return user;
 }
 
 /** A flight the navigation mode recorded (signed in): stored without its points. */

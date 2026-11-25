@@ -19,6 +19,8 @@ export interface SessionUser {
   pictureUrl?: string | null;
   /** False for a Google-only account. */
   hasPassword?: boolean;
+  /** The navigation mode's terms the user accepted (see lib/navTerms); null or missing = not yet. */
+  navTermsVersion?: number | null;
 }
 
 export interface AuthProviders {
@@ -280,6 +282,14 @@ class Session {
       return null;
     }
     return null; // 429/5xx: keep the session, the next call retries
+  }
+
+  /** The signed-in user's profile changed on the server (e.g. terms accepted): kept, so it holds offline too. */
+  updateUser(user: SessionUser): void {
+    if (!this.stored || this.stored.user.id !== user.id) return;
+    this.stored = { ...this.stored, user };
+    writeStored(this.stored);
+    this.emit();
   }
 
   /** Clears the "why were you signed out" notice once shown. */
