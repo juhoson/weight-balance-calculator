@@ -362,3 +362,6 @@ input::-webkit-inner-spin-button {
 .safe-area {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

@@ -540,3 +540,21 @@ it('a shared route brings its cruise altitude and altitude changes', async () =>
   expect(within(changes).getByText('Under STOCKHOLM TMA')).toBeInTheDocument();
   window.history.replaceState(null, '', '/');
 });
+
+it('on a narrow screen, plans one step at a time: next, back, and a tap on a step', async () => {
+  const user = setupUser();
+  render(<WeightBalanceCalculator />);
+  const steps = await screen.findByRole('navigation', { name: 'Planning steps' });
+  const current = () => within(steps).getByRole('button', { current: 'step' }).textContent;
+  expect(current()).toBe('Aircraft');
+  // The other steps are hidden below lg; the one on screen isn't.
+  expect(screen.getByRole('heading', { name: /People and baggage/ }).closest('section')).toHaveClass('max-lg:hidden');
+  await user.click(screen.getByRole('button', { name: 'Next: Load' }));
+  expect(current()).toBe('Load');
+  expect(screen.getByRole('heading', { name: /People and baggage/ }).closest('section')).not.toHaveClass('max-lg:hidden');
+  await user.click(screen.getByRole('button', { name: 'Previous step' }));
+  expect(current()).toBe('Aircraft');
+  await user.click(within(steps).getByRole('button', { name: 'Check' }));
+  expect(current()).toBe('Check');
+  expect(screen.getByRole('region', { name: 'Results' }).closest('aside')).not.toHaveClass('max-lg:hidden');
+});

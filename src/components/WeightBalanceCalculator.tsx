@@ -48,7 +48,7 @@ import { loadNavSession } from '../lib/navSession';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
 import {track} from '../lib/analytics';
 import {lazyWithReload} from '../lib/lazyWithReload';
-import {Navigation} from 'lucide-react';
+import {ChevronLeft, ChevronRight, Navigation} from 'lucide-react';
 
 // Leaflet and the mode itself load only when it's opened.
 const NavigationMode = lazyWithReload(() => import('./nav/NavigationMode'));
@@ -120,9 +120,9 @@ function readFlag(key: string): boolean {
 }
 
 /** A numbered step of the form. */
-const Section: React.FC<{ step: number; title: string; children: React.ReactNode; aside?: React.ReactNode }> =
-  ({step, title, children, aside}) => (
-    <section className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+const Section: React.FC<{ step: number; title: string; children: React.ReactNode; aside?: React.ReactNode; className?: string }> =
+  ({step, title, children, aside, className}) => (
+    <section className={cn('rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5', className)}>
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-base font-semibold">
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
@@ -631,6 +631,18 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const [signInForNav, setSignInForNav] = React.useState(false);
   // A GPS flight still going when the page closed (iOS drops pages in the background): back to it at once.
   const [resumeNav, setResumeNav] = React.useState(() => loadNavSession());
+  // Phones and portrait tablets plan one step at a time; wider screens show every step at once.
+  const [step, setStep] = React.useState(0);
+  const goToStep = (i: number) => {
+    setStep(i);
+    window.scrollTo({top: 0});
+  };
+  /** Hidden below lg unless it's the step on screen. */
+  const onStep = (i: number) => (i === step ? undefined : 'max-lg:hidden');
+  const startNavigation = () => {
+    if (userId === null) setSignInForNav(true);
+    else { setNavigating(true); track('navigation-mode'); }
+  };
   // Signed in from the navigation button: straight on into navigation mode.
   React.useEffect(() => {
     if (signInForNav && userId !== null) { setSignInForNav(false); setNavigating(true); }
@@ -928,59 +940,63 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
         {clubLink && <ClubLinkBanner code={clubLink} catalog={catalog}/>}
       </div>
 
+      <PlanningSteps step={step} onStep={goToStep}/>
+
       <form onSubmit={handleSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] lg:items-start">
         <div className="min-w-0 space-y-5 print:hidden">
-          <Section
-            step={1}
-            title="Aircraft"
-            aside={hasSpecific && !clubLink && (
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
-                  checked={!hideGeneric}
-                  onChange={e => toggleGeneric(!e.target.checked)}
-                />
+          <div className={cn('space-y-5', onStep(0))}>
+            <Section
+              step={1}
+              title="Aircraft"
+              aside={hasSpecific && !clubLink && (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+                    checked={!hideGeneric}
+                    onChange={e => toggleGeneric(!e.target.checked)}
+                  />
                 Show generic aircraft
-              </label>
-            )}
-          >
-            <AircraftPicker
-              keys={Object.keys(aircraftList)}
-              meta={catalog.meta}
-              value={selectedAircraft}
-              onChange={chooseAircraft}
-            />
-            {!(clubLink && userId === null) && (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <ClubAircraftButton onSaved={catalog.reload}/>
+                </label>
+              )}
+            >
+              <AircraftPicker
+                keys={Object.keys(aircraftList)}
+                meta={catalog.meta}
+                value={selectedAircraft}
+                onChange={chooseAircraft}
+              />
+              {!(clubLink && userId === null) && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <ClubAircraftButton onSaved={catalog.reload}/>
+                </div>
+              )}
+              {onOpenProfile && <ClubHint onOpenProfile={onOpenProfile}/>}
+              <AircraftSourceNotice catalog={catalog} selectedMeta={selectedMeta}/>
+            </Section>
+
+            <AircraftHero aircraft={aircraft} meta={selectedMeta}/>
+
+            {selectedMeta?.kind === 'generic' && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-50/60 p-4 dark:bg-amber-950/20 sm:p-5">
+                <GenericEmptyWeight
+                  weight={emptyOverrides[selectedAircraft]?.weight ?? catalog.aircraft[selectedAircraft].basicEmptyWeight}
+                  arm={emptyOverrides[selectedAircraft]?.arm ?? catalog.aircraft[selectedAircraft].armAftDatum}
+                  typicalWeight={selectedMeta.noTypicalEmpty ? null : catalog.aircraft[selectedAircraft].basicEmptyWeight}
+                  typicalArm={selectedMeta.noTypicalEmpty ? null : catalog.aircraft[selectedAircraft].armAftDatum}
+                  onChange={value => updateEmptyOverride(selectedAircraft, value)}
+                />
               </div>
             )}
-            {onOpenProfile && <ClubHint onOpenProfile={onOpenProfile}/>}
-            <AircraftSourceNotice catalog={catalog} selectedMeta={selectedMeta}/>
-          </Section>
+          </div>
 
-          <AircraftHero aircraft={aircraft} meta={selectedMeta}/>
-
-          {selectedMeta?.kind === 'generic' && (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-50/60 p-4 dark:bg-amber-950/20 sm:p-5">
-              <GenericEmptyWeight
-                weight={emptyOverrides[selectedAircraft]?.weight ?? catalog.aircraft[selectedAircraft].basicEmptyWeight}
-                arm={emptyOverrides[selectedAircraft]?.arm ?? catalog.aircraft[selectedAircraft].armAftDatum}
-                typicalWeight={selectedMeta.noTypicalEmpty ? null : catalog.aircraft[selectedAircraft].basicEmptyWeight}
-                typicalArm={selectedMeta.noTypicalEmpty ? null : catalog.aircraft[selectedAircraft].armAftDatum}
-                onChange={value => updateEmptyOverride(selectedAircraft, value)}
-              />
-            </div>
-          )}
-
-          <Section step={2} title="People and baggage">
+          <Section step={2} title="People and baggage" className={onStep(1)}>
             <p className="-mt-2 text-xs text-muted-foreground">Tap a seat to enter the person&apos;s weight.</p>
             <SeatLayout weights={inputs} layout={getSeatLayout(aircraft)} onChange={handleWeightChange}/>
             <BaggageInputs aircraft={aircraft} inputs={inputs} onChange={handleInputChange}/>
           </Section>
 
-          <Section step={3} title="Route and weather">
+          <Section step={3} title="Route and weather" className={onStep(2)}>
             <RouteSection
               route={route}
               onChange={setRoute}
@@ -1023,11 +1039,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             )}
             {trip && trip.distanceNm > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm"
-                  onClick={() => { if (userId === null) setSignInForNav(true); else { setNavigating(true); track('navigation-mode'); } }}>
+                <Button type="button" variant="outline" size="sm" onClick={startNavigation}>
                   <Navigation className="mr-1 h-4 w-4"/> Navigation mode
                 </Button>
-                <AuthDialog open={signInForNav} onOpenChange={setSignInForNav}/>
                 {userId !== null && <React.Suspense fallback={null}><MyFlightsButton/></React.Suspense>}
                 <span className="text-xs text-muted-foreground">
                   VFR navigation aid (beta): the route on a moving map with GPS, the airspace you&apos;re in, the frequencies along
@@ -1035,30 +1049,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 </span>
               </div>
             )}
-            {resumeNav && !navigating && (
-              <React.Suspense fallback={null}>
-                <NavigationMode {...resumeNav} resumed={resumeNav} signedIn={userId !== null} onClose={() => setResumeNav(null)}/>
-              </React.Suspense>
-            )}
-            {navigating && trip && (
-              <React.Suspense fallback={null}>
-                <NavigationMode
-                  trip={trip}
-                  airspaces={airspaces.data}
-                  airspacesFetchedAt={airspacesFetchedAt(airspaces.data)}
-                  reportingPoints={weather.reportingPoints}
-                  swedenControl={swedenControl}
-                  bestGlideKt={perf?.bestGlideSpeed ? Math.round(perf.speedUnit === 'MPH' ? perf.bestGlideSpeed * MPH_TO_KT : perf.bestGlideSpeed) : null}
-                  cruiseKt={tasKt}
-                  cruiseAltFt={altitudeFt}
-                  signedIn={userId !== null}
-                  onClose={() => setNavigating(false)}
-                />
-              </React.Suspense>
-            )}
           </Section>
 
-          <Section step={4} title="Fuel and flight">
+          <Section step={4} title="Fuel and flight" className={onStep(3)}>
             <FormItem>
               <FormLabel>{aircraft.stations.fuel2 ? aircraft.stations.fuel.label ?? 'Main tank' : 'Fuel on board'}</FormLabel>
               <div className="flex gap-2">
@@ -1160,10 +1153,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             </div>
           </Section>
 
-          <SafetyDisclaimer/>
+          <div className={onStep(4)}><SafetyDisclaimer/></div>
         </div>
 
-        <aside className="lg:sticky lg:top-24">
+        <aside className={cn('lg:sticky lg:top-24', onStep(4))}>
           <ResultsPanel
             results={results}
             aircraft={aircraft}
@@ -1179,25 +1172,60 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
         </aside>
       </form>
 
-      {/* Mobile: the verdict stays in view while editing; tap to jump to the details. */}
-      {results && verdict && (
-        <a
-          href="#results"
-          className={cn(
-            'fixed inset-x-3 bottom-3 z-40 flex items-center gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur lg:hidden print:hidden',
-            verdictStyles[verdict],
-          )}
-        >
-          <VerdictIcon verdict={verdict} className="h-5 w-5 shrink-0"/>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-bold leading-tight">{VERDICT_TEXT[verdict].title}</span>
-            <span className="block text-xs tabular-nums opacity-80">
-              Takeoff {results.takeoff.totalWeight.toFixed(0)} kg · CG {results.takeoff.cg.toFixed(3)} m
-            </span>
-          </span>
-          <span className="text-xs font-medium underline">Details</span>
-        </a>
+      {/* Outside the steps: shown over everything whichever step is on screen. */}
+      <AuthDialog open={signInForNav} onOpenChange={setSignInForNav}/>
+      {resumeNav && !navigating && (
+        <React.Suspense fallback={null}>
+          <NavigationMode {...resumeNav} resumed={resumeNav} signedIn={userId !== null} onClose={() => setResumeNav(null)}/>
+        </React.Suspense>
       )}
+      {navigating && trip && (
+        <React.Suspense fallback={null}>
+          <NavigationMode
+            trip={trip}
+            airspaces={airspaces.data}
+            airspacesFetchedAt={airspacesFetchedAt(airspaces.data)}
+            reportingPoints={weather.reportingPoints}
+            swedenControl={swedenControl}
+            bestGlideKt={perf?.bestGlideSpeed ? Math.round(perf.speedUnit === 'MPH' ? perf.bestGlideSpeed * MPH_TO_KT : perf.bestGlideSpeed) : null}
+            cruiseKt={tasKt}
+            cruiseAltFt={altitudeFt}
+            signedIn={userId !== null}
+            onClose={() => setNavigating(false)}
+          />
+        </React.Suspense>
+      )}
+
+      {/* Phones and portrait tablets: back and next, with the verdict in view while editing. */}
+      <div className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur lg:hidden print:hidden">
+        <div className="mx-auto flex max-w-3xl items-center gap-2 px-3 py-2">
+          <Button type="button" variant="outline" className="h-12 px-3" disabled={step === 0} onClick={() => goToStep(step - 1)}
+            aria-label="Previous step">
+            <ChevronLeft className="h-5 w-5"/>
+          </Button>
+          {step === PLANNING_STEPS.length - 1 && trip && trip.distanceNm > 0 ? (
+            <Button type="button" className="h-12 flex-1 text-base" onClick={startNavigation}>
+              <Navigation className="mr-2 h-5 w-5"/> Start navigation
+            </Button>
+          ) : results && verdict ? (
+            <button type="button" onClick={() => goToStep(PLANNING_STEPS.length - 1)}
+              className={cn('flex h-12 min-w-0 flex-1 items-center gap-2 rounded-lg border px-3 text-left', verdictStyles[verdict])}>
+              <VerdictIcon verdict={verdict} className="h-5 w-5 shrink-0"/>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold leading-tight">{VERDICT_TEXT[verdict].title}</span>
+                <span className="block truncate text-xs tabular-nums opacity-80">
+                  Takeoff {results.takeoff.totalWeight.toFixed(0)} kg · CG {results.takeoff.cg.toFixed(3)} m
+                </span>
+              </span>
+            </button>
+          ) : <span className="flex-1"/>}
+          {step < PLANNING_STEPS.length - 1 && (
+            <Button type="button" className="h-12 px-4" onClick={() => goToStep(step + 1)} aria-label={`Next: ${PLANNING_STEPS[step + 1]}`}>
+              {PLANNING_STEPS[step + 1]} <ChevronRight className="ml-1 h-5 w-5"/>
+            </Button>
+          )}
+        </div>
+      </div>
 
       {results && (
         <div className="hidden print:block mt-8">
@@ -1224,10 +1252,30 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
           </div>
         </div>
       )}
-      <div className="pb-20 lg:pb-0"><CompanyFooter/></div>
+      <div className="pb-24 lg:pb-0"><CompanyFooter/></div>
     </>
   );
 };
+const PLANNING_STEPS = ['Aircraft', 'Load', 'Route', 'Fuel', 'Check'] as const;
+
+/** Where the planning is, on phones and portrait tablets: tap a step to go to it. */
+const PlanningSteps: React.FC<{ step: number; onStep: (i: number) => void }> = ({step, onStep}) => (
+  <nav aria-label="Planning steps" className="mb-4 lg:hidden print:hidden">
+    <ol className="grid grid-cols-5 gap-1">
+      {PLANNING_STEPS.map((name, i) => (
+        <li key={name}>
+          <button type="button" onClick={() => onStep(i)} aria-current={i === step ? 'step' : undefined}
+            className={cn('flex w-full flex-col items-center gap-1 rounded-md py-1 text-[11px] font-medium',
+              i === step ? 'text-primary' : 'text-muted-foreground')}>
+            <span className={cn('h-1.5 w-full rounded-full', i <= step ? 'bg-primary' : 'bg-muted')}/>
+            {name}
+          </button>
+        </li>
+      ))}
+    </ol>
+  </nav>
+);
+
 /** A second fuel tank at its own arm (e.g. the Robin DR400's wing tanks). */
 const SecondTank: React.FC<{
   tank: NonNullable<AircraftData['stations']['fuel2']>;
