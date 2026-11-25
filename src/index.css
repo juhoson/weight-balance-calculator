@@ -195,6 +195,11 @@ input::-webkit-inner-spin-button {
 .route-map .leaflet-tooltip.route-map-label::before {
   display: none;
 }
+/* Plotting a course: a crosshair over the map and the legs. */
+.route-map.route-map--plotting,
+.route-map--plotting .route-map-leg {
+  cursor: crosshair;
+}
 /* Waypoints that can be dragged, and the handle mid-leg to drag out a new one. */
 .route-map .route-map-waypoint {
   border: 2px solid #ffffff;
@@ -238,10 +243,10 @@ input::-webkit-inner-spin-button {
   visibility: hidden;
 }
 
-/* Visual reporting points on the briefing maps: a triangle, filled when compulsory. */
+/* Visual reporting points: a triangle, filled when compulsory (Leaflet sets the icon's size inline). */
 .vrp-marker {
-  width: 0;
-  height: 0;
+  width: 0 !important;
+  height: 0 !important;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-bottom: 11px solid #1d4ed8;
@@ -262,6 +267,10 @@ input::-webkit-inner-spin-button {
 .route-map .leaflet-tooltip.vrp-label {
   color: #1d4ed8;
   font-size: 9px;
+}
+/* Zoomed out on the planning map, the names would crowd each other: the marker's title has them. */
+.route-map--far .leaflet-tooltip.vrp-label {
+  display: none;
 }
 
 /* The briefing pack: printed on its own. On screen it is laid out out of sight, so its maps can load. */

@@ -1,4 +1,4 @@
-import { parsePosition, positionCode, positionText, routeLabels } from './routePoint';
+import { namePosition, parsePosition, positionCode, positionText, routeLabels } from './routePoint';
 
 it('writes a position to the nearest minute in flight plan form, and reads it back', () => {
   expect(positionCode(59.2, 17.5667)).toBe('5912N01734E');
@@ -18,4 +18,12 @@ it('names positions WP1, WP2, … in route order and says where they are', () =>
   expect(positionText('5912N01734E')).toBe('59°12′N 017°34′E');
   expect(positionText('593015N0170030W')).toBe('59°30′15″N 017°00′30″W');
   expect(positionText('ESSX')).toBeNull();
+});
+
+it('writes a reporting point to the second, and calls it by its name on the route', () => {
+  expect(positionCode(59.591667, 16.5, true)).toBe('593530N0163000E');
+  expect(positionCode(59.99999, 17.99999, true)).toBe('600000N0180000E');
+  expect(parsePosition('593530N0163000E')?.lat).toBeCloseTo(59.591667, 4);
+  namePosition('593530N0163000E', 'KOLBÄCK');
+  expect(routeLabels(['ESSX', '593530N0163000E', '5912N01734E', 'ESOW'])).toEqual(['ESSX', 'KOLBÄCK', 'WP1', 'ESOW']);
 });

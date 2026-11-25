@@ -112,9 +112,9 @@ const RouteSection: React.FC<RouteSectionProps> = ({
           Nearest airport
         </Button>
         {route.from && route.to && route.from !== route.to && (
-          <Button type="button" variant="ghost" size="sm" className="sm:hidden"
+          <Button type="button" variant="outline" size="sm"
             onClick={() => set({ from: route.to, to: route.from, via: [...route.via].reverse() })}>
-            <ArrowLeftRight className="mr-1 h-4 w-4"/> Swap
+            <ArrowLeftRight className="mr-1 h-4 w-4"/> Reverse route
           </Button>
         )}
         {route.from && route.to && (
@@ -150,7 +150,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
       {data && (
         <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
           <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}
-            onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS}/>
+            onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS} reportingPoints={weather.reportingPoints}/>
         </React.Suspense>
       )}
       {weather.error && <p className="text-sm text-red-600" role="alert">{weather.error}</p>}

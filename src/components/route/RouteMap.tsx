@@ -4,6 +4,8 @@ import 'leaflet/dist/leaflet.css';
 import { AIRSPACE_TILE_URL, fetchMapStatus, fetchPointInfo, type MapStatus, nearestAirports } from '../../api/backend';
 import { parsePosition, positionCode, positionText, routeLabels } from '../../lib/routePoint';
 import { pointInfoHtml } from '../../lib/frequencies';
+import type { RouteReportingPoint } from '../../lib/useRouteWeather';
+import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
 export interface MapAirport {
   code: string;
@@ -21,6 +23,30 @@ interface RouteMapProps {
    */
   onWaypointsChange?: (via: string[]) => void;
   maxWaypoints?: number;
+  /** Visual reporting points to show; with onWaypointsChange, the route can go through them. */
+  reportingPoints?: RouteReportingPoint[];
+}
+
+/** Reporting point names show from this zoom in; further out, on hover only. */
+const VRP_LABEL_ZOOM = 9;
+
+type At = { lat: number; lon: number };
+const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
+/** "ESSX → WP1: 23 NM, 045° true", as the route list says it. */
+export function legText(from: string, to: string, a: At, b: At): string {
+  const nm = distanceNm(a.lat, a.lon, b.lat, b.lon);
+  return `${from} → ${to}: ${nm < 10 ? nm.toFixed(1) : Math.round(nm)} NM, ${pad3(courseDeg(a.lat, a.lon, b.lat, b.lon))}° true`;
+}
+
+/** Where a new waypoint adds the least distance: the index in the waypoints to put it at. */
+export function bestInsert(route: Array<{ lat: number; lon: number }>, at: { lat: number; lon: number }): number {
+  const d = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => L.latLng(a.lat, a.lon).distanceTo([b.lat, b.lon]);
+  let best = 0, extra = Infinity;
+  for (let i = 0; i < route.length - 1; i++) {
+    const e = d(route[i], at) + d(at, route[i + 1]) - d(route[i], route[i + 1]);
+    if (e < extra) { extra = e; best = i; }
+  }
+  return best;
 }
 
 /** Dropped this close to an airport on screen, a waypoint becomes that airport. */
@@ -47,8 +73,10 @@ export function resetMapStatus(): void {
 }
 
 /** The route on a map, with openAIP's airspace on top. */
-const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWaypoints = 18 }) => {
+const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWaypoints = 18, reportingPoints = [] }) => {
   const container = React.useRef<HTMLDivElement>(null);
+  /** While plotting a course: what a click on the map does. */
+  const plotClick = React.useRef<((at: L.LatLng) => void) | null>(null);
   const mapRef = React.useRef<L.Map | null>(null);
   const routeLayer = React.useRef<L.LayerGroup | null>(null);
   const [status, setStatus] = React.useState<MapStatus | null | undefined>(undefined);
@@ -91,10 +119,17 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
     // Top left, under the zoom buttons: the credits take the bottom edge on a phone.
     L.control.scale({ imperial: true, metric: true, position: 'topleft' }).addTo(map);
     routeLayer.current = L.layerGroup().addTo(map);
+    const far = () => container.current?.classList.toggle('route-map--far', map.getZoom() < VRP_LABEL_ZOOM);
+    map.on('zoomend', far);
+    far();
     // Clicking the map enables the mouse wheel, so scrolling past it doesn't zoom it; with the
     // airspace on, it also shows the airspace and frequencies at that spot.
     map.on('click', (e: L.LeafletMouseEvent) => {
       map.scrollWheelZoom.enable();
+      if (plotClick.current) {
+        plotClick.current(e.latlng);
+        return;
+      }
       if (!status?.airspace) return;
       // As tall as the map allows (it scrolls inside); the map buttons hide while it's open.
       const popup = L.popup({
@@ -125,15 +160,28 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
   React.useEffect(() => setPending(null), [key]);
   const shown = pending && pending.base === key ? pending.airports : airports;
   const shownKey = keyOf(shown);
+  const vrpKey = reportingPoints.map(p => p.code).join('|');
   // The codes after the pilot's own edit: the map keeps its view for those instead of refitting.
   const edited = React.useRef<string | null>(null);
+  /**
+   * Plotting a new course from the departure, a click at a time; `before` is the waypoints to go
+   * back to on cancel, `committed` whether the route has been changed yet.
+   */
+  const [plotting, setPlotting] = React.useState<{ before: MapAirport[] } | null>(null);
+  const plotted = React.useRef<MapAirport[]>([]);
+  const plotQueue = React.useRef<Promise<void>>(Promise.resolve());
+  if (plotting && !editable) setPlotting(null);
+  /** The route the view was last fitted to. */
+  const fitted = React.useRef<{ map: L.Map; key: string } | null>(null);
   React.useEffect(() => {
     const map = mapRef.current;
     const group = routeLayer.current;
     if (!map || !group) return;
     group.clearLayers();
+    plotClick.current = null;
     if (shown.length === 0) return;
     const points = shown.map(a => L.latLng(a.lat, a.lon));
+    const off: Array<() => void> = [];
     const lines = points.length > 1 ? [
       L.polyline(points, { color: '#ffffff', weight: 6, opacity: 0.8, interactive: false }).addTo(group),
       L.polyline(points, { color: ROUTE_COLOR, weight: 3, opacity: 1, interactive: false }).addTo(group),
@@ -151,6 +199,12 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
       const lon = L.Util.wrapNum(at.lng, [-180, 180], true);
       const code = positionCode(at.lat, lon);
       const exact = parsePosition(code) ?? { lat: at.lat, lon };
+      const px = map.latLngToContainerPoint(at);
+      const vrp = reportingPoints
+        .map(p => ({ p, d: map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(px) }))
+        .filter(x => x.d <= SNAP_PX)
+        .sort((a, b) => a.d - b.d)[0]?.p;
+      if (vrp) return { code: vrp.code, name: vrp.name, lat: vrp.lat, lon: vrp.lon };
       try {
         const near = (await nearestAirports(at.lat, lon))[0]?.airport;
         if (near && map.latLngToContainerPoint([near.lat, near.lon]).distanceTo(map.latLngToContainerPoint(at)) <= SNAP_PX) {
@@ -162,6 +216,35 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
       return { code, name: positionText(code) ?? code, ...exact };
     };
 
+    // Reporting points first, so the route draws over them.
+    const onRoute = new Set(shown.map(a => a.code));
+    reportingPoints.forEach(p => {
+      if (onRoute.has(p.code)) return;
+      const m = L.marker([p.lat, p.lon], {
+        icon: L.divIcon({ className: p.compulsory ? 'vrp-marker vrp-marker--compulsory' : 'vrp-marker', iconSize: [12, 11] }),
+        keyboard: false, bubblingMouseEvents: false, title: `${p.name} (${p.airport})`,
+      });
+      m.bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label' });
+      const popup = document.createElement('div');
+      popup.innerHTML = `<strong>${escapeHtml(p.name)}</strong><br>${p.compulsory ? 'Compulsory' : 'Visual'} reporting point, ${escapeHtml(p.airport)}`
+        + `<br>${positionText(p.code) ?? ''}`;
+      if (editable && between.length < maxWaypoints) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'route-map-remove';
+        add.textContent = 'Route via this point';
+        add.addEventListener('click', () => {
+          map.closePopup();
+          const i = bestInsert(shown, p);
+          commit([...between.slice(0, i), { code: p.code, name: p.name, lat: p.lat, lon: p.lon }, ...between.slice(i)]);
+        });
+        popup.appendChild(add);
+      }
+      if (plotting) m.on('click', () => plot({ code: p.code, name: p.name, lat: p.lat, lon: p.lon }));
+      else m.bindPopup(popup);
+      m.addTo(group);
+    });
+
     const labels = routeLabels(shown.map(a => a.code));
     // A position: "WP1" with where it is; an airport: its code and name.
     const info = (a: MapAirport, i: number) => {
@@ -170,20 +253,67 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
         ? `<strong>${labels[i]}</strong><br>${where}<br><span class="route-map-code">${escapeHtml(a.code)}</span>`
         : a.name ? `<strong>${escapeHtml(a.code)}</strong><br>${escapeHtml(a.name)}` : `<strong>${escapeHtml(a.code)}</strong>`;
     };
+    // Each leg, wide and unseen: hovering it says how long it is.
+    for (let i = 0; i < shown.length - 1; i++) {
+      L.polyline([points[i], points[i + 1]], { color: '#000000', weight: 18, opacity: 0, className: 'route-map-leg' })
+        .bindTooltip(legText(labels[i], labels[i + 1], shown[i], shown[i + 1]), { sticky: true, direction: 'top', offset: [0, -8] })
+        .addTo(group);
+    }
+
+    // Plotting: each click is the next turning point (snapped to an airport or reporting point
+    // nearby); a dashed line follows the pointer from the last one.
+    const plot = (at: L.LatLng | MapAirport) => {
+      plotQueue.current = plotQueue.current.then(async () => {
+        const p = at instanceof L.LatLng ? await dropped(at) : at;
+        plotted.current = [...plotted.current, p];
+        commit(plotted.current);
+        if (plotted.current.length >= maxWaypoints) setPlotting(null);
+      });
+    };
+    if (plotting) {
+      plotClick.current = plot;
+      const last = plotted.current[plotted.current.length - 1] ?? shown[0];
+      const band = L.polyline([], { color: ROUTE_COLOR, weight: 2, dashArray: '6 6', interactive: false }).addTo(group);
+      const from = plotted.current.length ? labels[shown.length - 2] : labels[0];
+      const move = (e: L.LeafletMouseEvent) => {
+        band.setLatLngs([[last.lat, last.lon], e.latlng]);
+        const text = legText(from, 'here', last, { lat: e.latlng.lat, lon: e.latlng.lng });
+        // Bound once the line has points (Leaflet can't place a label on an empty one).
+        if (band.getTooltip()) band.setTooltipContent(text);
+        else band.bindTooltip(text, { permanent: true, direction: 'right', offset: [12, 0], className: 'route-map-label' });
+        band.openTooltip(e.latlng);
+      };
+      map.on('mousemove', move);
+      off.push(() => map.off('mousemove', move));
+    }
+
     shown.forEach((a, i) => {
       const end = i === 0 || i === shown.length - 1;
       const label = <T extends L.Layer>(m: T): T => {
         m.bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' });
         return m;
       };
-      if (end || !editable) {
-        label(L.circleMarker([a.lat, a.lon], {
+      if (end || !editable || plotting) {
+        const m = label(L.circleMarker([a.lat, a.lon], {
           radius: end ? 7 : 5, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1,
           // A tap on an airport shows its name, not the airspace lookup.
           bubblingMouseEvents: false,
-        }))
-          .bindPopup(info(a, i))
-          .addTo(group);
+          className: editable && end ? 'route-map-end' : '',
+        }));
+        if (plotting) {
+          // The arrival (or the departure again) ends it; a waypoint already plotted does nothing.
+          if (end) m.on('click', () => stopRef.current(false));
+        } else if (editable && i === 0) {
+          m.on('click', () => {
+            map.closePopup();
+            plotted.current = [];
+            setPending({ base: key, airports: [shown[0], shown[shown.length - 1]] });
+            setPlotting({ before: between });
+          });
+        } else {
+          m.bindPopup(info(a, i));
+        }
+        m.addTo(group);
         return;
       }
       // A waypoint: drag it somewhere else, or remove it from its popup.
@@ -211,7 +341,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
       marker.addTo(group);
     });
     // A handle in the middle of each leg: drag it out to add a waypoint there.
-    if (editable && between.length < maxWaypoints) {
+    if (editable && !plotting && between.length < maxWaypoints) {
       for (let i = 0; i < points.length - 1; i++) {
         const mid = L.latLng((points[i].lat + points[i + 1].lat) / 2, (points[i].lng + points[i + 1].lng) / 2);
         const handle = L.marker(mid, {
@@ -226,30 +356,96 @@ const RouteMap: React.FC<RouteMapProps> = ({ airports, onWaypointsChange, maxWay
       }
     }
 
-    if (edited.current === shown.map(a => a.code).join('|')) return; // the pilot's own change: keep the view
-    edited.current = null;
-    const bounds = L.latLngBounds(points);
-    const size = map.getSize();
-    const tiny = bounds.getNorthEast().distanceTo(bounds.getSouthWest()) < 5000;
-    if (size.x === 0 || size.y === 0 || tiny) {
-      // A local flight, or a map that isn't laid out yet (fitBounds needs a size).
-      map.setView(bounds.getCenter(), tiny ? 10 : 8);
+    const fit = () => {
+      // Only the reporting points came in, or plotting started or stopped: keep the view.
+      if (fitted.current?.map === map && fitted.current.key === shownKey) return;
+      fitted.current = { map, key: shownKey };
+      if (plotting) return;
+      if (edited.current === shown.map(a => a.code).join('|')) return; // the pilot's own change: keep the view
+      edited.current = null;
+      const bounds = L.latLngBounds(points);
+      const size = map.getSize();
+      const tiny = bounds.getNorthEast().distanceTo(bounds.getSouthWest()) < 5000;
+      if (size.x === 0 || size.y === 0 || tiny) {
+        // A local flight, or a map that isn't laid out yet (fitBounds needs a size).
+        map.setView(bounds.getCenter(), tiny ? 10 : 8);
+      } else {
+        // Room for the zoom buttons and scale (top left), the layers button (top right), the
+        // labels right of each airport, and the credits along the bottom.
+        map.fitBounds(bounds, { paddingTopLeft: [60, 64], paddingBottomRight: [72, 36], maxZoom: 11 });
+      }
+    };
+    fit();
+    return () => off.forEach(f => f());
+  }, [shownKey, vrpKey, status, editable, maxWaypoints, plotting]);
+
+  const stopPlotting = (cancel: boolean) => {
+    if (!plotting) return;
+    if (cancel) {
+      const before = plotting.before;
+      plotQueue.current = plotQueue.current.then(() => {
+        if (plotted.current.length === 0) { setPending(null); return; }
+        const ends = [shown[0], shown[shown.length - 1]];
+        edited.current = [ends[0], ...before, ends[1]].map(a => a.code).join('|');
+        setPending({ base: key, airports: [ends[0], ...before, ends[1]] });
+        editRef.current?.(before.map(a => a.code));
+      });
     } else {
-      // Room for the zoom buttons and scale (top left), the layers button (top right), the
-      // labels right of each airport, and the credits along the bottom.
-      map.fitBounds(bounds, { paddingTopLeft: [60, 64], paddingBottomRight: [72, 36], maxZoom: 11 });
+      // Done before a single point: the route as it was.
+      plotQueue.current = plotQueue.current.then(() => { if (plotted.current.length === 0) setPending(null); });
     }
-  }, [shownKey, status, editable, maxWaypoints]);
+    setPlotting(null);
+  };
+  const undo = () => {
+    plotQueue.current = plotQueue.current.then(() => {
+      if (plotted.current.length === 0) return;
+      plotted.current = plotted.current.slice(0, -1);
+      const ends = [shown[0], shown[shown.length - 1]];
+      const next = [ends[0], ...plotted.current, ends[1]];
+      edited.current = next.map(a => a.code).join('|');
+      setPending({ base: key, airports: next });
+      editRef.current?.(plotted.current.map(a => a.code));
+    });
+  };
+  const stopRef = React.useRef(stopPlotting);
+  stopRef.current = stopPlotting;
+  // Escape cancels the plotting.
+  React.useEffect(() => {
+    if (!plotting) return;
+    container.current?.classList.add('route-map--plotting');
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') stopRef.current(true); };
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('keydown', key);
+      container.current?.classList.remove('route-map--plotting');
+    };
+  }, [plotting]);
+  const labels = routeLabels(shown.map(a => a.code));
 
   return (
     <div className="space-y-1">
-      <div ref={container} role="region" aria-label="Route map"
-        className="route-map relative z-0 h-72 w-full overflow-hidden rounded-md border border-border sm:h-96"/>
+      <div className="relative">
+        <div ref={container} role="region" aria-label="Route map"
+          className="route-map relative z-0 h-72 w-full overflow-hidden rounded-md border border-border sm:h-96"/>
+        {plotting && (
+          <div role="status" className="absolute inset-x-2 bottom-6 z-[1000] mx-auto flex max-w-md flex-wrap items-center gap-2 rounded-md border border-border bg-background/95 px-3 py-2 text-xs shadow-lg">
+            <span className="flex-1">
+              Plotting from {labels[0]}: {L.Browser.mobile ? 'tap' : 'click'} the map for each turning point (airports and reporting
+              points snap). {L.Browser.mobile ? 'Tap' : 'Click'} {labels[labels.length - 1]} or Done to finish.
+            </span>
+            <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted" onClick={undo}>Undo</button>
+            <button type="button" className="rounded border border-border px-2 py-1 hover:bg-muted" onClick={() => stopPlotting(true)}>Cancel</button>
+            <button type="button" className="rounded bg-primary px-2 py-1 text-primary-foreground" onClick={() => stopPlotting(false)}>Done</button>
+          </div>
+        )}
+      </div>
       <p className="text-[11px] text-muted-foreground">
         {status?.airspace
           ? 'Tap the map for the airspace and frequencies there. Airspace from openAIP, maintained by volunteers. Not for navigation: check the AIP, the official charts and NOTAMs.'
           : status === undefined ? '' : 'Airspace is not available right now; the map shows the route only.'}
-        {editable && ' Drag a waypoint to move it, or a white dot in the middle of a leg to add one; drop it on an airport to use that airport.'}
+        {!L.Browser.mobile && shown.length > 1 && ' Hover a leg for its length and course.'}
+        {editable && ` ${L.Browser.mobile ? 'Tap' : 'Click'} ${labels[0]} to plot a new course from it, point by point.`}
+        {editable && ' Drag a waypoint to move it, or a white dot in the middle of a leg to add one; drop it on an airport or reporting point (blue triangle) to use it, or tap a reporting point to route via it.'}
         {L.Browser.mobile && ' Use two fingers to move the map.'}
       </p>
     </div>

@@ -1123,10 +1123,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             waitingFor={aircraft.basicEmptyWeight > 0 ? null
               : 'Enter your aircraft\'s empty weight and arm from its weighing report (under the aircraft) to see the results.'}
             routeLabel={trip ? `${routeChain([trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code])} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
+            actions={<BriefingButton data={briefing}/>}
           />
-          <div className="mt-3 flex justify-end print:hidden">
-            <BriefingButton data={briefing}/>
-          </div>
         </aside>
       </form>
 

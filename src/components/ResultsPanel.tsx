@@ -86,11 +86,13 @@ interface ResultsPanelProps {
   routeLabel?: string | null;
   /** Why there are no results yet, e.g. the empty weight is missing. */
   waitingFor?: string | null;
+  /** More buttons beside "Print Calculations". */
+  actions?: React.ReactNode;
 }
 
 /** The outcome: overall verdict, takeoff and landing figures, the CG envelope and the fuel plan. */
 const ResultsPanel: React.FC<ResultsPanelProps> = ({
-  results, aircraft, fuelAmount, fuelUnit, tripFuel, powerSetting, routeLabel, waitingFor,
+  results, aircraft, fuelAmount, fuelUnit, tripFuel, powerSetting, routeLabel, waitingFor, actions,
 }) => {
   const verdict = results ? verdictOf(results) : null;
   const reserve = aircraft.performance.reserveFuel.recommendedLiters;
@@ -162,7 +164,10 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
         </div>
       )}
 
-      <PrintButton disabled={!results}/>
+      <div className="flex flex-wrap gap-2 print:hidden">
+        <PrintButton disabled={!results}/>
+        {actions}
+      </div>
     </section>
   );
 };
