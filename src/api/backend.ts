@@ -115,7 +115,7 @@ export function fetchMapStatus(): Promise<MapStatus> {
  * Bumped when the airspace answers change shape: browsers keep them for an hour, and an answer
  * from before frequencies existed crashed the new code (2026-11-24).
  */
-const AIRSPACE_API_VERSION = '2';
+const AIRSPACE_API_VERSION = '3';
 
 /** Missing lists as empty, so an answer from an older backend can't break the page. */
 function normalizeAirspace(a: AirspaceView): AirspaceView {

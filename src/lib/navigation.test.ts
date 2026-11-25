@@ -1,5 +1,5 @@
 import {
-  activeLeg, airspacesHere, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, pad3, positionAlong,
+  activeLeg, airspacesHere, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
 } from './navigation';
 import type { AirportInfo, AirspaceView } from '../types/route';
 
@@ -87,4 +87,24 @@ test('texts', () => {
   expect(eteText(10, 0)).toBe('-');
   expect(pad3(5)).toBe('005');
   expect(pad3(359.7)).toBe('000');
+});
+
+describe('the next controlled airspace', () => {
+  const tma: AirspaceView = { ...airspace('TMA', 1500, 9500), type: 'TMA', icaoClass: 'C',
+    frequencies: [{ value: '123.750', name: 'STOCKHOLM CONTROL', kind: 'APP', primary: true, source: null }] };
+  const at = (fromNm: number, a: AirspaceView = tma) => [{ airspace: a, fromNm, toNm: fromNm + 20 }];
+
+  test('shows from 10 NM out, at an altitude inside its limits', () => {
+    expect(nextAirspace(at(30), 19, 3000, new Set())).toBeNull(); // 11 NM out
+    expect(nextAirspace(at(30), 21, 3000, new Set())).toEqual({ airspace: tma, inNm: 9 });
+    expect(nextAirspace(at(30), 21, 1000, new Set())).toBeNull(); // under its floor
+    expect(nextAirspace(at(30), 21, null, new Set())?.airspace).toBe(tma);
+  });
+
+  test('not one already inside, uncontrolled, or without a frequency', () => {
+    expect(nextAirspace(at(30), 21, 3000, new Set(['TMA']))).toBeNull();
+    expect(nextAirspace(at(30, { ...tma, icaoClass: 'G' }), 21, 3000, new Set())).toBeNull();
+    expect(nextAirspace(at(30, { ...tma, frequencies: [] }), 21, 3000, new Set())).toBeNull();
+    expect(nextAirspace(at(20), 21, 3000, new Set())).toBeNull(); // behind
+  });
 });

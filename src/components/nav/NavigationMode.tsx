@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Crosshair, Radio, TriangleAlert, X } from 'lucide-react';
 import {
-  acceptNavTerms, AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
+  acceptNavTerms, AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapArea, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
 } from '../../api/backend';
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
@@ -12,14 +12,14 @@ import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl 
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
 import { type SwedenControlLeg, swedenControlAt, swedenControlText } from '../../lib/swedenControl';
-import { contactFrequencies, frequencyText } from '../../lib/frequencies';
+import { atisAndGround, contactFrequencies, frequencyText } from '../../lib/frequencies';
 import { adviceFor, crossingsAlong } from '../../lib/airspace';
 import { routeLabels } from '../../lib/routePoint';
 import type { RoutePosition } from '../../lib/openMeteo';
 import { GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
-  glideRangeNm, nearestAirfields, pad3, positionAlong,
+  glideRangeNm, isControlled, nearestAirfields, nextAirspace, pad3, positionAlong,
 } from '../../lib/navigation';
 
 export interface NavigationModeProps {
@@ -49,6 +49,29 @@ const RATIO_KEY = 'nav.glideRatio';
 /** Base map tiles kept for offline from this zoom; airspace tiles up to AIRSPACE_MAX_ZOOM (shown enlarged beyond). */
 const OFFLINE_MIN_ZOOM = 6;
 const AIRSPACE_MAX_ZOOM = 10;
+/** Visual reporting points this far either side of the route are drawn, whichever airport they belong to. */
+const VRP_CORRIDOR_NM = 15;
+const SHOW_VRP_KEY = 'nav.showVrp';
+type Vrp = { name: string; lat: number; lon: number; compulsory: boolean };
+
+/** Every visual reporting point near the route: the map area around it, asked in parts the server allows (5° × 10°). */
+async function reportingPointsNear(route: Array<{ lat: number; lon: number }>): Promise<Vrp[]> {
+  const pad = VRP_CORRIDOR_NM / 60;
+  const lats = route.map(a => a.lat), lons = route.map(a => a.lon);
+  const south = Math.min(...lats) - pad, north = Math.max(...lats) + pad;
+  const lonPad = pad / Math.max(0.2, Math.cos((Math.max(Math.abs(south), Math.abs(north)) * Math.PI) / 180));
+  const west = Math.min(...lons) - lonPad, east = Math.max(...lons) + lonPad;
+  const parts: Array<Promise<Vrp[]>> = [];
+  for (let s = south; s < north; s += 5) {
+    for (let w = west; w < east; w += 10) {
+      parts.push(fetchMapArea(s, w, Math.min(north, s + 5), Math.min(east, w + 10))
+        .then(a => a?.reportingPoints ?? [], () => []));
+    }
+  }
+  return (await Promise.all(parts)).flat().filter(p => (route.length < 2
+    ? Math.hypot(p.lat - route[0].lat, (p.lon - route[0].lon) / 2) * 60 <= VRP_CORRIDOR_NM
+    : (activeLeg(route, p)?.offNm ?? Infinity) <= VRP_CORRIDOR_NM));
+}
 const PROTOMAPS_CREDIT = '<a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> '
   + '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
 
@@ -178,6 +201,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<L.Map | null>(null);
+  /** The reporting points, a layer of their own so they can be switched off; it outlives a redrawn map. */
+  const vrpLayer = React.useRef(L.layerGroup());
   const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline; trail: L.Polyline } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
@@ -226,10 +251,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
     route.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
-    reportingPoints.forEach(p => L.marker([p.lat, p.lon], {
-      icon: L.divIcon({ className: p.compulsory ? 'vrp-marker vrp-marker--compulsory' : 'vrp-marker', iconSize: [12, 11] }),
-      keyboard: false, interactive: false,
-    }).bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label' }).addTo(map));
+    vrpLayer.current.addTo(map);
     const trail = L.polyline(trailRef.current.map(p => [p.lat, p.lon] as [number, number]),
       { color: '#1e3a8a', weight: 3, opacity: 0.75, interactive: false }).addTo(map);
     const glide = L.circle(pts[0], { radius: 0, color: '#16a34a', weight: 2, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
@@ -246,7 +268,38 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => map.invalidateSize());
     resized?.observe(container.current);
     return () => { live = false; resized?.disconnect(); map.remove(); mapRef.current = null; own.current = null; };
-  }, [started, status, ownBasemap, route, labels, reportingPoints]);
+  }, [started, status, ownBasemap, route, labels]);
+
+  // Visual reporting points: the route's airports' (given), and every other one near the route. Shown or not, as the pilot likes.
+  const [nearVrps, setNearVrps] = React.useState<Vrp[]>([]);
+  React.useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => reportingPointsNear(route)).then(list => { if (live) setNearVrps(list); }, () => undefined);
+    return () => { live = false; };
+  }, [route]);
+  const vrps = React.useMemo(() => {
+    const seen = new Set<string>();
+    return [...reportingPoints, ...nearVrps].filter(p => {
+      const key = `${p.name}@${p.lat.toFixed(3)},${p.lon.toFixed(3)}`;
+      return !seen.has(key) && !!seen.add(key);
+    });
+  }, [reportingPoints, nearVrps]);
+  const [showVrp, setShowVrp] = React.useState(() => {
+    try { return localStorage.getItem(SHOW_VRP_KEY) !== 'no'; } catch { return true; }
+  });
+  const toggleVrp = () => setShowVrp(v => {
+    try { localStorage.setItem(SHOW_VRP_KEY, v ? 'no' : 'yes'); } catch { /* private mode */ }
+    return !v;
+  });
+  React.useEffect(() => {
+    const layer = vrpLayer.current;
+    layer.clearLayers();
+    if (!showVrp) return;
+    vrps.forEach(p => L.marker([p.lat, p.lon], {
+      icon: L.divIcon({ className: p.compulsory ? 'vrp-marker vrp-marker--compulsory' : 'vrp-marker', iconSize: [12, 11] }),
+      keyboard: false, interactive: false,
+    }).bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label nav-vrp-label' }).addTo(layer));
+  }, [vrps, showVrp]);
 
   // On start, the route's map is kept for flying without a connection.
   const [offline, setOffline] = React.useState<OfflineProgress | null>(null);
@@ -275,6 +328,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const toTarget = fix ? bearingDistance(fix, target) : null;
   const here = fix && airspaces ? airspacesHere(airspaces, fix, fix.altFt) : null;
   const sweden = fix ? swedenControlAt(fix.lat, fix.lon) : null;
+  // The next controlled airspace within 10 NM, along the route or straight to the Direct-to field.
+  const routeCrossings = React.useMemo(() => crossingsAlong(route, airspaces ?? []), [route, airspaces]);
+  const insideIds = new Set((here?.inside ?? []).map(a => a.id));
+  const next = !fix || !airspaces ? null
+    : directTo ? nextAirspace(crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, directTo], airspaces), 0, fix.altFt, insideIds)
+      : leg ? nextAirspace(routeCrossings, leg.alongNm, fix.altFt, insideIds) : null;
   const nearest = React.useMemo(() => (fix ? nearestAirfields(airfields, fix, fix.altFt, ratio, 8) : []), [fix, airfields, ratio]);
   const groundFt = nearest[0]?.airport.elevationFt ?? null;
   const glideNm = fix?.altFt != null && groundFt != null ? glideRangeNm(fix.altFt - groundFt, ratio) : null;
@@ -415,20 +474,25 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             <div className="bg-slate-800 px-3 py-1.5">{gpsError ?? (started === 'demo' ? 'Starting the demo…' : 'Waiting for GPS…')}</div>
           ) : airspaces == null ? (
             <div className="bg-slate-800 px-3 py-1.5">Airspace not loaded.</div>
-          ) : inside.length ? inside.map(a => {
-            const f = contactFrequencies(a.frequencies)[0];
-            return (
-              <div key={a.id} className={`${severityClass(a)} flex flex-wrap items-baseline gap-x-2 px-3 py-1.5`}>
-                <strong>{a.name}</strong>
-                <span>{a.icaoClass ? `class ${a.icaoClass}` : a.type} · {a.lower.label}–{a.upper.label}</span>
-                {f && <span className="ml-auto font-semibold tabular-nums">{frequencyText(f)}</span>}
-              </div>
-            );
-          }) : (
-            <div className="flex flex-wrap items-baseline gap-x-2 bg-emerald-800 px-3 py-1.5">
-              <strong>Uncontrolled (class G)</strong>
-              {sweden && <span className="ml-auto font-semibold tabular-nums">{swedenControlText(sweden.sector)}</span>}
-            </div>
+          ) : (
+            <>
+              {inside.map(a => <AirspaceRow key={a.id} airspace={a} className={severityClass(a)}/>)}
+              {/* Not in controlled airspace: class G, and in Sweden whom to call there. */}
+              {!inside.some(isControlled) && (
+                <div className="flex flex-wrap items-baseline gap-x-2 bg-emerald-800 px-3 py-1.5">
+                  <strong>{inside.length ? 'Class G around' : 'Uncontrolled (class G)'}</strong>
+                  {sweden && <span className="ml-auto font-semibold tabular-nums">{swedenControlText(sweden.sector)}</span>}
+                  {sweden && (sweden.sector.alternative || sweden.nearby.length > 0) && (
+                    <span className="w-full text-right text-xs tabular-nums text-emerald-100">
+                      or {[...(sweden.sector.alternative ? [sweden.sector.alternative] : []), ...sweden.nearby].map(swedenControlText).join(' / ')} (sector boundary)
+                    </span>
+                  )}
+                </div>
+              )}
+              {next && (
+                <AirspaceRow airspace={next.airspace} className="bg-sky-900" label={`Next in ${nmText(next.inNm)} NM`}/>
+              )}
+            </>
           )}
           {fix && here && here.above.length > 0 && (
             <div className="bg-slate-800 px-3 py-1 text-xs text-slate-300">
@@ -564,6 +628,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           {started === 'demo' && <span className="rounded bg-sky-600 px-1.5 py-0.5 font-semibold text-white">DEMO FLIGHT ({DEMO_SPEEDUP}× speed)</span>}
           {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
         </div>
+        <div className="absolute right-[10px] top-[84px] z-[1000] flex flex-col gap-1">
+          <button type="button" aria-pressed={showVrp} onClick={toggleVrp} title="Visual reporting points"
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showVrp ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            VRP
+          </button>
+        </div>
         {!follow && fix && (
           <button type="button" onClick={recenter} className="absolute bottom-3 right-3 z-[1000] flex items-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm shadow-lg">
             <Crosshair className="h-4 w-4"/> Centre
@@ -636,6 +706,25 @@ const EndFlight: React.FC<{
 const POINTS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 /** "south-west": where the aircraft is from the airfield. */
 const compass = (deg: number) => POINTS[Math.round(deg / 45) % 8];
+
+/** An airspace in the strip: its name, class and limits, whom to call, and for a tower's zone its ATIS and ground. */
+const AirspaceRow: React.FC<{ airspace: AirspaceView; className: string; label?: string }> = ({ airspace: a, className, label }) => {
+  const f = contactFrequencies(a.frequencies)[0];
+  const extra = atisAndGround(a.frequencies);
+  return (
+    <div className={`${className} flex flex-wrap items-baseline gap-x-2 px-3 py-1.5`}>
+      {label && <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">{label}</span>}
+      <strong>{a.name}</strong>
+      <span>{a.icaoClass ? `class ${a.icaoClass}` : a.type} · {a.lower.label}–{a.upper.label}</span>
+      {f && <span className="ml-auto font-semibold tabular-nums">{frequencyText(f)}</span>}
+      {extra.length > 0 && (
+        <span className="w-full text-right text-xs tabular-nums opacity-90">
+          {extra.map(x => `${x.kind} ${x.value}`).join(' · ')}
+        </span>
+      )}
+    </div>
+  );
+};
 
 const Sheet: React.FC<{ title: string; tone?: 'red'; onClose: () => void; children: React.ReactNode }> = ({ title, tone, onClose, children }) => (
   <div className={`order-4 max-h-[55%] shrink-0 overflow-y-auto border-t-4 bg-slate-900 p-3 lg:landscape:max-h-none lg:landscape:min-h-0 lg:landscape:flex-1 lg:landscape:shrink ${tone === 'red' ? 'border-red-600' : 'border-slate-500'}`}

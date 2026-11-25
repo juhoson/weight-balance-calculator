@@ -22,6 +22,13 @@ export function contactFrequencies(list: Frequency[] | null | undefined): Freque
     .sort((a, b) => rank(a) - rank(b) || Number(b.primary) - Number(a.primary));
 }
 
+/** A tower's or AFIS's zone: its ATIS and ground too, to listen to and call on the way in or out; none otherwise. */
+export function atisAndGround(list: Frequency[] | null | undefined): Frequency[] {
+  const first = contactFrequencies(list)[0];
+  if (!first || !['TWR', 'AFIS', 'INFO'].includes(first.kind)) return [];
+  return (list ?? []).filter(f => f.kind === 'ATIS').concat((list ?? []).filter(f => f.kind === 'GND'));
+}
+
 /** Whether an altitude (ft above sea level) is inside an airspace's limits; AGL limits taken over sea-level ground. */
 export function containsAltitude(a: AirspaceView, ft: number): boolean {
   const floor = a.lower.datum === 'GND' && a.lower.ft === 0 ? -Infinity : a.lower.ft;

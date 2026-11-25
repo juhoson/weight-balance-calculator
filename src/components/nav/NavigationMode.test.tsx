@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchMapStatus, saveTrack } from '../../api/backend';
+import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchMapArea, fetchMapStatus, saveTrack } from '../../api/backend';
 import { useAuth } from '../../api/useAuth';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 
@@ -12,6 +12,7 @@ const { default: NavigationMode } = require('./NavigationMode') as typeof import
 jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
   fetchAirportsAlong: jest.fn(),
+  fetchMapArea: jest.fn(),
   saveTrack: jest.fn(),
   acceptNavTerms: jest.fn(),
   downloadTrackKml: jest.fn(),
@@ -47,6 +48,7 @@ beforeEach(() => {
   signedIn();
   (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
   (fetchAirportsAlong as jest.Mock).mockResolvedValue([esow, essb, essx]);
+  (fetchMapArea as jest.Mock).mockResolvedValue({ airports: [], reportingPoints: [], complete: true, reportingPointsAvailable: true });
 });
 
 const open = (onClose = jest.fn()) => render(
@@ -202,4 +204,42 @@ test('the demo flight closes straight away: nothing to save', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   fireEvent.click(screen.getByRole('button', { name: 'Close navigation mode' }));
   expect(onClose).toHaveBeenCalled();
+});
+
+test('the reporting points near the route are on the map, whichever airport they belong to; switched off and on', async () => {
+  (fetchMapArea as jest.Mock).mockResolvedValue({
+    airports: [], complete: true, reportingPointsAvailable: true,
+    reportingPoints: [
+      { airport: 'ESSX', name: 'KOLBÄCK', lat: 59.57, lon: 16.25, compulsory: false },
+      { airport: 'ESKN', name: 'FAR AWAY', lat: 58.7, lon: 16.9, compulsory: true },
+    ],
+  });
+  open();
+  fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+  expect(await screen.findByText('KOLBÄCK')).toBeInTheDocument();
+  expect(screen.queryByText('FAR AWAY')).toBeNull();
+  const vrp = screen.getByRole('button', { name: 'VRP' });
+  expect(vrp).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(vrp);
+  expect(screen.queryByText('KOLBÄCK')).toBeNull();
+  expect(localStorage.getItem('nav.showVrp')).toBe('no');
+  fireEvent.click(vrp);
+  expect(screen.getByText('KOLBÄCK')).toBeInTheDocument();
+});
+
+test('a tower zone shows its ATIS and ground too; class G around a non-controlled area still gives Sweden Control', async () => {
+  const withAtis: AirspaceView = { ...ctr, frequencies: [...ctr.frequencies,
+    { value: '127.555', name: 'VÄSTERÅS ATIS', kind: 'ATIS', primary: false, source: 'ESOW' },
+    { value: '121.905', name: 'VÄSTERÅS GROUND', kind: 'GND', primary: false, source: 'ESOW' }] };
+  const { unmount } = render(<NavigationMode trip={trip} airspaces={[withAtis]} reportingPoints={[]} swedenControl={[]}
+    bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+  expect(await screen.findByText('ATIS 127.555 · GND 121.905')).toBeInTheDocument();
+  unmount();
+  const tia: AirspaceView = { ...ctr, id: 'tia', name: 'GLIDING AREA', type: 'OTHER', icaoClass: 'G', frequencies: [] };
+  render(<NavigationMode trip={trip} airspaces={[tia]} reportingPoints={[]} swedenControl={[]}
+    bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
+  expect(await screen.findByText('Class G around')).toBeInTheDocument();
+  expect(within(screen.getByRole('status', { name: 'Airspace here' })).getByText(/SWEDEN CONTROL|Sweden Control/)).toBeInTheDocument();
 });

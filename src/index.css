@@ -290,6 +290,10 @@ input::-webkit-inner-spin-button {
   color: #1d4ed8;
   font-size: 9px;
 }
+/* In the cockpit the names must read at arm's length. */
+.route-map .leaflet-tooltip.nav-vrp-label {
+  font-size: 11px;
+}
 /* Zoomed out on the planning map, the names would crowd each other: the marker's title has them. */
 .route-map--far .leaflet-tooltip.vrp-label {
   display: none;

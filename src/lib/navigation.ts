@@ -3,7 +3,8 @@
  * and the airfields within gliding range. A VFR navigation aid: the pilot stays responsible.
  */
 import type { AirportInfo, AirspaceView } from '../types/route';
-import { containsAltitude } from './frequencies';
+import { containsAltitude, contactFrequencies } from './frequencies';
+import { adviceFor, type Crossing } from './airspace';
 import { courseDeg, distanceNm, intermediate } from './openMeteo';
 
 export const MS_TO_KT = 1.943844;
@@ -159,3 +160,23 @@ export function eteText(nm: number, kt: number | null): string {
 }
 
 export const pad3 = (deg: number) => String(Math.round(((deg % 360) + 360) % 360) % 360).padStart(3, '0');
+
+/** Ahead this far, the next controlled airspace (and whom to call there) is shown. */
+export const NEXT_AIRSPACE_NM = 10;
+
+/** Controlled: entering it takes a clearance (a control zone, or class A–D). */
+export const isControlled = (a: AirspaceView) => adviceFor(a).severity === 'clearance';
+
+/**
+ * The next controlled airspace with a frequency that the path enters within NEXT_AIRSPACE_NM, at
+ * this altitude (any, when unknown), not counting one the aircraft is already in.
+ */
+export function nextAirspace(crossings: Crossing[], alongNm: number, altFt: number | null, insideIds: Set<string>):
+  { airspace: AirspaceView; inNm: number } | null {
+  const next = crossings
+    .filter(c => c.fromNm > alongNm && c.fromNm - alongNm <= NEXT_AIRSPACE_NM && !insideIds.has(c.airspace.id)
+      && isControlled(c.airspace) && contactFrequencies(c.airspace.frequencies).length > 0
+      && (altFt == null || containsAltitude(c.airspace, altFt)))
+    .sort((a, b) => a.fromNm - b.fromNm)[0];
+  return next ? { airspace: next.airspace, inNm: next.fromNm - alongNm } : null;
+}
