@@ -39,8 +39,7 @@
     "eject": "react-scripts eject",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "lint-staged": "lint-staged",
-    "deploy": "node scripts/deploy-ftp.mjs"
+    "lint-staged": "lint-staged"
   },
   "eslintConfig": {
     "extends": [

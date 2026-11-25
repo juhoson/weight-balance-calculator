@@ -112,27 +112,27 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Safety Notice
 
 This tool is for reference only. Always verify weight and balance calculations against official aircraft documentation before flight.
-## Deploy
+## Deploy (Railway)
 
-The app is served from https://songer.se/weight-balance/ (Loopia) and talks to the backend on
-Railway (see weight-balance-backend's README).
+The app is served from https://www.flightplanningtool.com by the `frontend` service in the Railway
+project **weight-balance** (environment `production`), next to the backend (see
+weight-balance-backend's README). This directory is linked to that service, so from here:
 
 ```bash
-npm run build                                               # backend URL from .env.production
-FTP_HOST=... FTP_USER=... FTP_PASSWORD=... npm run deploy   # same FTP account as cellarmate-home/.env
+railway up --ci
 ```
 
-The target is `/songer.se/public_html/weight-balance`, changed with `WB_FTP_REMOTE_DIR`. The script
-ignores `FTP_REMOTE_DIR`, which cellarmate's .env sets to one of its own folders, and it refuses to
-deploy a build that doesn't call the backend in `.env.production`.
+Railway builds the `Dockerfile`: the app is built for the site root and served by Caddy
+(`deploy/Caddyfile`), which passes `/api/*` to the backend over Railway's private network
+(`BACKEND_URL`, default `http://backend.railway.internal:8080`). The browser sees a single site, so
+there is no CORS. Deploy the backend first when the frontend needs something new from it.
 
-`npm run deploy` uploads only the files in `build/` that changed since the last deploy (it keeps
-content hashes in `.deploy-manifest.json` on the server), uploads `index.html` last, removes stale
-files, and never publishes files in `public/` that aren't tracked in git. Loopia's firewall blocks IPs
-that open many connections in a short time, so the script keeps transfers to a minimum and pauses
-`FTP_DELAY_MS` (default 250 ms) between them; avoid deploying many times in quick succession.
+### The old address
 
-The files it overwrites or removes are backed up to `backups/<timestamp>/` first; to roll back, upload
-that folder's contents to `/songer.se/public_html/weight-balance`. Flags (`node scripts/deploy-ftp.mjs
-<flag>`): `--dry-run` shows what would change, `--no-backup` skips the backup, `--force` uploads
-everything.
+The app used to live at https://songer.se/weight-balance/ (Loopia). That folder now holds only a
+redirect to flightplanningtool.com (`deploy/songer-redirect.htaccess`); don't deploy the app there.
+If the redirect is ever lost, put it back with:
+
+```bash
+(set -a; . ../cellarmate-home/.env; set +a; node scripts/redirect-old-site.mjs)
+```
