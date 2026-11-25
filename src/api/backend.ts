@@ -180,6 +180,13 @@ export function lookupAirports(codes: string[]): Promise<AirportInfo[]> {
   return request<AirportInfo[]>(`/api/airports/lookup?${new URLSearchParams({ codes: codes.join(',') })}`);
 }
 
+/** Every airfield within `nm` of a route (at most 30), nearest the route first, with runways. Public. */
+export async function fetchAirportsAlong(points: Array<{ lat: number; lon: number }>, nm = 25): Promise<AirportInfo[]> {
+  const route = points.map(p => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join(';');
+  const list = await request<AirportInfo[]>(`/api/airports/along?${new URLSearchParams({ route, nm: String(nm) })}`);
+  return Array.isArray(list) ? list.map(a => ({ ...a, runways: Array.isArray(a.runways) ? a.runways : [] })) : [];
+}
+
 export function nearestAirports(lat: number, lon: number): Promise<NearbyAirport[]> {
   return request<NearbyAirport[]>(`/api/airports/nearest?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`);
 }
