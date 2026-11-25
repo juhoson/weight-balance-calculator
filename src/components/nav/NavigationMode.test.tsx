@@ -183,6 +183,9 @@ test('a GPS flight ends on its own page: saved to the account, then its KML', as
   await screen.findByText('Next ESSB');
   at(59.60, 1_060_000);
   at(59.61, 1_120_000);
+  // Kept on the device for a reload in the air, with the airfields once loaded.
+  await waitFor(() => expect(JSON.parse(localStorage.getItem('nav.session.v1') ?? '{}').airfields).toHaveLength(3));
+  expect(JSON.parse(localStorage.getItem('nav.session.v1') ?? '{}')).toMatchObject({ cruiseKt: 110, bestGlideKt: 73, trip: { distanceNm: 42 } });
 
   fireEvent.click(screen.getByRole('button', { name: 'Close navigation mode' }));
   const end = screen.getByRole('region', { name: 'End flight' });
@@ -196,6 +199,29 @@ test('a GPS flight ends on its own page: saved to the account, then its KML', as
   fireEvent.click(within(end).getByRole('button', { name: 'Close navigation mode' }));
   expect(onClose).toHaveBeenCalled();
   expect(localStorage.getItem('nav.track.v1')).toBeNull();
+  expect(localStorage.getItem('nav.session.v1')).toBeNull();
+});
+
+test('resumed after a reload with no connection: says so, and the emergency list is the one kept with the flight', async () => {
+  (fetchAirportsAlong as jest.Mock).mockRejectedValue(new Error('offline'));
+  (fetchMapStatus as jest.Mock).mockRejectedValue(new Error('offline'));
+  (fetchMapArea as jest.Mock).mockRejectedValue(new Error('offline'));
+  const watchPosition = jest.fn((ok: PositionCallback) => {
+    ok({ timestamp: Date.now(), coords: { latitude: 59.59, longitude: 16.7, altitude: 914.4, speed: 50, heading: 100, accuracy: 8 } } as GeolocationPosition);
+    return 1;
+  });
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
+  render(<NavigationMode trip={trip} airspaces={[ctr]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
+    cruiseKt={110} cruiseAltFt={3500} signedIn onClose={jest.fn()}
+    resumed={{ airfields: [esow, essb, essx], nearVrps: [{ name: 'KOLBÄCK', lat: 59.57, lon: 16.25, compulsory: false }] }}/>);
+  expect(screen.getByText(/ESOW → ESSB was still going when the page closed/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Resume with GPS' }));
+  await screen.findByText('Next ESSB');
+  await waitFor(() => expect(fetchAirportsAlong).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole('button', { name: /EMERGENCY/ }));
+  const sheet = screen.getByRole('region', { name: 'Emergency' });
+  expect(within(sheet).getByText('ESSX')).toBeInTheDocument();
+  expect(within(sheet).queryByText(/airfield list couldn/)).toBeNull();
 });
 
 test('the demo flight closes straight away: nothing to save', () => {

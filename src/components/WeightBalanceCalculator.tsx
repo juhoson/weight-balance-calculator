@@ -44,6 +44,7 @@ import type {BriefingData} from './briefing/BriefingPack';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
 import {airspacesFetchedAt, nearestAirports} from '../api/backend';
 import AuthDialog from './auth/AuthDialog';
+import { loadNavSession } from '../lib/navSession';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
 import {track} from '../lib/analytics';
 import {lazyWithReload} from '../lib/lazyWithReload';
@@ -628,6 +629,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const [locating, setLocating] = React.useState(false);
   const [navigating, setNavigating] = React.useState(false);
   const [signInForNav, setSignInForNav] = React.useState(false);
+  // A GPS flight still going when the page closed (iOS drops pages in the background): back to it at once.
+  const [resumeNav, setResumeNav] = React.useState(() => loadNavSession());
   // Signed in from the navigation button: straight on into navigation mode.
   React.useEffect(() => {
     if (signInForNav && userId !== null) { setSignInForNav(false); setNavigating(true); }
@@ -1031,6 +1034,11 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                   the way and the nearest airfields, kept for flying without a connection.{userId === null && ' Sign in to use it.'}
                 </span>
               </div>
+            )}
+            {resumeNav && !navigating && (
+              <React.Suspense fallback={null}>
+                <NavigationMode {...resumeNav} resumed={resumeNav} signedIn={userId !== null} onClose={() => setResumeNav(null)}/>
+              </React.Suspense>
             )}
             {navigating && trip && (
               <React.Suspense fallback={null}>

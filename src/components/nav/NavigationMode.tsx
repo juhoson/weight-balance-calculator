@@ -6,6 +6,7 @@ import {
   acceptNavTerms, AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapArea, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
 } from '../../api/backend';
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
+import { clearNavSession, type NavSession, saveNavSession, updateNavSession } from '../../lib/navSession';
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
 import { useAuth } from '../../api/useAuth';
 import { fixesNear } from '../../lib/swedenFixes';
@@ -37,6 +38,8 @@ export interface NavigationModeProps {
   cruiseAltFt: number;
   /** Signed in: a flight flown with GPS can be saved to the account when it ends. */
   signedIn?: boolean;
+  /** A GPS flight in progress before the page reloaded: offered to carry on, with what it had loaded. */
+  resumed?: Pick<NavSession, 'airfields' | 'nearVrps'>;
   onClose: () => void;
 }
 
@@ -142,7 +145,7 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, signedIn = false, onClose,
+  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, signedIn = false, resumed, onClose,
 }) => {
   const { user } = useAuth();
   const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
@@ -155,8 +158,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const [follow, setFollow] = React.useState(true);
   const [sheet, setSheet] = React.useState<null | 'freq' | 'emergency' | 'end'>(null);
   const [directTo, setDirectTo] = React.useState<AirportInfo | null>(null);
-  const [airfields, setAirfields] = React.useState<AirportInfo[]>(route.filter(a => a.type !== 'point'));
-  const [airfieldsState, setAirfieldsState] = React.useState<'loading' | 'ok' | 'error'>('loading');
+  const [airfields, setAirfields] = React.useState<AirportInfo[]>(() => resumed?.airfields?.length ? resumed.airfields : route.filter(a => a.type !== 'point'));
+  const [airfieldsState, setAirfieldsState] = React.useState<'loading' | 'ok' | 'error'>(resumed?.airfields?.length ? 'ok' : 'loading');
   const [ratio, setRatio] = useGlideRatio();
   const closeRef = React.useRef<() => void>(onClose);
   useWakeLock(started !== null);
@@ -174,8 +177,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   React.useEffect(() => {
     let live = true;
     Promise.resolve().then(() => fetchAirportsAlong(route, 25))
-      .then(list => { if (live && list?.length) { setAirfields(list); setAirfieldsState('ok'); } else if (live) setAirfieldsState('error'); })
-      .catch(() => { if (live) setAirfieldsState('error'); });
+      .then(list => { if (live && list?.length) { setAirfields(list); setAirfieldsState('ok'); } else if (live) setAirfieldsState(s => (s === 'ok' ? s : 'error')); })
+      // Offline after a reload: the list kept with the flight stands.
+      .catch(() => { if (live) setAirfieldsState(s => (s === 'ok' ? s : 'error')); });
     return () => { live = false; };
   }, [route]);
 
@@ -287,10 +291,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }, [started, status, ownBasemap, route, labels]);
 
   // Visual reporting points: the route's airports' (given), and every other one near the route. Shown or not, as the pilot likes.
-  const [nearVrps, setNearVrps] = React.useState<Vrp[]>([]);
+  const [nearVrps, setNearVrps] = React.useState<Vrp[]>(() => resumed?.nearVrps ?? []);
   React.useEffect(() => {
     let live = true;
-    Promise.resolve().then(() => reportingPointsNear(route)).then(list => { if (live) setNearVrps(list); }, () => undefined);
+    Promise.resolve().then(() => reportingPointsNear(route)).then(list => { if (live && list.length) setNearVrps(list); }, () => undefined);
     return () => { live = false; };
   }, [route]);
   const vrps = React.useMemo(() => {
@@ -321,6 +325,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       keyboard: false, interactive: false,
     }).bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label nav-vrp-label' }).addTo(layer));
   }, [vrps, showVrp]);
+
+  // A GPS flight keeps what it shows on the device as it loads, for carrying on after a reload.
+  React.useEffect(() => {
+    if (started === 'gps') updateNavSession({ airfields, nearVrps });
+  }, [started, airfields, nearVrps]);
 
   // On start, the route's map is kept for flying without a connection.
   const [offline, setOffline] = React.useState<OfflineProgress | null>(null);
@@ -395,6 +404,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (mode === 'gps') {
       // A flight recorded in the last half hour (the page reloaded) carries on.
       trailRef.current = loadTrack();
+      saveNavSession({
+        trip, airspaces, airspacesFetchedAt, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, airfields, nearVrps,
+      });
       document.documentElement.requestFullscreen?.().catch(() => undefined);
     }
     setStarted(mode);
@@ -406,6 +418,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       <div className="fixed inset-0 z-[2000] flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 text-slate-100" role="dialog" aria-modal="true" aria-label="Navigation mode">
         <div className="max-w-lg space-y-4">
           <h2 className="text-xl font-semibold">Navigation mode <span className="rounded bg-sky-600 px-1.5 py-0.5 text-xs font-bold text-white">BETA</span></h2>
+          {resumed && (
+            <p className="rounded-md border border-emerald-500 p-3 text-sm font-semibold">
+              Your flight {trip.departure.code} → {trip.arrival.code} was still going when the page closed: carry on with GPS,
+              its track and map kept.
+            </p>
+          )}
           <p className="text-sm">
             A VFR navigation aid: the route on a moving map with your GPS speed, track and altitude, the airspace you&apos;re in,
             the frequencies along the way, and an emergency page with the nearest airfields.
@@ -436,7 +454,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={!canStart} className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
               onClick={() => begin('gps')}>
-              Start with GPS
+              {resumed ? 'Resume with GPS' : 'Start with GPS'}
             </button>
             <button type="button" disabled={!canStart} className="rounded-md border border-slate-500 px-4 py-2 hover:bg-slate-800 disabled:opacity-40"
               onClick={() => begin('demo')}>
@@ -541,7 +559,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <Sheet title="End flight" onClose={() => setSheet(null)}>
             <EndFlight points={trailRef.current} signedIn={signedIn}
               defaultName={trackName(trip.departure.code, trip.arrival.code, trailRef.current[0]?.at ?? Date.now())}
-              onDone={() => { clearTrack(); exit(); }} onKeepFlying={() => setSheet(null)}/>
+              onDone={() => { clearTrack(); clearNavSession(); exit(); }} onKeepFlying={() => setSheet(null)}/>
           </Sheet>
         )}
         {sheet === 'emergency' && (
@@ -679,7 +697,7 @@ const EndFlight: React.FC<{
   const save = () => {
     setState('saving');
     saveTrack(name.trim() || defaultName, points).then(
-      t => { clearTrack(); setState({ id: t.id }); },
+      t => { clearTrack(); clearNavSession(); setState({ id: t.id }); },
       e => setState({ error: e instanceof Error && e.message ? `${e.message} The flight stays on this device: try again when you have a connection.` : 'Could not save the flight.' }),
     );
   };
