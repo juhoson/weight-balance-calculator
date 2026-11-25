@@ -11,6 +11,10 @@ import BriefingPack, { type AirportFrequencies, BRIEFING_SECTIONS, type Briefing
 /** The sections left out (so a section added later starts ticked); v2 since the pages were rearranged. */
 const OFF_KEY = 'briefingSectionsOff.v2';
 const ALL: BriefingSection[] = BRIEFING_SECTIONS.map(s => s.id);
+/** print() taking longer than this waited for its dialog (Chrome, Firefox): the printing is over when it returns. */
+const BLOCKING_PRINT_MS = 500;
+/** After a print() that didn't wait (Safari), the pack stays until a tap or key from this long after. */
+const BACK_AFTER_MS = 500;
 /** Printed anyway if the maps take longer than this to load. */
 const MAX_WAIT_MS = 20_000;
 
@@ -63,6 +67,8 @@ const BriefingButton: React.FC<{ data: Given | null }> = ({ data }) => {
   const [freqs, setFreqs] = React.useState<AirportFrequencies[] | null>(null);
   const [aerodromes, setAerodromes] = React.useState<Record<string, AerodromeInfo> | null>(null);
   const [printing, setPrinting] = React.useState(false);
+  /** The print dialog has been asked for: no more "Preparing". */
+  const [printed, setPrinted] = React.useState(false);
   const routeKey = data ? [data.trip.departure, ...(data.trip.waypoints ?? []), data.trip.arrival].map(a => a.code).join(',') : '';
 
   // The airport frequencies, circuits and reporting points, looked up when the dialog opens.
@@ -84,8 +90,7 @@ const BriefingButton: React.FC<{ data: Given | null }> = ({ data }) => {
     html.classList.remove('dark');
     document.body.classList.add('print-briefing');
     const done = () => setPrinting(false);
-    window.addEventListener('afterprint', done);
-    // A browser without afterprint: back on the next tap or key after printing.
+    // Not on afterprint: Safari fires it before it has printed anything, and would print the page underneath.
     let later = 0;
     // Once the pack has laid out and every map has its tiles (or it's taken too long).
     const started = Date.now();
@@ -96,21 +101,29 @@ const BriefingButton: React.FC<{ data: Given | null }> = ({ data }) => {
         t = window.setTimeout(check, 200);
         return;
       }
+      const asked = Date.now();
       window.print();
+      setPrinted(true);
+      // A browser that waits in print() until its dialog is closed: done.
+      if (Date.now() - asked > BLOCKING_PRINT_MS) {
+        done();
+        return;
+      }
+      // One that doesn't (Safari) prints later: keep the pack until the pilot is back on the page.
       later = window.setTimeout(() => {
         window.addEventListener('pointerdown', done, { once: true });
         window.addEventListener('keydown', done, { once: true });
-      }, 500);
+      }, BACK_AFTER_MS);
     };
     t = window.setTimeout(check, 100);
     return () => {
       window.clearTimeout(t);
       window.clearTimeout(later);
-      window.removeEventListener('afterprint', done);
       window.removeEventListener('pointerdown', done);
       window.removeEventListener('keydown', done);
       document.body.classList.remove('print-briefing');
       if (dark) html.classList.add('dark');
+      setPrinted(false);
     };
   }, [printing]);
 
@@ -158,7 +171,7 @@ const BriefingButton: React.FC<{ data: Given | null }> = ({ data }) => {
           </div>
         </DialogContent>
       </Dialog>
-      {printing && (
+      {printing && !printed && (
         <p role="status" className="fixed inset-x-0 top-4 z-[60] mx-auto flex w-fit items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-lg print:hidden">
           <Loader2 className="h-4 w-4 animate-spin"/> Preparing the briefing pack…
         </p>

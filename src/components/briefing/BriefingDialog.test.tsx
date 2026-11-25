@@ -93,7 +93,13 @@ it('the departure and arrival page: maps, circuits, reporting points, a short fr
   expect(window.print).not.toHaveBeenCalled();
   tilesIn();
   await waitFor(() => expect(window.print).toHaveBeenCalled());
+  // A print() that returns at once (Safari) prints later: afterprint doesn't take the pack away...
   fireEvent(window, new Event('afterprint'));
+  expect(document.body).toHaveClass('print-briefing');
+  expect(screen.getByRole('article', { name: 'Briefing pack' })).toBeInTheDocument();
+  // ...the pilot coming back to the page does.
+  await new Promise(r => setTimeout(r, 600));
+  fireEvent.pointerDown(window);
   await waitFor(() => expect(screen.queryByRole('article', { name: 'Briefing pack' })).toBeNull());
   expect(document.body).not.toHaveClass('print-briefing');
 });
@@ -162,4 +168,21 @@ it('keeps the departure and arrival page to one page: short lists, and scaled do
   } finally {
     height.mockRestore();
   }
+});
+
+it('a print() that waits for its dialog (Chrome) puts the page back as soon as it returns', async () => {
+  only('weather');
+  let printedWith = '';
+  window.print = jest.fn(() => {
+    printedWith = document.body.className;
+    const until = Date.now() + 600;
+    while (Date.now() < until) { /* the print dialog is open */ }
+  });
+  render(<BriefingButton data={data}/>);
+  open();
+  await print();
+  await waitFor(() => expect(window.print).toHaveBeenCalled());
+  expect(printedWith).toContain('print-briefing');
+  await waitFor(() => expect(screen.queryByRole('article', { name: 'Briefing pack' })).toBeNull());
+  expect(document.body).not.toHaveClass('print-briefing');
 });
