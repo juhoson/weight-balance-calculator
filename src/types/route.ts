@@ -205,6 +205,15 @@ export interface AerodromeInfo {
   reportingPoints: Array<{ name: string; lat: number; lon: number; compulsory: boolean }>;
 }
 
+/** The airports in a part of the map and their visual reporting points. */
+export interface MapArea {
+  airports: Array<{ code: string; name: string; type: string; lat: number; lon: number }>;
+  reportingPoints: Array<{ airport: string; name: string; lat: number; lon: number; compulsory: boolean }>;
+  /** False when there were more airports than listed (the biggest are). */
+  complete: boolean;
+  reportingPointsAvailable: boolean;
+}
+
 export interface PointInfo {
   lat: number;
   lon: number;

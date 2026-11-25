@@ -1,14 +1,15 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { fetchMapStatus, fetchPointInfo, nearestAirports } from '../../api/backend';
+import { fetchMapArea, fetchMapStatus, fetchPointInfo, nearestAirports } from '../../api/backend';
 
 // Leaflet draws lines in SVG only where the browser has createSVGRect, which jsdom lacks.
 (window.SVGSVGElement.prototype as unknown as { createSVGRect: () => object }).createSVGRect = () => ({});
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { default: RouteMap, resetMapStatus, bestInsert, legText } = require('./RouteMap') as typeof import('./RouteMap');
+const { default: RouteMap, resetMapStatus, resetAreas, bestInsert, legText } = require('./RouteMap') as typeof import('./RouteMap');
 
 jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
+  fetchMapArea: jest.fn(),
   fetchPointInfo: jest.fn(),
   nearestAirports: jest.fn(),
   AIRSPACE_TILE_URL: '/api/map/airspace/{z}/{x}/{y}.png',
@@ -21,7 +22,9 @@ const route = [
 
 beforeEach(() => {
   resetMapStatus();
+  resetAreas();
   (fetchMapStatus as jest.Mock).mockReset();
+  (fetchMapArea as jest.Mock).mockReset().mockResolvedValue({ airports: [], reportingPoints: [], complete: true, reportingPointsAvailable: true });
 });
 
 test('draws the route, labels the airports and credits openAIP', async () => {
@@ -178,4 +181,62 @@ test('plotting ends at the arrival, keeping what was plotted', async () => {
   fireEvent.click(ends[ends.length - 1]);
   await waitFor(() => expect(screen.queryByText(/Plotting from/)).toBeNull());
   expect(onChange).toHaveBeenCalledTimes(1);
+});
+
+describe('with the map laid out', () => {
+  // jsdom lays nothing out: give the map a size, so it zooms to the route and asks what's in view.
+  const sized = (prop: 'clientWidth' | 'clientHeight', px: number) =>
+    jest.spyOn(HTMLElement.prototype, prop, 'get').mockReturnValue(px);
+  beforeEach(() => { sized('clientWidth', 600); sized('clientHeight', 400); });
+  afterEach(() => jest.restoreAllMocks());
+
+  test('shows every airport in view and their reporting points; an airport can be flown to or via', async () => {
+    (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
+    (fetchMapArea as jest.Mock).mockResolvedValue({
+      airports: [
+        { code: 'ESOW', name: 'Västerås', type: 'medium', lat: 59.5894, lon: 16.6336 },
+        { code: 'ESSU', name: 'Eskilstuna', type: 'small', lat: 59.3511, lon: 16.7083 },
+      ],
+      reportingPoints: [{ airport: 'ESSU', name: 'TORSHÄLLA', lat: 59.42, lon: 16.47, compulsory: false }],
+      complete: true, reportingPointsAvailable: true,
+    });
+    const onChange = jest.fn(), onArrival = jest.fn();
+    const { container } = render(<RouteMap airports={route} onWaypointsChange={onChange} onArrivalChange={onArrival}/>);
+    // ESOW is the departure: drawn as the route, not again.
+    await waitFor(() => expect(container.querySelectorAll('.area-airport')).toHaveLength(1));
+    expect(fetchMapArea).toHaveBeenCalled();
+    const [south, west, north, east] = (fetchMapArea as jest.Mock).mock.calls[0];
+    expect(south).toBeLessThanOrEqual(59.35);
+    expect(north).toBeGreaterThanOrEqual(59.59);
+    expect(west).toBeLessThanOrEqual(16.63);
+    expect(east).toBeGreaterThanOrEqual(17.94);
+    expect(screen.getByText('ESSU')).toBeInTheDocument();
+    expect(screen.getByText('TORSHÄLLA')).toBeInTheDocument();
+    expect(container.querySelectorAll('.route-map-arrival')).toHaveLength(1); // the arrival can be dragged
+    expect(screen.getByText(/Drag ESSB onto another airport/)).toBeInTheDocument();
+
+    fireEvent.click(container.querySelector('.area-airport') as Element);
+    expect(await screen.findByText('Eskilstuna')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Fly here instead' }));
+    expect(onArrival).toHaveBeenCalledWith('ESSU');
+    // Drawn as the arrival straight away, so no longer as an airport in view.
+    await waitFor(() => expect(container.querySelectorAll('.area-airport')).toHaveLength(0));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  test('an airport in view can be routed via', async () => {
+    (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
+    (fetchMapArea as jest.Mock).mockResolvedValue({
+      airports: [{ code: 'ESSU', name: 'Eskilstuna', type: 'small', lat: 59.3511, lon: 16.7083 }],
+      reportingPoints: [], complete: true, reportingPointsAvailable: false,
+    });
+    const onChange = jest.fn();
+    const { container } = render(<RouteMap airports={route} onWaypointsChange={onChange}/>);
+    await waitFor(() => expect(container.querySelectorAll('.area-airport')).toHaveLength(1));
+    expect(container.querySelectorAll('.route-map-arrival')).toHaveLength(0); // without the callback, not draggable
+    fireEvent.click(container.querySelector('.area-airport') as Element);
+    expect(screen.queryByRole('button', { name: 'Fly here instead' })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Route via this airport' }));
+    expect(onChange).toHaveBeenCalledWith(['ESSU']);
+  });
 });

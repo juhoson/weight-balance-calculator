@@ -215,6 +215,21 @@ input::-webkit-inner-spin-button {
   cursor: grab;
 }
 .route-map .route-map-insert:hover { opacity: 1; }
+/* The arrival, when it can be dragged onto another airport. */
+.route-map .route-map-arrival {
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  background: #d946ef;
+  cursor: grab;
+}
+/* Every airport in view: a green dot with its code. */
+.route-map .leaflet-tooltip.area-airport-label {
+  color: #0f766e;
+  font-size: 10px;
+}
+.route-map--far .leaflet-tooltip.area-airport-label {
+  display: none;
+}
 .route-map .route-map-code {
   color: #64748b;
   font-size: 11px;

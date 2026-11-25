@@ -17,7 +17,7 @@ import type {
   MemberView,
   PasswordLinkResponse,
 } from '../types/admin';
-import type { AerodromeInfo, AirportInfo, AirspaceView, NearbyAirport, PointInfo, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
+import type { AerodromeInfo, AirportInfo, AirspaceView, MapArea, NearbyAirport, PointInfo, RouteWeather, SavedRoute, SharedRoute } from '../types/route';
 import type { RouteAltitudes } from '../lib/route';
 import type { ClubName, MyClub } from '../types/profile';
 import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
@@ -128,6 +128,18 @@ export async function fetchAirspacesAlong(points: Array<{ lat: number; lon: numb
 /** An aerodrome's circuits and visual reporting points. Public. */
 export function fetchAerodrome(code: string): Promise<AerodromeInfo> {
   return request<AerodromeInfo>(`/api/map/aerodrome/${encodeURIComponent(code)}`);
+}
+
+/** The airports in a part of the map (at most 5° north to south) and their reporting points. Public. */
+export async function fetchMapArea(south: number, west: number, north: number, east: number): Promise<MapArea> {
+  const f = (n: number) => n.toFixed(2);
+  const area = await request<MapArea>(`/api/map/area?${new URLSearchParams({ south: f(south), west: f(west), north: f(north), east: f(east) })}`);
+  return {
+    airports: Array.isArray(area.airports) ? area.airports : [],
+    reportingPoints: Array.isArray(area.reportingPoints) ? area.reportingPoints : [],
+    complete: area.complete !== false,
+    reportingPointsAvailable: !!area.reportingPointsAvailable,
+  };
 }
 
 /** The airspaces above a point and the nearest airports' frequencies. Public. */

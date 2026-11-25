@@ -52,11 +52,14 @@ async function reportingPointsOf(r: RouteWeather): Promise<RouteReportingPoint[]
   const airports = [r.departure, ...(r.waypoints ?? []), r.arrival]
     .filter((a, i, all) => a.type !== 'point' && all.findIndex(b => b.code === a.code) === i);
   const infos = await Promise.all(airports.map(a => aerodromeOf(a.code)));
-  return infos.flatMap((info, i) => (info?.reportingPoints ?? []).map(p => {
-    const code = positionCode(p.lat, p.lon, true);
-    namePosition(code, p.name);
-    return { airport: airports[i].code, ...p, code };
-  }));
+  return infos.flatMap((info, i) => (info?.reportingPoints ?? []).map(p => asRoutePoint(airports[i].code, p)));
+}
+
+/** A reporting point of an airport, with the code (to the second) the route goes through it by, named after it. */
+export function asRoutePoint(airport: string, p: { name: string; lat: number; lon: number; compulsory: boolean }): RouteReportingPoint {
+  const code = positionCode(p.lat, p.lon, true);
+  namePosition(code, p.name);
+  return { airport, name: p.name, lat: p.lat, lon: p.lon, compulsory: p.compulsory, code };
 }
 
 /** Route weather for two airport codes; refetched when they change or on refresh(). */

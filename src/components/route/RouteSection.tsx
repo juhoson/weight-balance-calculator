@@ -10,6 +10,7 @@ import type { RouteWeatherState } from '../../lib/useRouteWeather';
 import type { PlannedRoute, RouteAltitudes } from '../../lib/route';
 import type { AirportInfo } from '../../types/route';
 import { positionText, routeChain, routeLabels } from '../../lib/routePoint';
+import { extraNm, suggestReportingPoints } from '../../lib/reportingRoute';
 
 // Leaflet (~150 kB) loads only once there is a route to show.
 const RouteMap = lazyWithReload(() => import('./RouteMap'));
@@ -61,6 +62,18 @@ const RouteSection: React.FC<RouteSectionProps> = ({
     via.splice(i + by, 0, code);
     setVia(via);
   };
+  /** The departure and arrival the pilot just picked: offered a way through the reporting points. */
+  const [suggestFor, setSuggestFor] = React.useState<string | null>(null);
+  const pick = (from: string, to: string) => {
+    set({ from, to });
+    setSuggestFor(`${from}|${to}`);
+  };
+  const suggestion = React.useMemo(() => (
+    data && route.via.length === 0 && suggestFor === `${route.from}|${route.to}`
+      && data.departure.code === route.from && data.arrival.code === route.to && !(data.waypoints ?? []).length
+      ? suggestReportingPoints(data.departure, data.arrival, weather.reportingPoints)
+      : []
+  ), [data, route.from, route.to, route.via.length, suggestFor, weather.reportingPoints]);
   const isLocal = data && data.distanceNm === 0;
   const legs = data?.legs ?? [];
 
@@ -77,12 +90,12 @@ const RouteSection: React.FC<RouteSectionProps> = ({
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
           <AirportField label="Departure" value={route.from} valueName={known.get(route.from)?.name}
-            onChange={code => set({ from: code, to: route.to || code })}/>
+            onChange={code => pick(code, route.to || code)}/>
           <Button type="button" variant="ghost" size="icon" className="mx-auto hidden sm:flex" aria-label="Swap departure and arrival"
             onClick={() => set({ from: route.to, to: route.from, via: [...route.via].reverse() })}>
             <ArrowLeftRight className="h-4 w-4"/>
           </Button>
-          <AirportField label="Arrival" value={route.to} valueName={known.get(route.to)?.name} onChange={code => set({ to: code })}/>
+          <AirportField label="Arrival" value={route.to} valueName={known.get(route.to)?.name} onChange={code => pick(route.from, code)}/>
         </div>
 
         {route.via.length > 0 && (
@@ -102,6 +115,20 @@ const RouteSection: React.FC<RouteSectionProps> = ({
               </li>
             ))}
           </ol>
+        )}
+
+        {suggestion.length > 0 && data && (
+          <div role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs">
+            <span className="flex-1">
+              Fly via the reporting points?{' '}
+              <strong>{[route.from, ...suggestion.map(p => p.name), route.to].join(' → ')}</strong>
+              {' '}({Math.max(0, Math.round(extraNm(data.departure, data.arrival, suggestion)))} NM longer than direct)
+            </span>
+            <Button type="button" size="sm" onClick={() => { setVia(suggestion.map(p => p.code)); setSuggestFor(null); }}>
+              Route via them
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setSuggestFor(null)}>No thanks</Button>
+          </div>
         )}
       </div>
 
@@ -150,7 +177,8 @@ const RouteSection: React.FC<RouteSectionProps> = ({
       {data && (
         <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
           <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}
-            onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS} reportingPoints={weather.reportingPoints}/>
+            onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS} reportingPoints={weather.reportingPoints}
+            onArrivalChange={isLocal ? undefined : code => pick(route.from, code)}/>
         </React.Suspense>
       )}
       {weather.error && <p className="text-sm text-red-600" role="alert">{weather.error}</p>}
