@@ -5,6 +5,7 @@ import { fetchPointInfo } from '../../api/backend';
 import { classGHint, containsAltitude, contactFrequencies, frequencyText, uncontrolledBelow } from '../../lib/frequencies';
 import { distanceNm } from '../../lib/openMeteo';
 import type { PointInfo } from '../../types/route';
+import { isNative, watchPosition } from '../../lib/native';
 
 const FT_PER_M = 3.28084;
 /** Ask again once the position has moved this far. */
@@ -22,23 +23,23 @@ type State =
  */
 const HereFrequencies: React.FC = () => {
   const [state, setState] = React.useState<State>({ phase: 'off' });
-  const watch = React.useRef<number | null>(null);
+  const watch = React.useRef<(() => void) | null>(null);
   const last = React.useRef<{ lat: number; lon: number } | null>(null);
 
   const stop = React.useCallback(() => {
-    if (watch.current !== null) navigator.geolocation.clearWatch(watch.current);
+    watch.current?.();
     watch.current = null;
     last.current = null;
   }, []);
   React.useEffect(() => stop, [stop]);
 
   const start = () => {
-    if (!navigator.geolocation) {
+    if (!isNative() && !navigator.geolocation) {
       setState({ phase: 'error', message: 'This browser can\'t tell where you are.' });
       return;
     }
     setState({ phase: 'locating' });
-    watch.current = navigator.geolocation.watchPosition(
+    watch.current = watchPosition(
       pos => {
         const { latitude: lat, longitude: lon, altitude } = pos.coords;
         const altitudeFt = altitude === null || altitude === undefined ? null : Math.round(altitude * FT_PER_M);
@@ -57,7 +58,7 @@ const HereFrequencies: React.FC = () => {
       },
       err => {
         stop();
-        setState({ phase: 'error', message: err.code === err.PERMISSION_DENIED
+        setState({ phase: 'error', message: err.denied
           ? 'Location is blocked for this site. Allow it in the browser settings to see the frequency where you are.'
           : 'Could not get your position.' });
       },

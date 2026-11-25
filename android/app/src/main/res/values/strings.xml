@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Flight Planning Tool</string>
+    <string name="title_activity_main">Flight Planning Tool</string>
+    <string name="package_name">com.flightplanningtool.app</string>
+    <string name="custom_url_scheme">com.flightplanningtool.app</string>
+</resources>

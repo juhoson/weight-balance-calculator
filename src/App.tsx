@@ -27,7 +27,7 @@ function App() {
   return (
     <ThemeProvider defaultTheme="system">
       <div className="min-h-screen bg-slate-50 text-foreground dark:bg-background">
-        <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur print:hidden">
+        <header className="safe-top sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur print:hidden">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
             <div className="flex items-center gap-2.5 sm:gap-4">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">

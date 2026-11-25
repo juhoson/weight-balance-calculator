@@ -349,3 +349,16 @@ input::-webkit-inner-spin-button {
   size: A4;
   margin: 12mm;
 }
+
+/* The notch, the home indicator and rounded corners (viewport-fit=cover): on iOS in the app or
+   installed, the page draws under them, so its content keeps clear. Zero everywhere else. On #root,
+   not body: an open dialog's scroll lock zeroes the body's padding. The top is the sticky header's. */
+#root {
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-area {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}

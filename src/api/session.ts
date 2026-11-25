@@ -25,7 +25,7 @@ export interface SessionUser {
 
 export interface AuthProviders {
   /** Null when Google sign-in is not configured on the server. */
-  google: { clientId: string } | null;
+  google: { clientId: string; iosClientId?: string | null } | null;
 }
 
 let providersPromise: Promise<AuthProviders> | null = null;

@@ -1,6 +1,7 @@
 // The planned route (departure/arrival), remembered in this browser.
 
 import type { AltitudeChange } from '../types/route';
+import { currentPosition as nativeOrWebPosition, isNative, type PositionError, WEB_APP_URL } from './native';
 
 export interface PlannedRoute {
   from: string;
@@ -36,22 +37,20 @@ export function saveRoute(route: PlannedRoute): void {
 
 /** Ask the browser for the position (prompts the first time). */
 export function currentPosition(): Promise<{ lat: number; lon: number }> {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('This browser cannot share its location.'));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-      e => reject(new Error(e.code === e.PERMISSION_DENIED ? 'Location access was declined.' : 'Could not get your location.')),
-      { maximumAge: 10 * 60_000, timeout: 15_000 },
-    );
-  });
+  if (!isNative() && !navigator.geolocation) return Promise.reject(new Error('This browser cannot share its location.'));
+  return nativeOrWebPosition({ maximumAge: 10 * 60_000, timeout: 15_000 }).then(
+    p => ({ lat: p.coords.latitude, lon: p.coords.longitude }),
+    (e: PositionError) => { throw new Error(e.denied ? 'Location access was declined.' : 'Could not get your location.'); },
+  );
 }
 
 /** True when the pilot already allowed location access, so it can be used without asking. */
 export async function locationAlreadyAllowed(): Promise<boolean> {
   try {
+    if (isNative()) {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      return (await Geolocation.checkPermissions()).location === 'granted';
+    }
     const status = await navigator.permissions?.query({ name: 'geolocation' as PermissionName });
     return status?.state === 'granted';
   } catch {
@@ -69,7 +68,8 @@ export function fromAirports(codes: string[]): PlannedRoute {
 
 /** The share link for a token, pointing at this app. */
 export function shareUrl(token: string): string {
-  return `${window.location.origin}${window.location.pathname}?route=${encodeURIComponent(token)}`;
+  const page = isNative() ? WEB_APP_URL : `${window.location.origin}${window.location.pathname}`;
+  return `${page}?route=${encodeURIComponent(token)}`;
 }
 
 /** The cruise altitude and the stretches at another altitude, saved and shared with a route. */

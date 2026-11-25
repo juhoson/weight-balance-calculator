@@ -5,6 +5,15 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/android": "^8.6.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.3",
+    "@capacitor/geolocation": "^8.2.5",
+    "@capacitor/ios": "^8.6.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
+    "@capgo/capacitor-social-login": "^8.7.13",
     "@headlessui/react": "^2.2.0",
     "@heroicons/react": "^2.2.0",
     "@radix-ui/react-dialog": "^1.1.4",
@@ -36,6 +45,9 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "app:build": "PUBLIC_URL=. react-scripts build && cap sync",
+    "app:ios": "npm run app:build && cap open ios",
+    "app:android": "npm run app:build && cap open android",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint . --ext .ts,.tsx",
@@ -61,6 +73,7 @@
     ]
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.3",
     "@shadcn/ui": "^0.0.4",
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^14.3.1",

@@ -20,6 +20,8 @@ import { adviceFor, crossingsAlong } from '../../lib/airspace';
 import { routeLabels } from '../../lib/routePoint';
 import type { RoutePosition } from '../../lib/openMeteo';
 import { GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
+import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/native';
+import { cachedTileLayer } from '../../lib/tileCache';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
   glideRangeNm, isControlled, nearestAirfields, nextAirspace, pad3, positionAlong,
@@ -100,7 +102,12 @@ const nmText = (n: number) => (n < 10 ? n.toFixed(1) : String(Math.round(n)));
 /** Keeps the screen on while the mode is open (where the browser can). */
 function useWakeLock(active: boolean): void {
   React.useEffect(() => {
-    if (!active || !('wakeLock' in navigator)) return;
+    if (!active) return;
+    if (isNative()) {
+      keepScreenOn(true);
+      return () => { keepScreenOn(false); };
+    }
+    if (!('wakeLock' in navigator)) return;
     let lock: { release: () => Promise<void> } | null = null;
     let live = true;
     const ask = () => {
@@ -187,18 +194,24 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     return () => { live = false; };
   }, [route]);
 
+  // The app's whole screen while flying: no status bar (the browser's full screen needs a tap, in begin).
+  React.useEffect(() => {
+    if (!started || !isNative()) return;
+    fullScreen(true);
+    return () => { fullScreen(false); };
+  }, [started]);
+
   // The GPS.
   React.useEffect(() => {
     if (started !== 'gps') return;
-    if (!navigator.geolocation) { setGpsError('This browser has no location service.'); return; }
-    const id = navigator.geolocation.watchPosition(
+    if (!isNative() && !navigator.geolocation) { setGpsError('This browser has no location service.'); return; }
+    return watchPosition(
       p => { setGpsError(null); setFix(prev => fixFrom(p.coords, p.timestamp || Date.now(), prev)); },
-      e => setGpsError(e.code === e.PERMISSION_DENIED
-        ? 'Location is blocked for this site: allow it in the browser settings.'
+      e => setGpsError(e.denied
+        ? (isNative() ? 'Location is off for this app: allow it in Settings.' : 'Location is blocked for this site: allow it in the browser settings.')
         : 'No GPS position yet.'),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 },
     );
-    return () => navigator.geolocation.clearWatch(id);
   }, [started]);
 
   // The demo flight: along the route at the cruise speed, climbing at 500 ft/min.
@@ -246,7 +259,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     let live = true;
     const airspace = () => {
       if (live && status?.airspace) {
-        L.tileLayer(AIRSPACE_TILE_URL, {
+        cachedTileLayer(AIRSPACE_TILE_URL, {
           minZoom: status.minZoom, maxNativeZoom: Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM), maxZoom: 19, attribution: OPENAIP_CREDIT,
         }).addTo(map);
       }
@@ -427,7 +440,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       saveNavSession({
         trip, airspaces, airspacesFetchedAt, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, airfields, nearVrps,
       });
-      document.documentElement.requestFullscreen?.().catch(() => undefined);
+      fullScreen(true);
     }
     setStarted(mode);
   };
@@ -488,7 +501,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }
 
   const exit = () => {
-    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined);
+    fullScreen(false);
     onClose();
   };
   // A GPS flight ends on its own page: save it (signed in) or let it go.
@@ -506,7 +519,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }[adviceFor(a).severity]);
 
   return (
-    <div className="fixed inset-0 z-[2000] flex flex-col bg-slate-950 text-slate-100 lg:landscape:flex-row" role="dialog" aria-modal="true" aria-label="Navigation mode">
+    <div className="safe-area fixed inset-0 z-[2000] flex flex-col bg-slate-950 text-slate-100 lg:landscape:flex-row" role="dialog" aria-modal="true" aria-label="Navigation mode">
       {/* Portrait: everything stacked around the map. Landscape (a tablet on the knee): the map, and this panel on the right. */}
       <aside className="contents lg:landscape:order-2 lg:landscape:flex lg:landscape:w-[380px] lg:landscape:shrink-0 lg:landscape:flex-col lg:landscape:border-l lg:landscape:border-slate-700">
         {/* Speed, track, altitude and where to. */}
