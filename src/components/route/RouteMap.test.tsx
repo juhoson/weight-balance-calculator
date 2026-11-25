@@ -239,4 +239,24 @@ describe('with the map laid out', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Route via this airport' }));
     expect(onChange).toHaveBeenCalledWith(['ESSU']);
   });
+
+  test('the IFR/GNSS fixes in view, from the AIP: one can be routed via; switched off in the layers', async () => {
+    localStorage.clear();
+    (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
+    const onChange = jest.fn();
+    const { container } = render(<RouteMap airports={route} onWaypointsChange={onChange}/>);
+    await waitFor(() => expect(container.querySelectorAll('.fix-marker').length).toBeGreaterThan(0));
+    fireEvent.click(container.querySelector('.fix-marker') as Element);
+    expect(await screen.findByText(/IFR\/GNSS fix \(AIP ENR 4\.4\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Route via this point' }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0]).toHaveLength(1);
+
+    const toggle = Array.from(container.querySelectorAll<HTMLInputElement>('.leaflet-control-layers-selector'))
+      .find(i => i.parentElement?.textContent?.includes('IFR fixes')) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(container.querySelector('.fix-marker')).toBeNull());
+    expect(localStorage.getItem('map.showIfrFixes')).toBe('no');
+  });
 });

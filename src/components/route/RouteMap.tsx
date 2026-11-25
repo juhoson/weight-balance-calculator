@@ -6,6 +6,7 @@ import { parsePosition, positionCode, positionText, routeLabels } from '../../li
 import { pointInfoHtml } from '../../lib/frequencies';
 import { asRoutePoint, type RouteReportingPoint } from '../../lib/useRouteWeather';
 import type { MapArea } from '../../types/route';
+import { fixesIn, type SignificantPoint } from '../../lib/swedenFixes';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
 export interface MapAirport {
@@ -32,6 +33,9 @@ interface RouteMapProps {
 
 /** Reporting point names show from this zoom in; further out, on hover only. */
 const VRP_LABEL_ZOOM = 9;
+/** Whether the IFR/GNSS fixes layer is on, as last chosen on this device (on at first). */
+const SHOW_FIX_KEY = 'map.showIfrFixes';
+const fixesWanted = () => { try { return localStorage.getItem(SHOW_FIX_KEY) !== 'no'; } catch { return true; } };
 
 type At = { lat: number; lon: number };
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
@@ -158,17 +162,40 @@ const RouteMap: React.FC<RouteMapProps> = ({
     // Leaflet needs a view before anything is drawn; the route effect fits it to the route.
     map.setView([60, 15], 5);
     L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_CREDIT, className: 'basemap-tiles' }).addTo(map);
+    // Sweden's IFR/GNSS fixes (AIP ENR 4.4) in view, close enough in; tap one to route via it.
+    const fixes = L.layerGroup();
+    const overlays: Record<string, L.Layer> = {};
     if (status?.airspace) {
-      const airspace = L.tileLayer(AIRSPACE_TILE_URL, {
+      overlays.Airspace = L.tileLayer(AIRSPACE_TILE_URL, {
         minZoom: status.minZoom,
         maxNativeZoom: status.maxZoom,
         maxZoom: 19,
         attribution: OPENAIP_CREDIT,
         opacity: 1,
       }).addTo(map);
-      // Lets the pilot hide the airspace to read the map underneath.
-      L.control.layers(undefined, { Airspace: airspace }, { collapsed: true, position: 'topright' }).addTo(map);
     }
+    overlays['IFR fixes'] = fixes;
+    if (fixesWanted()) fixes.addTo(map);
+    // Lets the pilot hide the airspace to read the map underneath, or the fixes.
+    L.control.layers(undefined, overlays, { collapsed: true, position: 'topright' }).addTo(map);
+    const drawFixes = () => {
+      fixes.clearLayers();
+      if (!map.hasLayer(fixes) || map.getZoom() < AREA_ZOOM) return;
+      const b = map.getBounds().pad(0.1);
+      fixesIn(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()).forEach(f => {
+        const p = asRoutePoint('', { ...f, compulsory: false });
+        fixMarker(f).on('click', () => pickRef.current?.({ code: p.code, name: f.name, lat: f.lat, lon: f.lon }, fixHtml(f, p.code), 'vrp'))
+          .addTo(fixes);
+      });
+    };
+    map.on('moveend', drawFixes);
+    const fixesSwitched = (e: L.LayersControlEvent) => {
+      if (e.layer !== fixes) return;
+      try { localStorage.setItem(SHOW_FIX_KEY, e.type === 'overlayadd' ? 'yes' : 'no'); } catch { /* private mode */ }
+      drawFixes();
+    };
+    map.on('overlayadd', fixesSwitched);
+    map.on('overlayremove', fixesSwitched);
     // Top left, under the zoom buttons: the credits take the bottom edge on a phone.
     L.control.scale({ imperial: true, metric: true, position: 'topleft' }).addTo(map);
     areaLayer.current = L.layerGroup().addTo(map);
@@ -603,6 +630,19 @@ const RouteMap: React.FC<RouteMapProps> = ({
     </div>
   );
 };
+
+/** An IFR/GNSS fix: a small grey diamond with its name beside it. */
+function fixMarker(f: SignificantPoint): L.Marker {
+  const m = L.marker([f.lat, f.lon], {
+    icon: L.divIcon({ className: 'fix-marker', iconSize: [9, 9] }), keyboard: false, bubblingMouseEvents: false, title: f.name,
+  });
+  m.bindTooltip(f.name, { permanent: true, direction: 'right', offset: [4, 0], className: 'route-map-label fix-label' });
+  return m;
+}
+
+const fixHtml = (f: SignificantPoint, code: string) =>
+  `<strong>${escapeHtml(f.name)}</strong><br>IFR/GNSS fix (AIP ENR 4.4)${f.routes ? `: ${escapeHtml(f.routes)}` : ''}`
+  + `<br>${positionText(code) ?? ''}`;
 
 /** A reporting point: a blue triangle (filled when compulsory) with its name beside it. */
 function vrpMarker(p: RouteReportingPoint): L.Marker {

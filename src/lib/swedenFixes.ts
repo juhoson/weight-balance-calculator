@@ -24,3 +24,8 @@ export function fixesNear(route: Array<{ lat: number; lon: number }>, nm: number
     ? Math.hypot(p.lat - route[0].lat, (p.lon - route[0].lon) * Math.cos((p.lat * Math.PI) / 180)) * 60 <= nm
     : (activeLeg(route, p)?.offNm ?? Infinity) <= nm));
 }
+
+/** The points inside a box, e.g. a map's view. */
+export function fixesIn(south: number, west: number, north: number, east: number): SignificantPoint[] {
+  return POINTS.filter(p => p.lat >= south && p.lat <= north && p.lon >= west && p.lon <= east);
+}

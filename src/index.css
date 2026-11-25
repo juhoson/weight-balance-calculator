@@ -309,7 +309,8 @@ input::-webkit-inner-spin-button {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 /* Zoomed out on the planning map, the names would crowd each other: the marker's title has them. */
-.route-map--far .leaflet-tooltip.vrp-label {
+.route-map--far .leaflet-tooltip.vrp-label,
+.route-map--far .leaflet-tooltip.fix-label {
   display: none;
 }
 
