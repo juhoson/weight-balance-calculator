@@ -26,6 +26,7 @@ import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
+import ObstaclePanel from './route/ObstaclePanel';
 import AirspacePanel from './route/AirspacePanel';
 import { altitudeAlongPoints, checkCrossings, type Crossing, crossingsAlong, pointsOf, stillAirProfile } from '../lib/airspace';
 import { avoidOptions, type AvoidHandler, crossingContext, withEffects } from '../lib/avoidAirspace';
@@ -854,8 +855,13 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
       path = [{ nm: 0, ft: altitudeFt }, { nm: total, ft: altitudeFt }];
       basis = `at ${altitudeFt.toLocaleString('en')} ft the whole way`;
     }
-    return { checks: checkPath(trip, crossings, path), basis };
+    return { checks: checkPath(trip, crossings, path), basis, path };
   }, [trip, crossings, windPlan, vertical, cruiseKt, tasKt, altitudeFt, activeHolds, climbRates.climbFpm, climbRates.descentFpm]);
+  // Obstacles against the same planned path as the airspace check (cruise altitude level without one).
+  const routePoints = React.useMemo(() => (trip ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival] : []), [trip]);
+  const obstaclePath = React.useMemo<PathPoint[]>(() => airspaceCheck?.path
+    ?? [{ nm: 0, ft: altitudeFt }, { nm: trip?.distanceNm ?? 0, ft: altitudeFt }], [airspaceCheck, altitudeFt, trip]);
+  const obstacleBasis = airspaceCheck ? 'the planned path' : `${altitudeFt.toLocaleString('en')} ft`;
   const avoid = React.useMemo<AvoidHandler | undefined>(() => {
     if (!trip || !airspaceCheck) return undefined;
     const route = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
@@ -1036,6 +1042,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             )}
             {trip && (
               <AirspacePanel state={airspaces} checks={airspaceCheck?.checks ?? []} basis={airspaceCheck?.basis ?? ''} swedenControl={swedenControl} avoid={avoid}/>
+            )}
+            {trip && trip.distanceNm > 0 && (
+              <ObstaclePanel route={routePoints} path={obstaclePath} basis={obstacleBasis}/>
             )}
             {trip && trip.distanceNm > 0 && (
               <div className="flex flex-wrap items-center gap-2">

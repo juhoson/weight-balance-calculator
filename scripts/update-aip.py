@@ -4,6 +4,8 @@ Sweden's AIP data the app carries, rebuilt from LFV's eAIP:
 
 - src/data/swedenFixes.json: the significant points (ENR 4.4, IFR/GNSS fixes)
 - src/data/swedenNavaids.json: the en-route radio navaids (ENR 4.1, VOR/DME)
+- src/data/swedenObstacles.json: the air navigation obstacles of 100 m (328 ft) or more (ENR 5.4,
+  LFV's AREA1 obstacle dataset, a CSV in a zip on its Dataset page)
 
 It takes the amendment in force today (the newest on the eAIP site's list), and records the AIRAC
 cycle it checked: the app warns once that cycle is over, so run it each cycle. A cycle without an
@@ -17,26 +19,62 @@ Python's standard library only. Exits non-zero, leaving the files alone, when th
 doesn't look as expected.
 """
 import argparse
+import csv
 import datetime as dt
 import html
+import io
 import json
 import pathlib
 import re
 import sys
 import urllib.parse
 import urllib.request
+import zipfile
 
 BASE = 'https://www.aro.lfv.se/content/eaip/'
 LISTING = BASE + 'default_offline.html'
+DATASETS = 'https://www.aro.lfv.se/Editorial/View/Dataset'
 DATA = pathlib.Path(__file__).resolve().parent.parent / 'src' / 'data'
 # Any AIRAC effective date: the cycles run every 28 days from it.
 AIRAC_REFERENCE = dt.date(2026, 11, 26)
 
 
-def get(url: str) -> str:
+def get_bytes(url: str) -> bytes:
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; aip-data-update)'})
     with urllib.request.urlopen(req, timeout=60) as res:
-        return res.read().decode('utf-8', 'replace')
+        return res.read()
+
+
+def get(url: str) -> str:
+    return get_bytes(url).decode('utf-8', 'replace')
+
+
+def obstacles(today: dt.date) -> tuple[dt.date, str, list[list]]:
+    """
+    The newest obstacle dataset in force: (effective date, its URL, rows). Each row is
+    [lat, lon, top ft MSL, height ft AGL, type, name, lit], compact as there are thousands.
+    """
+    page = get(DATASETS)
+    found = []
+    for path, wef in set(re.findall(r'href="(/Editorial/View/General/\d+/LFV_OBSTACLE_DATASET_AREA1_WEF_(\d{8})\.zip)"', page)):
+        found.append((dt.datetime.strptime(wef, '%Y%m%d').date(), 'https://www.aro.lfv.se' + path))
+    in_force = sorted(f for f in found if f[0] <= today)
+    if not in_force:
+        raise ValueError(f'No obstacle dataset in force on {today} on {DATASETS}: has the page changed?')
+    effective, url = in_force[-1]
+    with zipfile.ZipFile(io.BytesIO(get_bytes(url))) as z:
+        name = next(n for n in z.namelist() if n.upper().endswith('.CSV'))
+        text = z.read(name).decode('utf-8-sig')
+    rows = []
+    for r in csv.DictReader(io.StringIO(text), delimiter=';'):
+        r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
+        if r.get('ELEVATION_UOM') != 'FT' or r.get('HEIGHT_UOM') != 'FT' or r.get('STATUS', 'COMPLETED') != 'COMPLETED':
+            continue
+        rows.append([round(float(r['LATITUDE_DD']), 5), round(float(r['LONGITUDE_DD']), 5), int(float(r['ELEVATION'])),
+                     int(float(r['HEIGHT'])), r['OBSTACLE_TYPE'], r['NAME'], r['LIGHTING'] == 'Y'])
+    if len(rows) < 1000:
+        raise ValueError(f'Obstacle dataset: only {len(rows)} obstacles; has the format changed?')
+    return effective, url, rows
 
 
 def text_of(page: str) -> str:
@@ -133,9 +171,18 @@ def main() -> int:
         items = parse(get(url))
         written[name] = {'source': f'AIP Sweden {section}, {title}, {label} ({when})', 'sourceUrl': url,
                          'effective': effective.isoformat(), 'checked': checked, key: items}
+    obst_effective, obst_url, obst_rows = obstacles(args.today)
+    written['swedenObstacles.json'] = {
+        'source': f'AIP Sweden ENR 5.4, LFV AREA1 obstacle dataset ({obst_effective.strftime("%d %b %Y").upper()}): '
+                  'obstacles of 100 m (328 ft) or more; LFV notes the set is not complete',
+        'sourceUrl': obst_url, 'effective': obst_effective.isoformat(),
+        'checked': max(obst_effective, airac_start(args.today)).isoformat(),
+        'columns': ['lat', 'lon', 'topFtMsl', 'heightFtAgl', 'type', 'name', 'lit'], 'obstacles': obst_rows,
+    }
     for name, content in written.items():
         (DATA / name).write_text(json.dumps(content, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
-        print(f'{name}: {len(content["points"] if "points" in content else content["navaids"])} from {label}, checked {checked}')
+        count = len(content.get('points') or content.get('navaids') or content.get('obstacles') or [])
+        print(f'{name}: {count}, effective {content["effective"]}, checked {content["checked"]}')
     return 0
 
 

@@ -9,6 +9,7 @@ import type { MapArea } from '../../types/route';
 import { fixesAiracText, fixesIn, fixesOutOfDate, type SignificantPoint } from '../../lib/swedenFixes';
 import { type Navaid, navaidPopup, navaidsIn, navaidSvg, navaidText } from '../../lib/swedenNavaids';
 import { labelsByZoom } from '../../lib/mapLabels';
+import { loadObstacles, obstaclePopup, obstaclesIn, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
 export interface MapAirport {
@@ -39,6 +40,10 @@ const VRP_LABEL_ZOOM = 9;
 const SHOW_FIX_KEY = 'map.showIfrFixes';
 const fixesWanted = () => { try { return localStorage.getItem(SHOW_FIX_KEY) !== 'no'; } catch { return true; } };
 const SHOW_NAVAID_KEY = 'map.showNavaids';
+const SHOW_OBSTACLE_KEY = 'map.showObstacles';
+const obstaclesWanted = () => { try { return localStorage.getItem(SHOW_OBSTACLE_KEY) !== 'no'; } catch { return true; } };
+/** From this zoom in the obstacles show (thousands of wind turbines further out). */
+const OBSTACLE_ZOOM = 9;
 const navaidsWanted = () => { try { return localStorage.getItem(SHOW_NAVAID_KEY) !== 'no'; } catch { return true; } };
 /** From this zoom in the navaids show (there are few: about 40 in Sweden). */
 const NAVAID_ZOOM = 6;
@@ -165,7 +170,6 @@ const RouteMap: React.FC<RouteMapProps> = ({
       attributionControl: false,
     });
     L.control.attribution({ prefix: false }).addTo(map);
-    labelsByZoom(map, container.current);
     // Leaflet needs a view before anything is drawn; the route effect fits it to the route.
     map.setView([60, 15], 5);
     L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_CREDIT, className: 'basemap-tiles' }).addTo(map);
@@ -187,6 +191,10 @@ const RouteMap: React.FC<RouteMapProps> = ({
     const navaids = L.layerGroup();
     overlays.Navaids = navaids;
     if (navaidsWanted()) navaids.addTo(map);
+    // The AIP's obstacles of 100 m or more in view, close in; tap one for its height.
+    const obstacleLayer = L.layerGroup();
+    overlays.Obstacles = obstacleLayer;
+    if (obstaclesWanted()) obstacleLayer.addTo(map);
     // Lets the pilot hide the airspace to read the map underneath, or the fixes.
     L.control.layers(undefined, overlays, { collapsed: true, position: 'topright' }).addTo(map);
     const drawFixes = () => {
@@ -207,11 +215,24 @@ const RouteMap: React.FC<RouteMapProps> = ({
       navaidsIn(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()).forEach(n => navaidMarker(n).addTo(navaids));
     };
     map.on('moveend', drawNavaids);
+    const drawObstacles = () => {
+      if (!map.hasLayer(obstacleLayer) || map.getZoom() < OBSTACLE_ZOOM) { obstacleLayer.clearLayers(); return; }
+      loadObstacles().then(({ obstacles, dates }) => {
+        obstacleLayer.clearLayers();
+        if (!map.hasLayer(obstacleLayer) || map.getZoom() < OBSTACLE_ZOOM) return;
+        const b = map.getBounds().pad(0.1);
+        obstaclesIn(obstacles, b.getSouth(), b.getWest(), b.getNorth(), b.getEast()).forEach(o => L.marker([o.lat, o.lon], {
+          icon: L.divIcon({ className: 'obstacle-marker', iconSize: [22, 22], html: obstacleSvg(o) }), keyboard: false,
+          bubblingMouseEvents: false, title: obstacleText(o),
+        }).bindPopup(obstaclePopup(o, dates), { className: 'navaid-popup' }).addTo(obstacleLayer));
+      }, () => undefined);
+    };
+    map.on('moveend', drawObstacles);
     const fixesSwitched = (e: L.LayersControlEvent) => {
-      const key = e.layer === fixes ? SHOW_FIX_KEY : e.layer === navaids ? SHOW_NAVAID_KEY : null;
+      const key = e.layer === fixes ? SHOW_FIX_KEY : e.layer === navaids ? SHOW_NAVAID_KEY : e.layer === obstacleLayer ? SHOW_OBSTACLE_KEY : null;
       if (!key) return;
       try { localStorage.setItem(key, e.type === 'overlayadd' ? 'yes' : 'no'); } catch { /* private mode */ }
-      if (e.layer === fixes) drawFixes(); else drawNavaids();
+      if (e.layer === fixes) drawFixes(); else if (e.layer === navaids) drawNavaids(); else drawObstacles();
     };
     map.on('overlayadd', fixesSwitched);
     map.on('overlayremove', fixesSwitched);
@@ -219,9 +240,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
     L.control.scale({ imperial: true, metric: true, position: 'topleft' }).addTo(map);
     areaLayer.current = L.layerGroup().addTo(map);
     routeLayer.current = L.layerGroup().addTo(map);
-    const far = () => container.current?.classList.toggle('route-map--far', map.getZoom() < VRP_LABEL_ZOOM);
-    map.on('zoomend', far);
-    far();
+    labelsByZoom(map, container.current, VRP_LABEL_ZOOM);
     // Close enough in, the airports in view and their reporting points; asked a moment after the map stops.
     let asked = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;

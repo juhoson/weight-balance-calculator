@@ -23,6 +23,7 @@ import type { RoutePosition } from '../../lib/openMeteo';
 import { GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
 import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/native';
 import { cachedTileLayer } from '../../lib/tileCache';
+import { loadObstacles, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
   demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, nextAirspace, pad3, positionAlong, routeLengthNm,
@@ -64,6 +65,9 @@ const SHOW_FIX_KEY = 'nav.showIfrFixes';
 const SHOW_NAVAID_KEY = 'nav.showNavaids';
 /** Radio navaids this far from the route are drawn: a VOR is used well off it. */
 const NAVAID_RANGE_NM = 40;
+const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
+/** The obstacles drawn: this far either side of the route. */
+const OBSTACLE_RANGE_NM = 10;
 type Vrp = { name: string; lat: number; lon: number; compulsory: boolean };
 
 /** Every visual reporting point near the route: the map area around it, asked in parts the server allows (5° × 10°). */
@@ -243,6 +247,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const vrpLayer = React.useRef(L.layerGroup());
   const fixLayer = React.useRef(L.layerGroup());
   const navaidLayer = React.useRef(L.layerGroup());
+  const obstacleLayer = React.useRef(L.layerGroup());
   const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline; trail: L.Polyline } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
@@ -292,6 +297,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
     route.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    obstacleLayer.current.addTo(map);
     navaidLayer.current.addTo(map);
     fixLayer.current.addTo(map);
     vrpLayer.current.addTo(map);
@@ -352,6 +358,33 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       .bindPopup(navaidPopup(n), { className: 'navaid-popup', closeButton: false, autoPan: false })
       .addTo(layer));
   }, [navaids, showNavaid]);
+  // The AIP's obstacles of 100 m or more: on the map near the route, and called out when one is ahead.
+  const [showObstacle, toggleObstacle] = useShown(SHOW_OBSTACLE_KEY, true);
+  const [obstacleData, setObstacleData] = React.useState<Awaited<ReturnType<typeof loadObstacles>> | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    loadObstacles().then(d => { if (live) setObstacleData(d); }, () => undefined);
+    return () => { live = false; };
+  }, []);
+  const routeObstacles = React.useMemo(
+    () => (obstacleData ? obstaclesAlong(obstacleData.obstacles, route, () => cruiseAltFt, OBSTACLE_RANGE_NM) : []),
+    [obstacleData, route, cruiseAltFt]);
+  React.useEffect(() => {
+    const layer = obstacleLayer.current;
+    layer.clearLayers();
+    if (!showObstacle || !obstacleData) return;
+    routeObstacles.forEach(o => {
+      const warn = o.clearanceFt < OBSTACLE_MARGIN_FT;
+      L.marker([o.lat, o.lon], {
+        icon: L.divIcon({ className: warn ? 'obstacle-marker obstacle-marker--warn' : 'obstacle-marker', iconSize: [22, 22], html: obstacleSvg(o, warn) }),
+        keyboard: false, title: obstacleText(o),
+      }).bindPopup(obstaclePopup(o, obstacleData.dates), { className: 'navaid-popup', closeButton: false, autoPan: false }).addTo(layer);
+    });
+  }, [routeObstacles, showObstacle, obstacleData]);
+  // Whatever the layer shows: the one ahead is always called out.
+  const ahead = React.useMemo(
+    () => (fix && obstacleData ? obstacleAhead(obstacleData.obstacles, fix, fix.trackDeg, fix.altFt) : null),
+    [fix, obstacleData]);
   const aipStale = (showFix && fixes.length > 0 && fixesOutOfDate()) ? fixesAiracText()
     : (showNavaid && navaids.length > 0 && navaidsOutOfDate()) ? navaidsAiracText() : null;
   React.useEffect(() => {
@@ -586,6 +619,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           )}
         </div>
 
+        {ahead && (
+          <div role="alert" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-red-700 px-3 py-1.5 font-semibold text-white">
+            <TriangleAlert className="h-4 w-4 self-center"/>
+            <span>OBSTACLE {nmText(ahead.nm)} NM {pad3(ahead.bearingDeg)}°</span>
+            <span className="font-normal">{obstacleKind(ahead.type)} {ahead.name}</span>
+            <span className="ml-auto tabular-nums">
+              top {ft(ahead.topFt)} ft MSL · {ahead.clearanceFt >= 0 ? `${ft(ahead.clearanceFt)} ft below you` : `${ft(-ahead.clearanceFt)} ft above you`}
+            </span>
+          </div>
+        )}
         {aipStale && (
           <div className="order-2 bg-amber-600 px-3 py-0.5 text-[11px] font-semibold text-white">
             IFR fixes and navaids are from {aipStale}, out of date now: check the AIP before using them.
@@ -723,6 +766,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <button type="button" aria-pressed={showNavaid} onClick={toggleNavaid} title="Radio navaids: VOR, DME (AIP ENR 4.1)"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showNavaid ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             NAV
+          </button>
+          <button type="button" aria-pressed={showObstacle} onClick={toggleObstacle} title="Obstacles of 100 m or more (AIP ENR 5.4)"
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showObstacle ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            OBS
           </button>
         </div>
         {!follow && fix && (

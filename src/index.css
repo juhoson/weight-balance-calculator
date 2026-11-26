@@ -328,6 +328,18 @@ input::-webkit-inner-spin-button {
 .route-map--very-far .leaflet-tooltip.navaid-label {
   display: none;
 }
+/* Wind farms are hundreds of symbols: zoomed out only the ones too close to the altitude show. */
+.route-map--far .obstacle-marker:not(.obstacle-marker--warn) {
+  display: none;
+}
+/* Obstacles: the symbol is the icon's SVG, centred in a finger-sized target. */
+.obstacle-marker {
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 /* A tapped navaid: what to tune. */
 .navaid-popup .leaflet-popup-content {
   margin: 8px 12px;
