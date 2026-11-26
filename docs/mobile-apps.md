@@ -189,21 +189,27 @@ npm run app:android     # builds the web app, copies it in, opens Android Studio
 
 Same files and command as D1 (one run makes both platforms).
 
-### E4. Upload key (once: keep it safe, never in git)
+### E4. Upload key (done, 26 Nov 2026: back it up)
 
-```sh
-keytool -genkeypair -v -keystore ~/keys/flightplanningtool-upload.jks \
-  -alias upload -keyalg RSA -keysize 2048 -validity 10000
-```
+- Keystore: `~/.android-keystores/flightplanningtool-release.keystore` (alias `flightplanningtool-release`)
+- Passwords: in `android/keystore.properties` (not in git), which `app/build.gradle` reads, as in Cellarmate.
+- Upload key SHA-1 (for C3): `6E:13:FC:89:50:C0:46:D8:67:20:DE:FC:CD:BC:CA:D2:11:B0:71:DF`
 
-Save the passwords in your password manager, and back up the `.jks` file. Its SHA-1 for C3:
-`keytool -list -v -keystore ~/keys/flightplanningtool-upload.jks -alias upload`.
+Keep a copy of both files in your password manager. Losing them means asking Play support to reset the
+upload key.
 
 ### E5. Signed release bundle
 
-Android Studio → **Build → Generate Signed App Bundle or APK → Android App Bundle →**
-choose the keystore from E4 → *release*. The file is
-`android/app/release/app-release.aab`.
+Builds need Java 21 (Homebrew `openjdk@21`; `~/.gradle/gradle.properties` points Gradle at it) and the
+SDK at `/opt/homebrew/share/android-commandlinetools` (`android/local.properties`).
+
+```sh
+npm run app:build
+cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew bundleRelease
+```
+
+The bundle is `android/app/build/outputs/bundle/release/app-release.aab`. Raise `versionCode` in
+`android/app/build.gradle` before each upload.
 
 ### E6. Play Console: the app (once)
 
