@@ -8,7 +8,7 @@ export const isNative = (): boolean => Capacitor.isNativePlatform();
 export const nativePlatform = (): 'ios' | 'android' | 'web' => Capacitor.getPlatform() as 'ios' | 'android' | 'web';
 
 /** The web app's address: links shared from the app point there, not at the app's own origin. */
-export const WEB_APP_URL = 'https://www.flightplanningtool.com/weight-balance/';
+export const WEB_APP_URL = 'https://www.flightplanningtool.com/';
 
 export interface Position {
   coords: Pick<GeolocationCoordinates, 'latitude' | 'longitude' | 'altitude' | 'accuracy' | 'speed' | 'heading'>;

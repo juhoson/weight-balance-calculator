@@ -169,6 +169,19 @@ class Session {
   }
 
   /** clubId: the club the user flies with, joined as a member; omit for none. */
+  async signInWithApple(idToken: string, name: string | null): Promise<SessionUser> {
+    return this.start(await postAuth('apple', { idToken, name }), 'Apple sign-in failed.');
+  }
+
+  /** Deletes the account and everything kept with it on the server, then signs out here. */
+  async deleteAccount(): Promise<void> {
+    const response = await authFetch(`${API_BASE}/api/users/me`, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new AuthError(response.status, await messageOf(response, 'Could not delete the account.'));
+    }
+    this.clear(null);
+  }
+
   async register(email: string, password: string, displayName: string, clubId?: number): Promise<SessionUser> {
     return this.start(await postAuth('register', { email, password, displayName, clubId }), 'Could not create the account.');
   }

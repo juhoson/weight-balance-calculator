@@ -1,9 +1,10 @@
 import React from 'react';
-import { CheckCircle2, Loader2, UserRound, Users } from 'lucide-react';
+import { CheckCircle2, Loader2, Trash2, UserRound, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { joinClub, leaveClub } from '../../api/backend';
 import { useAuth } from '../../api/useAuth';
+import { session } from '../../api/session';
 import { useMyClubs } from '../../lib/useMyClubs';
 import type { MyClub } from '../../types/profile';
 
@@ -14,7 +15,11 @@ const ProfilePage: React.FC = () => {
   const [busyId, setBusyId] = React.useState<number | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [deleted, setDeleted] = React.useState(false);
 
+  if (deleted) {
+    return <p className="py-6 text-sm" role="status">Your account and its data are deleted. Thank you for flying with us.</p>;
+  }
   if (!user) {
     return <p className="py-6 text-sm text-muted-foreground">Sign in to see your profile.</p>;
   }
@@ -121,7 +126,64 @@ const ProfilePage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <DeleteAccount onDeleted={() => setDeleted(true)}/>
     </div>
+  );
+};
+
+const CONFIRM_WORD = 'DELETE';
+
+/** Deleting the account from inside the app, as both app stores require; typed confirmation first. */
+const DeleteAccount: React.FC<{ onDeleted: () => void }> = ({ onDeleted }) => {
+  const [open, setOpen] = React.useState(false);
+  const [typed, setTyped] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await session.deleteAccount();
+      onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete the account.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="border-red-300 dark:border-red-900">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Trash2 className="h-5 w-5 text-red-600"/> Delete account</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Deletes your account, your own aircraft, saved routes and flights, and your club memberships, for good. You are
+          signed out on every device. Aircraft you added to a club stay with the club.
+        </p>
+        {!open ? (
+          <Button type="button" variant="outline" className="border-red-400 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+            onClick={() => setOpen(true)}>
+            Delete account…
+          </Button>
+        ) : (
+          <div className="space-y-2">
+            <label htmlFor="delete-confirm" className="block font-medium">Type {CONFIRM_WORD} to confirm</label>
+            <input id="delete-confirm" value={typed} onChange={e => setTyped(e.target.value)} autoComplete="off" autoCapitalize="characters"
+              className="h-10 w-full rounded-md border border-input bg-background px-3"/>
+            <div className="flex gap-2">
+              <Button type="button" variant="destructive" disabled={typed.trim().toUpperCase() !== CONFIRM_WORD || busy} onClick={remove}>
+                {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>} Delete for good
+              </Button>
+              <Button type="button" variant="outline" disabled={busy} onClick={() => { setOpen(false); setTyped(''); setError(null); }}>Cancel</Button>
+            </div>
+            {error && <p className="text-red-600" role="alert">{error}</p>}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

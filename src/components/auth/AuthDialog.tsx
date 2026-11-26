@@ -6,6 +6,8 @@ import { Input } from '../ui/Input';
 import { session } from '../../api/session';
 import { fetchClubNames } from '../../api/backend';
 import type { ClubName } from '../../types/profile';
+import AppleSignInButton from './AppleSignInButton';
+import { nativePlatform } from '../../lib/native';
 import GoogleSignInButton from './GoogleSignInButton';
 
 type Mode = 'signIn' | 'register' | 'forgot';
@@ -134,12 +136,13 @@ const AuthDialog: React.FC<AuthDialogProps> = ({ open, onOpenChange, initialMode
               : 'Sign in to add aircraft and see your own aircraft in the calculator.'}
           </DialogDescription>
         </DialogHeader>
+        <AppleSignInButton onSuccess={() => onOpenChange(false)} onError={setError}/>
         <GoogleSignInButton
           onSuccess={() => onOpenChange(false)}
           onError={setError}
           onAvailability={setGoogleAvailable}
         />
-        {googleAvailable && (
+        {(googleAvailable || nativePlatform() === 'ios') && (
           <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
             <span className="h-px flex-1 bg-border" />
             or with email

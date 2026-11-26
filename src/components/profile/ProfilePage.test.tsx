@@ -4,6 +4,7 @@ import { setupUser } from '../../test/setupUser';
 import ProfilePage from './ProfilePage';
 import { fetchMyClubs, joinClub, leaveClub } from '../../api/backend';
 import type { MyClub } from '../../types/profile';
+import { session } from '../../api/session';
 
 jest.mock('../../api/backend', () => ({ fetchMyClubs: jest.fn(), joinClub: jest.fn(), leaveClub: jest.fn() }));
 jest.mock('../../api/useAuth', () => ({
@@ -53,4 +54,20 @@ it('shows the server\'s reason when a change fails', async () => {
   render(<ProfilePage />);
   await user.click(await screen.findByRole('button', { name: 'Join Club B' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Unknown club');
+});
+
+it('deletes the account once DELETE is typed', async () => {
+  const user = setupUser();
+  const remove = jest.spyOn(session, 'deleteAccount').mockResolvedValue();
+  render(<ProfilePage />);
+
+  await user.click(screen.getByRole('button', { name: 'Delete account…' }));
+  const confirm = screen.getByRole('button', { name: 'Delete for good' });
+  expect(confirm).toBeDisabled();
+  await user.type(screen.getByLabelText('Type DELETE to confirm'), 'delete');
+  await user.click(confirm);
+
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole('status')).toHaveTextContent('Your account and its data are deleted.');
+  remove.mockRestore();
 });

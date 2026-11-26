@@ -16,31 +16,27 @@ Part F covers every release after that.
 
 ---
 
-## Part A: Before either store (blockers)
+## Part A: What the stores require (done)
 
-Both stores reject the app without these. Both are code changes (ask Claude):
-
-1. **Deleting your account in the app.** Apple (guideline 5.1.1(v)) and Google Play both require
-   in-app account deletion for any app that creates accounts. Today only an admin can delete a user.
-2. **A privacy policy page** at a public URL, e.g. `https://www.flightplanningtool.com/privacy`.
-   It must cover what the app collects: email and name (account), Google sign-in, location (the
-   navigation mode only, while open, not sent anywhere except flights you save), saved routes and
-   flights, and Umami usage statistics.
-3. **Apple's sign-in rule (guideline 4.8).** An app that offers Google sign-in must also offer a
-   sign-in that keeps the email private. The usual answer is **Sign in with Apple**: the
-   sign-in plugin already supports it, and the backend needs a matching endpoint. Reviewers may
-   accept your own email-and-password sign-in as the alternative, but that isn't certain. Adding
-   Sign in with Apple avoids a rejection.
+- **Deleting your account in the app**: Profile → *Delete account* (`DELETE /api/users/me`). Both
+  stores require it (Apple 5.1.1(v), Google Play's account deletion policy). Play also asks for a web
+  link to the same thing: give the privacy policy, which explains it.
+- **Privacy policy**: <https://www.flightplanningtool.com/privacy.html> (`public/privacy.html`),
+  linked in the footer. **Read it before submitting**: it describes what the app does, but it's
+  your legal text.
+- **Sign in with Apple** (Apple 4.8): shown first in the iOS app's sign-in. The server checks
+  Apple's tokens for the bundle ID (`APPLE_CLIENT_IDS`, default `com.flightplanningtool.app`).
+  The entitlement is in `ios/App/App/App.entitlements`.
+  Not done yet: Apple asks apps to also revoke the user's Apple tokens when an account is deleted.
+  That needs a Sign in with Apple key (.p8) from the developer portal, and is a later addition.
 
 ---
 
 ## Part B: Backend settings (Railway, once)
 
 1. Railway → the backend service → **Variables**:
-   - `CORS_ALLOWED_ORIGINS`: add the apps' origins to the existing list, separated by commas:
-     `…existing…,capacitor://localhost,https://localhost`
-     (iOS serves the app from `capacitor://localhost` and Android from `https://localhost`.
-     Without them the apps can't reach the API.)
+   - `CORS_ALLOWED_ORIGINS` already includes `capacitor://localhost,https://localhost` (the
+     apps' origins; set 26 Nov 2026).
    - `GOOGLE_IOS_CLIENT_ID`: the iOS client ID from step C2 below.
 2. Redeploy (`railway up` from the backend repo), then check:
    `curl https://backend-production-b553.up.railway.app/api/auth/providers` shows `iosClientId`.
@@ -89,7 +85,8 @@ npm run app:ios      # builds the web app for the app, copies it in, opens Xcode
 In Xcode, select the **App** project → the **App** target:
 
 1. **Signing & Capabilities:** tick *Automatically manage signing* and choose your **Team**. Xcode
-   registers the bundle ID with your Apple account.
+   registers the bundle ID with your Apple account, with **Sign in with Apple** enabled (from
+   `App.entitlements`; it shows in the capability list).
 2. **Info → URL Types → +:** set *URL Schemes* to the iOS URL scheme from C2
    (`com.googleusercontent.apps.…`). Google's sign-in returns to the app through it.
 3. **General → Supported Destinations:** iPhone and iPad (both are set up).
@@ -101,7 +98,8 @@ In Xcode, select the **App** project → the **App** target:
    Privacy & Security → Developer Mode → On**, and restart.
 2. Press **Run** (▶).
 3. Check:
-   - email sign-in and Google sign-in;
+   - Sign in with Apple, Google sign-in and email sign-in;
+   - Profile → Delete account (with a test account);
    - plan a route through all five steps;
    - Start navigation: it asks for location once, then shows the GPS position, the status bar
      goes, and the screen stays on;
@@ -117,12 +115,12 @@ In Xcode, select the **App** project → the **App** target:
 
 Then fill in, under the app:
 
-- **App Information:** category *Navigation* (secondary *Utilities*), privacy policy URL (Part A).
+- **App Information:** category *Navigation* (secondary *Utilities*), privacy policy URL
+  `https://www.flightplanningtool.com/privacy.html`.
 - **App Privacy:**
   - Contact info: email address and name. Linked to the user, for app functionality.
   - Location: precise location, for app functionality. Linked to the user only if flights are
     saved to the account.
-  - Usage data: product interaction (Umami), for analytics, not linked.
   - User content: saved routes and flights.
   - No tracking.
 - **Pricing and Availability:** free; the countries to sell in.
@@ -212,7 +210,7 @@ choose the keystore from E4 → *release*. The file is
 <https://play.google.com/console> → **Create app**: name *Flight Planning Tool*, app, free. Then
 work through **Dashboard → Set up your app**:
 
-- privacy policy URL (Part A);
+- privacy policy URL `https://www.flightplanningtool.com/privacy.html`;
 - app access: sign-in required, so give the same demo account as D8;
 - ads: none;
 - content rating questionnaire;
@@ -220,9 +218,9 @@ work through **Dashboard → Set up your app**:
 - **Data safety:**
   - Location: precise, collected, for app functionality, optional. Location sharing is limited to flights the user saves.
   - Personal info: name and email, for account management.
-  - App activity: usage (Umami), for analytics.
   - Data encrypted in transit: yes.
-  - Users can delete their data: yes (Part A).
+  - Users can delete their data: yes, in the app (Profile → Delete account). The deletion web link is
+    the privacy policy URL.
 - store listing: short and full description, a 512×512 icon, a 1024×500 feature graphic, and phone
   screenshots (and 7"/10" tablet ones for the tablet listing).
 
@@ -234,9 +232,9 @@ work through **Dashboard → Set up your app**:
    - Add testers by email and share the opt-in link.
 2. **Play App Signing SHA-1:** Setup → **App integrity → App signing key certificate**. Add it as
    another Android OAuth client (C3). Without it, Google sign-in fails in apps installed from Play.
-3. **A personal developer account (created after Nov 2023)** must run a **closed test with at least
-   12 testers for 14 days** before it can apply for production. Club members work well as testers.
-   Organisation accounts skip this.
+3. Your account is an **organisation** account, so you can go straight to production after testing.
+   (Personal accounts created after Nov 2023 need a closed test with 12 testers for 14 days first.)
+   The store listing shows the organisation's verified name as the developer.
 4. **Production → Create release** with the same bundle. Review takes from a few hours to about a week.
 
 The app uses location only while it's open (foreground), so Play's background-location declaration
