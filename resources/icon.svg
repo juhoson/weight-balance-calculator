@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="0.55" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.25" r="0.8">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <!-- The route: from a waypoint bottom left to the aircraft. -->
+  <path d="M 290 742 Q 320 690 380 664" fill="none" stroke="#fff" stroke-opacity="0.8" stroke-width="26" stroke-linecap="round" stroke-dasharray="2 54"/>
+  <circle cx="230" cy="800" r="48" fill="none" stroke="#fff" stroke-width="22"/>
+  <circle cx="230" cy="800" r="14" fill="#fff"/>
+  <!-- A light aircraft, top view (straight wings, propeller), heading up and right. -->
+  <g transform="translate(575 455) rotate(45) scale(5.6) translate(-50 -50)" fill="#fff">
+    <rect x="41" y="4" width="18" height="3" rx="1.5"/>
+    <path d="M50 8 C55 8 56 14 56 20 L56 34 L94 34 C97 34 97 46 94 46 L56 46 L53 80 L66 80 C68 80 68 88 66 88 L52 88 L48 88 L34 88 C32 88 32 80 34 80 L47 80 L44 46 L6 46 C3 46 3 34 6 34 L44 34 L44 20 C44 14 45 8 50 8 Z"/>
+  </g>
+</svg>
