@@ -165,3 +165,14 @@ it('smooths the climb rate over the fixes', async () => {
   expect(verticalSpeed({ ...prev, vsFpm: null }, 1990, 1000)).toBeCloseTo(-600, 5);
   expect(verticalSpeed(prev, 1990, 1000)).toBeCloseTo(-500 * 0.7 + -600 * 0.3, 5);
 });
+
+it('a leg of no length keeps the direction flown (no 180° flick in a turn)', () => {
+  const a = { lat: 60, lon: 15 }, b = { lat: 60.05, lon: 15 }, c = { lat: 60.05, lon: 15.1 };
+  // North to b, a repeated point, then east.
+  const route = [a, b, { ...b }, c];
+  const atB = positionAlong(route, 3.0001);
+  expect(Math.round(atB.trackDeg)).not.toBe(180);
+  expect([0, 90]).toContain(Math.round(atB.trackDeg) % 360);
+  expect(Math.round(positionAlong(route, 1).trackDeg)).toBe(0);
+  expect(Math.round(positionAlong(route, 4).trackDeg)).toBe(90);
+});

@@ -325,6 +325,7 @@ input::-webkit-inner-spin-button {
 /* Zoomed out, the names would crowd each other (lib/mapLabels.ts): the markers stay. */
 .route-map--far .leaflet-tooltip.vrp-label,
 .route-map--far .leaflet-tooltip.fix-label,
+.route-map--far .leaflet-tooltip.climb-label,
 .route-map--very-far .leaflet-tooltip.navaid-label {
   display: none;
 }

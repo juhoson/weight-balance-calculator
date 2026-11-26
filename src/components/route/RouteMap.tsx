@@ -244,6 +244,16 @@ const RouteMap: React.FC<RouteMapProps> = ({
     areaLayer.current = L.layerGroup().addTo(map);
     routeLayer.current = L.layerGroup().addTo(map);
     labelsByZoom(map, container.current, VRP_LABEL_ZOOM);
+    // Made while hidden (a planning step not on screen, 0×0), the map is laid out wrong: when its
+    // box gets a size, measure again and fit the route anew.
+    let hadSize = map.getSize().x > 0 && map.getSize().y > 0;
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+      map.invalidateSize();
+      const has = map.getSize().x > 0 && map.getSize().y > 0;
+      if (has && !hadSize) { fitted.current = null; setLaidOut(n => n + 1); }
+      hadSize = has;
+    });
+    resized?.observe(container.current);
     // Close enough in, the airports in view and their reporting points; asked a moment after the map stops.
     let asked = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -283,6 +293,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
     return () => {
       clearTimeout(timer);
       asked = -1;
+      resized?.disconnect();
       map.remove();
       mapRef.current = null;
       routeLayer.current = null;
@@ -315,6 +326,8 @@ const RouteMap: React.FC<RouteMapProps> = ({
   if (plotting && !editable) setPlotting(null);
   /** The route the view was last fitted to. */
   const fitted = React.useRef<{ map: L.Map; key: string } | null>(null);
+  /** Counts the times the map got a size after having none, so the route is fitted again. */
+  const [laidOut, setLaidOut] = React.useState(0);
   React.useEffect(() => {
     const map = mapRef.current;
     const group = routeLayer.current;
@@ -577,7 +590,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
     };
     fit();
     return () => off.forEach(f => f());
-  }, [shownKey, vrpKey, status, editable, canMoveArrival, maxWaypoints, plotting, departureClimb]);
+  }, [shownKey, vrpKey, status, editable, canMoveArrival, maxWaypoints, plotting, departureClimb, laidOut]);
 
   // The airports in view and their reporting points, except those the route already shows.
   React.useEffect(() => {

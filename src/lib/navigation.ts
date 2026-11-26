@@ -154,17 +154,24 @@ export function nearestAirfields(airports: AirportInfo[], p: At, altFt: number |
 /** Where along the route an aircraft is after this many NM, and its track there (for the demo flight). */
 export function positionAlong(route: At[], nm: number): At & { trackDeg: number; done: boolean } {
   let left = Math.max(0, nm);
+  // A leg of no length has no direction (it would come out as 180°): the one before it stands.
+  let track = 0;
   for (let i = 0; i < route.length - 1; i++) {
     const a = route[i], b = route[i + 1];
     const len = distanceNm(a.lat, a.lon, b.lat, b.lon);
+    if (len > 1e-6) track = courseDeg(a.lat, a.lon, b.lat, b.lon);
     if (left <= len || i === route.length - 2) {
-      const f = len === 0 ? 1 : Math.min(1, left / len);
+      if (len <= 1e-6) {
+        const after = route.slice(i + 1).find((p, j) => distanceNm(route[i + j].lat, route[i + j].lon, p.lat, p.lon) > 1e-6);
+        if (after && i === 0) track = courseDeg(a.lat, a.lon, after.lat, after.lon);
+      }
+      const f = len <= 1e-6 ? 1 : Math.min(1, left / len);
       const [lat, lon] = intermediate(a.lat, a.lon, b.lat, b.lon, f);
-      return { lat, lon, trackDeg: courseDeg(a.lat, a.lon, b.lat, b.lon), done: left >= len && i === route.length - 2 };
+      return { lat, lon, trackDeg: track, done: left >= len && i === route.length - 2 };
     }
     left -= len;
   }
-  return { ...route[0], trackDeg: 0, done: true };
+  return { ...route[0], trackDeg: track, done: true };
 }
 
 /** Length of a route of straight legs, NM. */

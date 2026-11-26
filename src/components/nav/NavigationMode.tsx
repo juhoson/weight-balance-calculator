@@ -620,7 +620,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     }
     const svg = o.marker.getElement()?.querySelector('svg');
     if (svg) {
-      svg.style.transform = `rotate(${fix.trackDeg ?? 0}deg)`;
+      // Turned the short way round: from 350° to 10° is 20° right, not 340° left.
+      const before = Number(svg.dataset.rotation ?? fix.trackDeg ?? 0);
+      const delta = ((((fix.trackDeg ?? before) - before) % 360) + 540) % 360 - 180;
+      svg.dataset.rotation = String(before + delta);
+      svg.style.transform = `rotate(${before + delta}deg)`;
       svg.style.opacity = fix.trackDeg == null ? '0.6' : '1';
     }
     o.glide.setLatLngs(glideEdge.map(p => [p.lat, p.lon] as [number, number]));
