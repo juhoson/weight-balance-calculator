@@ -10,7 +10,8 @@ import { clearNavSession, type NavSession, saveNavSession, updateNavSession } fr
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
 import { useAuth } from '../../api/useAuth';
 import { fixesAiracText, fixesNear, fixesOutOfDate } from '../../lib/swedenFixes';
-import { navaidsAiracText, navaidsNear, navaidsOutOfDate, navaidSvg } from '../../lib/swedenNavaids';
+import { navaidPopup, navaidsAiracText, navaidsNear, navaidsOutOfDate, navaidSvg, navaidText } from '../../lib/swedenNavaids';
+import { labelsByZoom } from '../../lib/mapLabels';
 import { canKeepOffline, keepOffline, type OfflineProgress, tilesAlong, tileUrl } from '../../lib/offlineMap';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 import type { RouteReportingPoint } from '../../lib/useRouteWeather';
@@ -24,7 +25,7 @@ import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/nat
 import { cachedTileLayer } from '../../lib/tileCache';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
-  glideRangeNm, isControlled, nearestAirfields, nextAirspace, pad3, positionAlong,
+  demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, nextAirspace, pad3, positionAlong, routeLengthNm,
 } from '../../lib/navigation';
 
 export interface NavigationModeProps {
@@ -214,24 +215,26 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     );
   }, [started]);
 
-  // The demo flight: along the route at the cruise speed, climbing at 500 ft/min.
+  // The demo flight: along the route at the cruise speed, climbing and descending at 500 ft/min.
   React.useEffect(() => {
     if (started !== 'demo') return;
     const kt = cruiseKt > 40 ? cruiseKt : 100;
-    const groundFt = trip.departure.elevationFt ?? 0;
+    const depFt = trip.departure.elevationFt ?? 0;
+    const arrFt = trip.arrival.elevationFt ?? 0;
+    const totalNm = routeLengthNm(route);
     const t0 = Date.now();
     const tick = () => {
-      const hours = ((Date.now() - t0) / 3_600_000) * DEMO_SPEEDUP;
-      const p = positionAlong(route, hours * kt);
+      const nm = ((Date.now() - t0) / 3_600_000) * DEMO_SPEEDUP * kt;
+      const p = positionAlong(route, nm);
       setFix({
         lat: p.lat, lon: p.lon, speedKt: p.done ? 0 : kt, trackDeg: p.trackDeg,
-        altFt: Math.min(Math.max(cruiseAltFt, groundFt + 1000), groundFt + hours * 60 * 500), accuracyM: 5, at: Date.now(),
+        altFt: demoAltitudeFt(nm, totalNm, kt, depFt, arrFt, cruiseAltFt), accuracyM: 5, at: Date.now(),
       });
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [started, route, cruiseKt, cruiseAltFt, trip.departure.elevationFt]);
+  }, [started, route, cruiseKt, cruiseAltFt, trip.departure.elevationFt, trip.arrival.elevationFt]);
 
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
@@ -283,6 +286,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       osm();
       airspace();
     }
+    labelsByZoom(map, container.current);
     const pts = route.map(a => L.latLng(a.lat, a.lon));
     L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(map);
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
@@ -343,8 +347,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     layer.clearLayers();
     if (!showNavaid) return;
     navaids.forEach(n => L.marker([n.lat, n.lon], {
-      icon: L.divIcon({ className: 'navaid-marker', iconSize: [14, 14], html: navaidSvg(n) }), keyboard: false, interactive: false,
+      icon: L.divIcon({ className: 'navaid-marker', iconSize: [22, 22], html: navaidSvg(n) }), keyboard: false, title: navaidText(n),
     }).bindTooltip(`${n.ident} ${n.frequency ?? n.channel ?? ''}`.trim(), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label navaid-label' })
+      .bindPopup(navaidPopup(n), { className: 'navaid-popup', closeButton: false, autoPan: false })
       .addTo(layer));
   }, [navaids, showNavaid]);
   const aipStale = (showFix && fixes.length > 0 && fixesOutOfDate()) ? fixesAiracText()

@@ -1,5 +1,5 @@
 import {
-  activeLeg, airspacesHere, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
+  activeLeg, airspacesHere, demoAltitudeFt, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
 } from './navigation';
 import type { AirportInfo, AirspaceView } from '../types/route';
 
@@ -107,4 +107,17 @@ describe('the next controlled airspace', () => {
     expect(nextAirspace(at(30, { ...tma, frequencies: [] }), 21, 3000, new Set())).toBeNull();
     expect(nextAirspace(at(20), 21, 3000, new Set())).toBeNull(); // behind
   });
+});
+
+it('the demo climbs to cruise, then descends to circuit height over the arrival; a short flight levels off lower', () => {
+  // 100 kt: 300 ft per NM at 500 ft/min.
+  expect(demoAltitudeFt(0, 40, 100, 50, 100, 3000)).toBe(50);
+  expect(demoAltitudeFt(5, 40, 100, 50, 100, 3000)).toBe(1550);
+  expect(demoAltitudeFt(20, 40, 100, 50, 100, 3000)).toBe(3000);
+  expect(demoAltitudeFt(39, 40, 100, 50, 100, 3000)).toBe(1400); // 1 NM out: circuit height + 300
+  expect(demoAltitudeFt(40, 40, 100, 50, 100, 3000)).toBe(100); // landed
+  // 8 NM hop: the climb and descent meet below cruise, never above it.
+  const top = Math.max(...Array.from({ length: 80 }, (_, i) => demoAltitudeFt(i / 10, 8, 100, 0, 0, 3000)));
+  expect(top).toBeLessThan(3000);
+  expect(demoAltitudeFt(7.9, 8, 100, 0, 0, 3000)).toBeLessThanOrEqual(1100);
 });

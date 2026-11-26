@@ -152,6 +152,31 @@ export function positionAlong(route: At[], nm: number): At & { trackDeg: number;
   return { ...route[0], trackDeg: 0, done: true };
 }
 
+/** Length of a route of straight legs, NM. */
+export function routeLengthNm(route: At[]): number {
+  let nm = 0;
+  for (let i = 1; i < route.length; i++) nm += distanceNm(route[i - 1].lat, route[i - 1].lon, route[i].lat, route[i].lon);
+  return nm;
+}
+
+/** Circuit height over the arrival, where the demo's descent ends. */
+export const DEMO_CIRCUIT_FT = 1000;
+/** The demo's climb and descent, ft/min. */
+export const DEMO_VS_FPM = 500;
+
+/**
+ * The demo flight's altitude, nm along a route of totalNm at kt: climbing from the departure at
+ * DEMO_VS_FPM to the cruise altitude, and descending at the same rate to reach circuit height over
+ * the arrival, so a short flight levels off lower. On the ground at the arrival once there.
+ */
+export function demoAltitudeFt(nm: number, totalNm: number, kt: number, depFt: number, arrFt: number, cruiseFt: number): number {
+  if (nm >= totalNm) return arrFt;
+  const ftPerNm = (DEMO_VS_FPM * 60) / kt;
+  const climb = depFt + Math.max(0, nm) * ftPerNm;
+  const descent = arrFt + DEMO_CIRCUIT_FT + (totalNm - nm) * ftPerNm;
+  return Math.round(Math.min(Math.max(cruiseFt, depFt + DEMO_CIRCUIT_FT), climb, descent));
+}
+
 /** "8 min", "1 h 05 min"; "-" without a speed. */
 export function eteText(nm: number, kt: number | null): string {
   if (!kt || kt < 20) return '-';

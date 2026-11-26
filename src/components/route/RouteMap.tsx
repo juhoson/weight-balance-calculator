@@ -7,7 +7,8 @@ import { pointInfoHtml } from '../../lib/frequencies';
 import { asRoutePoint, type RouteReportingPoint } from '../../lib/useRouteWeather';
 import type { MapArea } from '../../types/route';
 import { fixesAiracText, fixesIn, fixesOutOfDate, type SignificantPoint } from '../../lib/swedenFixes';
-import { type Navaid, navaidsAiracText, navaidsIn, navaidsOutOfDate, navaidSvg, navaidText } from '../../lib/swedenNavaids';
+import { type Navaid, navaidPopup, navaidsIn, navaidSvg, navaidText } from '../../lib/swedenNavaids';
+import { labelsByZoom } from '../../lib/mapLabels';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
 export interface MapAirport {
@@ -164,6 +165,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
       attributionControl: false,
     });
     L.control.attribution({ prefix: false }).addTo(map);
+    labelsByZoom(map, container.current);
     // Leaflet needs a view before anything is drawn; the route effect fits it to the route.
     map.setView([60, 15], 5);
     L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_CREDIT, className: 'basemap-tiles' }).addTo(map);
@@ -669,9 +671,7 @@ function navaidMarker(n: Navaid): L.Marker {
     title: navaidText(n),
   });
   m.bindTooltip(`${n.ident} ${n.frequency ?? n.channel ?? ''}`.trim(), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label navaid-label' });
-  m.bindPopup(`<strong>${escapeHtml(n.name)} ${escapeHtml(n.type)}</strong><br>${escapeHtml(n.ident)}`
-    + `${n.frequency ? ` · ${n.frequency} MHz` : ''}${n.channel ? ` · ${n.channel}` : ''}`
-    + `<br>Radio navaid (AIP ENR 4.1), ${navaidsOutOfDate() ? `<strong>${navaidsAiracText()}, out of date: check the AIP.</strong>` : navaidsAiracText()}`);
+  m.bindPopup(navaidPopup(n), { className: 'navaid-popup' });
   return m;
 }
 

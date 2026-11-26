@@ -266,7 +266,7 @@ describe('with the map laid out', () => {
     const { container } = render(<RouteMap airports={route}/>);
     expect(await screen.findByText('ARS 112.80')).toBeInTheDocument();
     fireEvent.click(screen.getByTitle('AROS DVOR/DME ARS 112.80'));
-    expect(await screen.findByText(/ARS · 112.80 MHz · CH75X/)).toBeInTheDocument();
+    await waitFor(() => expect(container.querySelector('.navaid-popup')?.textContent).toContain('ARS · 112.80 MHz · DME CH75X'));
     const toggle = Array.from(container.querySelectorAll<HTMLInputElement>('.leaflet-control-layers-selector'))
       .find(i => i.parentElement?.textContent?.includes('Navaids')) as HTMLInputElement;
     fireEvent.click(toggle);

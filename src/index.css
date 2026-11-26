@@ -312,16 +312,27 @@ input::-webkit-inner-spin-button {
 .navaid-marker {
   background: none;
   border: none;
+  /* A finger-sized target around the small symbol. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .route-map .leaflet-tooltip.navaid-label {
   color: #0f766e;
   font-size: 10px;
   font-weight: 700;
 }
-/* Zoomed out on the planning map, the names would crowd each other: the marker's title has them. */
+/* Zoomed out, the names would crowd each other (lib/mapLabels.ts): the markers stay. */
 .route-map--far .leaflet-tooltip.vrp-label,
-.route-map--far .leaflet-tooltip.fix-label {
+.route-map--far .leaflet-tooltip.fix-label,
+.route-map--very-far .leaflet-tooltip.navaid-label {
   display: none;
+}
+/* A tapped navaid: what to tune. */
+.navaid-popup .leaflet-popup-content {
+  margin: 8px 12px;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 /* The briefing pack: printed on its own. On screen it is laid out out of sight, so its maps can load. */
