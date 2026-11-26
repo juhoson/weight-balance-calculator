@@ -31,7 +31,8 @@ import {
   areaAround, demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, NEXT_AIRSPACE_NM, nextAirspace, pad3, pointAhead, positionAlong,
   roundedRoute, routeLengthNm, turnRadiusNm,
 } from '../../lib/navigation';
-import { distanceNm } from '../../lib/openMeteo';
+import { distanceNm, type Forecast, forecastAt, fromOf, speedOf, type Wind, windNow } from '../../lib/openMeteo';
+import { fetchTerrain, glideArea, type GlideInput, headingFor, reachesField, type TerrainGrid, terrainGridFor, turnTo } from '../../lib/glide';
 
 export interface NavigationModeProps {
   /** The planned flight; null flies without a route (GPS only): everything around the aircraft instead. */
@@ -77,6 +78,11 @@ const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
 const AREA_NM = 25;
 /** ... and loaded again once it's this far from where it was. */
 const AREA_RELOAD_NM = 15;
+/** Without a route, the map kept for offline: this far around the aircraft. */
+const OFFLINE_AREA_NM = 50;
+/** The ground under the glide: fetched this far either side of the route, or around the aircraft without one. */
+const TERRAIN_ROUTE_NM = 6;
+const TERRAIN_AROUND_NM = 10;
 /** The obstacles drawn: this far either side of the route. */
 const OBSTACLE_RANGE_NM = 10;
 type Vrp = { name: string; lat: number; lon: number; compulsory: boolean };
@@ -113,6 +119,8 @@ const AIRPLANE_SVG = '<svg viewBox="0 0 32 32" width="32" height="32"><path d="M
 const TRAIL_STEP_M = 30;
 
 const ft = (n: number) => Math.round(n).toLocaleString('en');
+/** "240/18": where the wind comes from (true) and its speed. */
+const windText = (w: Wind) => `${pad3(fromOf(w))}/${Math.round(speedOf(w))} kt`;
 const nmText = (n: number) => (n < 10 ? n.toFixed(1) : String(Math.round(n)));
 
 /** Keeps the screen on while the mode is open (where the browser can). */
@@ -212,6 +220,28 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     return () => { live = false; };
   }, [trip, area]);
   const airspacesNow = trip ? airspaces : areaAirspaces;
+  // The forecast wind where the aircraft is (again after AREA_RELOAD_NM or half an hour), for the glide and headings.
+  const [forecast, setForecast] = React.useState<{ f: Forecast; at: { lat: number; lon: number }; when: number } | null>(null);
+  React.useEffect(() => {
+    if (!started || !fix) return;
+    if (forecast && distanceNm(forecast.at.lat, forecast.at.lon, fix.lat, fix.lon) < AREA_RELOAD_NM && Date.now() - forecast.when < 30 * 60_000) return;
+    const at = { lat: fix.lat, lon: fix.lon };
+    let live = true;
+    forecastAt(at).then(f => { if (live && f) setForecast({ f, at, when: Date.now() }); }, () => undefined);
+    return () => { live = false; };
+  }, [started, fix, forecast]);
+  const wind = forecast && fix?.altFt != null ? windNow(forecast.f, fix.altFt) : null;
+  // The ground under the glide: fetched for the route (or the area around the aircraft) while online.
+  const [terrain, setTerrain] = React.useState<TerrainGrid | null>(null);
+  React.useEffect(() => {
+    const around = trip ? route : areaCenter ? [areaCenter] : [];
+    if (!started || around.length === 0) return;
+    const grid = terrainGridFor(around, trip ? TERRAIN_ROUTE_NM : TERRAIN_AROUND_NM);
+    if (!grid) return;
+    const abort = new AbortController();
+    fetchTerrain(grid, abort.signal).then(setTerrain, () => undefined);
+    return () => abort.abort();
+  }, [started, trip, route, areaCenter]);
   const airspacesAt = trip ? airspacesFetchedAt : areaAirspaces ? fetchedAtOf(areaAirspaces) : null;
   const closeRef = React.useRef<() => void>(onClose);
   useWakeLock(started !== null);
@@ -287,7 +317,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const fixLayer = React.useRef(L.layerGroup());
   const navaidLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
-  const own = React.useRef<{ marker: L.Marker; glide: L.Circle; direct: L.Polyline; trail: L.Polyline } | null>(null);
+  const own = React.useRef<{ marker: L.Marker; glide: L.Polygon; direct: L.Polyline; trail: L.Polyline } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
   /** What the server has: the airspace overlay, and the self-hosted base map (undefined until asked). */
@@ -346,7 +376,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     vrpLayer.current.addTo(map);
     const trail = L.polyline(trailRef.current.map(p => [p.lat, p.lon] as [number, number]),
       { color: '#1e3a8a', weight: 3, opacity: 0.75, interactive: false }).addTo(map);
-    const glide = L.circle(startAt, { radius: 0, color: '#16a34a', weight: 2, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
+    const glide = L.polygon([], { color: '#16a34a', weight: 2, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
     const direct = L.polyline([], { color: '#dc2626', weight: 4, dashArray: '10 8', interactive: false }).addTo(map);
     const marker = L.marker(startAt, {
       icon: L.divIcon({ className: 'nav-ownship', iconSize: [32, 32], html: AIRPLANE_SVG }),
@@ -450,15 +480,18 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // On start, the route's map is kept for flying without a connection.
   const [offline, setOffline] = React.useState<OfflineProgress | null>(null);
   React.useEffect(() => {
-    // Without a route there is nothing to know ahead: the map is online only.
-    if (!started || !trip || status === undefined || !canKeepOffline()) return;
+    // Without a route: everything within OFFLINE_AREA_NM of where the aircraft is (again as it goes on).
+    if (!started || status === undefined || !canKeepOffline()) return;
+    const keep = trip ? route : areaCenter ? [areaCenter] : null;
+    if (!keep) return;
+    const buffer = trip ? undefined : () => OFFLINE_AREA_NM;
     const urls: string[] = [];
     if (ownBasemap && status?.basemap) {
       const max = status.basemap.maxZoom;
-      tilesAlong(route, Math.max(OFFLINE_MIN_ZOOM, status.basemap.minZoom), max).forEach(t => urls.push(tileUrl(BASEMAP_TILE_URL, t)));
+      tilesAlong(keep, Math.max(OFFLINE_MIN_ZOOM, status.basemap.minZoom), max, buffer).forEach(t => urls.push(tileUrl(BASEMAP_TILE_URL, t)));
     }
     if (status?.airspace) {
-      tilesAlong(route, Math.max(OFFLINE_MIN_ZOOM, status.minZoom), Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM))
+      tilesAlong(keep, Math.max(OFFLINE_MIN_ZOOM, status.minZoom), Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM), buffer)
         .forEach(t => urls.push(tileUrl(AIRSPACE_TILE_URL, t)));
     }
     if (!urls.length) return;
@@ -466,7 +499,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     setOffline({ done: 0, total: urls.length, failed: 0 });
     keepOffline(urls, setOffline, abort.signal).then(setOffline, () => undefined);
     return () => abort.abort();
-  }, [started, trip, status, ownBasemap, route]);
+  }, [started, trip, status, ownBasemap, route, areaCenter]);
 
   // Where everything is now.
   const leg = fix && flown.length > 1 ? activeLeg(flown, fix) : null;
@@ -485,8 +518,21 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     : directTo ? nextAirspace(crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, directTo], airspacesNow), 0, fix.altFt, insideIds)
       : ahead10 ? nextAirspace(crossingsAlong(ahead10, airspacesNow), 0, fix.altFt, insideIds)
         : leg ? nextAirspace(routeCrossings, leg.alongNm, fix.altFt, insideIds) : null;
-  const nearest = React.useMemo(() => (fix ? nearestAirfields(airfields, fix, fix.altFt, ratio, 8) : []), [fix, airfields, ratio]);
-  const groundFt = nearest[0]?.airport.elevationFt ?? null;
+  const nearestStill = React.useMemo(() => (fix ? nearestAirfields(airfields, fix, fix.altFt, ratio, 8) : []), [fix, airfields, ratio]);
+  const groundFt = nearestStill[0]?.airport.elevationFt ?? null;
+  // The glide in the wind at this altitude and over the terrain, where they're known.
+  const glideIn = React.useMemo<GlideInput | null>(() => (fix?.altFt != null ? {
+    at: fix, altFt: fix.altFt, ratio, tasKt: bestGlideKt && bestGlideKt > 30 ? bestGlideKt : 70, wind, terrain, groundFt: groundFt ?? 0,
+  } : null), [fix, ratio, bestGlideKt, wind, terrain, groundFt]);
+  const glideEdge = React.useMemo(() => (glideIn ? glideArea(glideIn) : []), [glideIn]);
+  const glideReach = React.useMemo(() => {
+    if (!glideIn || glideEdge.length === 0) return null;
+    const nm = glideEdge.map(p => bearingDistance(glideIn.at, p).nm);
+    return { min: Math.min(...nm), max: Math.max(...nm) };
+  }, [glideIn, glideEdge]);
+  const nearest = React.useMemo(() => (glideIn
+    ? nearestStill.map(n => ({ ...n, reachable: reachesField(glideIn, n.airport, n.nm, n.deg, ARRIVAL_MARGIN_FT) }))
+    : nearestStill), [nearestStill, glideIn]);
   const glideNm = fix?.altFt != null && groundFt != null ? glideRangeNm(fix.altFt - groundFt, ratio) : null;
 
   React.useEffect(() => {
@@ -506,10 +552,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       svg.style.transform = `rotate(${fix.trackDeg ?? 0}deg)`;
       svg.style.opacity = fix.trackDeg == null ? '0.6' : '1';
     }
-    o.glide.setLatLng(at).setRadius((glideNm ?? 0) * 1852);
+    o.glide.setLatLngs(glideEdge.map(p => [p.lat, p.lon] as [number, number]));
     o.direct.setLatLngs(directTo ? [at, [directTo.lat, directTo.lon]] : []);
     if (follow) map.panTo(at, { animate: true });
-  }, [fix, glideNm, directTo, follow, started]);
+  }, [fix, glideEdge, directTo, follow, started]);
 
   const recenter = () => {
     setFollow(true);
@@ -676,6 +722,19 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           )}
         </div>
 
+        {directTo && toTarget && fix && (() => {
+          const tas = bestGlideKt && bestGlideKt > 30 ? bestGlideKt : cruiseKt > 30 ? cruiseKt : 70;
+          const heading = headingFor(toTarget.deg, tas, wind);
+          const turn = turnTo(fix.trackDeg, toTarget.deg);
+          return (
+            <div role="status" aria-label="Direct to" className="order-2 flex flex-wrap items-baseline gap-x-3 bg-red-900 px-3 py-1.5 text-white">
+              <span className="text-lg font-bold">{turn === 'on' ? 'ON COURSE' : `TURN ${turn.toUpperCase()}`} HEADING {pad3(heading)}</span>
+              <span className="text-xs tabular-nums text-red-100">
+                track {pad3(toTarget.deg)}° to {directTo.code}{wind ? `, wind ${windText(wind)} at ${tas} kt` : ', no wind known'}
+              </span>
+            </div>
+          );
+        })()}
         {ahead && (
           <div role="alert" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-red-700 px-3 py-1.5 font-semibold text-white">
             <TriangleAlert className="h-4 w-4 self-center"/>
@@ -716,7 +775,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
                 Glide ratio
                 <input type="number" min={3} max={30} step={0.5} value={ratio} onChange={e => setRatio(Number(e.target.value))}
                   className="w-16 rounded border border-slate-600 bg-slate-900 px-1 py-0.5 text-slate-100"/>
-                : 1 {glideNm != null && <span>· about {nmText(glideNm)} NM in still air</span>}
+                : 1 {glideReach ? <span>· reaches {nmText(glideReach.min)}–{nmText(glideReach.max)} NM{wind ? ` in a ${windText(wind)} wind` : ''}</span>
+                  : glideNm != null && <span>· about {nmText(glideNm)} NM in still air</span>}
               </label>
               {!fix && <p>Waiting for a position.</p>}
               <ul className="divide-y divide-slate-700">
@@ -744,8 +804,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
               </ul>
               {airfieldsState === 'error' && <p className="text-xs text-amber-300">Only the route&apos;s own airports: the airfield list couldn&apos;t be loaded.</p>}
               <p className="text-xs text-slate-400">
-                In glide: a still-air glide at {ratio}:1 from GPS altitude, arriving {ARRIVAL_MARGIN_FT} ft above the field. No wind,
-                no terrain. There is no data on fields for an off-airport landing: choose one by eye, into wind.
+                In glide: at {ratio}:1 from GPS altitude, {wind ? `in the forecast wind at this altitude (${windText(wind)})` : 'in still air (no wind forecast)'},
+                {terrain ? ' over the terrain (Copernicus elevation model)' : ' without terrain (not loaded)'}, arriving {ARRIVAL_MARGIN_FT} ft above the field.
+                The green line on the map is the reach. There is no data on fields for an off-airport landing: choose one by eye, into wind.
               </p>
               {nearest[0] && fix && (
                 <div className="rounded-md border border-red-700 p-2">

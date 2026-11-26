@@ -323,3 +323,22 @@ export async function forecastAlongRoute(route: RoutePosition[], altitudeFt: num
   });
   return { available: true, altitudeFt, times: times.map(t => new Date(t * 1000).toISOString()), segments };
 }
+
+/** The forecast at a point (cached half an hour, as along a route); null when it can't be had. */
+export async function forecastAt(at: { lat: number; lon: number }, now = Date.now()): Promise<Forecast | null> {
+  const key = `${Math.round(at.lat * 10)},${Math.round(at.lon * 10)}`;
+  try {
+    return (await forecastsFor([key], now)).get(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The wind now at an altitude from a forecast (the nearest hour); null outside its hours. */
+export function windNow(f: Forecast, altitudeFt: number, now = Date.now()): Wind | null {
+  const s = now / 1000;
+  let hour = -1, best = Infinity;
+  f.times.forEach((t, i) => { const d = Math.abs(t - s); if (d < best) { best = d; hour = i; } });
+  if (hour < 0 || best > 3 * 3600) return null;
+  return windAtAltitude(f, hour, altitudeFt / FT_PER_M);
+}

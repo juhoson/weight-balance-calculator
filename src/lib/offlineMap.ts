@@ -24,8 +24,11 @@ export function bufferNm(z: number): number {
   return 12;
 }
 
-/** The tiles covering the route (straight legs) and bufferNm(z) either side, for each zoom from min to max. */
-export function tilesAlong(route: At[], minZoom: number, maxZoom: number): TileSpec[] {
+/**
+ * The tiles covering the route (straight legs) and bufferNm(z) either side, for each zoom from min
+ * to max; `buffer` instead of bufferNm, e.g. a fixed radius around a single point.
+ */
+export function tilesAlong(route: At[], minZoom: number, maxZoom: number, buffer: (z: number) => number = bufferNm): TileSpec[] {
   if (route.length === 0 || maxZoom < minZoom) return [];
   // Points at most 2 NM apart along the legs.
   const samples: At[] = [route[0]];
@@ -38,7 +41,7 @@ export function tilesAlong(route: At[], minZoom: number, maxZoom: number): TileS
   const out: TileSpec[] = [];
   for (let z = minZoom; z <= maxZoom; z++) {
     const seen = new Set<string>();
-    const buf = bufferNm(z);
+    const buf = buffer(z);
     const n = 2 ** z;
     for (const p of samples) {
       const dLat = buf / 60, dLon = buf / (60 * Math.max(0.05, Math.cos((p.lat * Math.PI) / 180)));

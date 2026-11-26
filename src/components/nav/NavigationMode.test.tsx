@@ -22,6 +22,9 @@ jest.mock('../../api/backend', () => ({
   BASEMAP_TILE_URL: '/api/map/base/{z}/{x}/{y}.mvt',
 }));
 jest.mock('../../api/useAuth', () => ({ useAuth: jest.fn() }));
+// No forecast wind or terrain here (the glide in still air over the fields' elevation), unless a test gives them.
+jest.mock('../../lib/openMeteo', () => ({ ...jest.requireActual('../../lib/openMeteo'), forecastAt: () => Promise.resolve(null) }));
+jest.mock('../../lib/glide', () => ({ ...jest.requireActual('../../lib/glide'), fetchTerrain: () => new Promise(() => undefined) }));
 const signedIn = (navTermsVersion: number | null = 1) => (useAuth as jest.Mock).mockReturnValue({
   user: { id: 1, email: 'p@example.com', displayName: 'Pilot', navTermsVersion }, signOutReason: null,
 });
@@ -144,6 +147,9 @@ test('emergency lists the nearest airfields within glide; Direct to steers to on
   expect(within(sheet).getByText('MAYDAY')).toBeInTheDocument();
   fireEvent.click(within(rows[1]).getByRole('button', { name: 'Direct to' }));
   expect(screen.getByText(/^Direct to ESS[XB]$/)).toBeInTheDocument();
+  // Which way to turn: eastbound now, the field west of here.
+  expect(within(screen.getByRole('status', { name: 'Direct to' })).getByText(/^TURN (LEFT|RIGHT) HEADING \d{3}$/)).toBeInTheDocument();
+  expect(screen.getByText(/no wind known/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Back to route' }));
   expect(screen.getByText('Next ESSB')).toBeInTheDocument();
 });
