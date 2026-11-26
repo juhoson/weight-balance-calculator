@@ -9,6 +9,7 @@ import AvoidAirspace from './AvoidAirspace';
 import { isCruisingLevel } from '../../lib/suggestAltitude';
 import { vfrLevel } from '../../lib/avoidAirspace';
 import type { CloudLayer } from '../../lib/metarTaf';
+import { OBSTACLE_MARGIN_FT, obstacleText, type RouteObstacle } from '../../lib/obstacles';
 
 interface RouteProfileChartProps {
   legs: LegPlan[];
@@ -25,6 +26,8 @@ interface RouteProfileChartProps {
   reported?: ReportedCloud[];
   /** The arrival field's elevation: the path goes on from circuit height down to it. */
   arrivalFt?: number | null;
+  /** The obstacles near the route, drawn where they are abeam it (red: too little clearance). */
+  obstacles?: RouteObstacle[];
 }
 
 /** A METAR's cloud at its place along the route. */
@@ -54,6 +57,26 @@ const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
 const utc = (d: Date) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}Z`;
 const kft = (ft: number) => (ft === 0 ? '0' : `${ft / 1000}k`);
 
+/**
+ * A cloud's outline: a flat-ish base and a top of round puffs (about `puff` px across), so a band
+ * reads as cloud and not as a box. The puffs are placed from a fixed grid, so neighbouring bands line up.
+ */
+export function cloudPath(x0: number, x1: number, yTop: number, yBase: number, puff = 14): string {
+  const h = yBase - yTop;
+  if (h <= 0 || x1 <= x0) return '';
+  const r = Math.max(2, Math.min(puff / 2, h / 2));
+  const n = Math.max(1, Math.round((x1 - x0) / (2 * r)));
+  const w = (x1 - x0) / n;
+  // Puffs rise a little higher in the middle of each one, alternating, to look less regular.
+  let d = `M${x0.toFixed(1)},${yBase.toFixed(1)}L${x0.toFixed(1)},${(yTop + r).toFixed(1)}`;
+  for (let i = 0; i < n; i++) {
+    const lift = (Math.floor(x0 / w) + i) % 2 ? r * 0.35 : 0;
+    const ex = x0 + (i + 1) * w;
+    d += `Q${(ex - w / 2).toFixed(1)},${(yTop - r * 0.6 - lift).toFixed(1)} ${ex.toFixed(1)},${(yTop + r).toFixed(1)}`;
+  }
+  return `${d}L${x1.toFixed(1)},${yBase.toFixed(1)}Z`;
+}
+
 /** Width of an element, following resizes. */
 function useWidth<T extends HTMLElement>(fallback: number): [React.RefObject<T | null>, number] {
   const ref = React.useRef<T>(null);
@@ -81,7 +104,8 @@ type Active = { kind: 'segment'; i: number; hover?: boolean } | { kind: 'airspac
  * segment, or hover the wind strip along the top, for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null, obstacles = [] }) => {
+  const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<Active | null>(null);
   const [dragging, setDragging] = React.useState<{ leg: number; ft: number } | null>(null);
@@ -173,12 +197,16 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
             ? profile.path.length > 4 ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft with altitude changes`
               : profile.reachesCruise ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft` : `Flight path, highest ≈ ${(Math.round(profile.topFt / 100) * 100).toLocaleString('en')} ft`
             : `Cruise ${altitudeFt.toLocaleString('en')} ft`}</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud, forecast (darker = more)</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-full bg-gradient-to-b from-slate-300/60 to-slate-400 blur-[0.5px] dark:from-slate-300/50 dark:to-slate-300"/> Cloud, forecast (denser = more)</span>
         {reported.some(r => r.clouds.length) && (
-          <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-700 bg-slate-600/70 dark:bg-slate-200/70"/> Cloud reported (METAR)</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-t-full border-b-2 border-slate-700 bg-slate-500/80 dark:border-slate-100 dark:bg-slate-300/80"/> Cloud reported (METAR, line at its base)</span>
         )}
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
+        {obstacles.length > 0 && (
+          <span className="flex items-center gap-1"><svg width="8" height="12" aria-hidden="true"><path d="M4,0 L1,4 L7,4 Z M4,3 V12" className="fill-stone-700 stroke-stone-700 dark:fill-stone-200 dark:stroke-stone-200" strokeWidth={1.5}/></svg>
+            Obstacle within 5 NM{obstacles.some(o => o.clearanceFt < OBSTACLE_MARGIN_FT) ? ` (red: under ${OBSTACLE_MARGIN_FT} ft below the path)` : ''}</span>
+        )}
         {onLegAltitude && <span>Drag a leg&apos;s altitude up or down to change it there (amber: not a VFR cruising level for its course)</span>}
         {shownAirspaces.length > 0 && (
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-blue-600 bg-blue-500/15 dark:border-blue-400"/> Airspace (tap for limits and frequency)</span>
@@ -196,26 +224,56 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           ))}
           <text x={4} y={M.top - 16} className="fill-muted-foreground text-[10px]">ft</text>
 
+          <defs>
+            <clipPath id={`${uid}-plot`}><rect x={M.left} y={M.top} width={plotW} height={plotH}/></clipPath>
+            {/* Soft, lumpy edges: a little noise moves the outline, a blur melts the segments into one another. */}
+            <filter id={`${uid}-puff`} x="-5%" y="-20%" width="110%" height="140%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.035 0.09" numOctaves={2} seed={3} result="noise"/>
+              <feDisplacementMap in="SourceGraphic" in2="noise" scale={4} xChannelSelector="R" yChannelSelector="G" result="moved"/>
+              <feGaussianBlur in="moved" stdDeviation="0.8 2.5"/>
+            </filter>
+            {/* Lit from above: paler at the top, darker towards the base. */}
+            <linearGradient id={`${uid}-cloud`} x1="0" y1="0" x2="0" y2="1" className="text-slate-400 dark:text-slate-300">
+              <stop offset="0" stopColor="currentColor" stopOpacity={0.45}/>
+              <stop offset="1" stopColor="currentColor" stopOpacity={1}/>
+            </linearGradient>
+            <linearGradient id={`${uid}-cloud-solid`} className="text-slate-400 dark:text-slate-300">
+              <stop offset="0" stopColor="currentColor" stopOpacity={0.85}/>
+            </linearGradient>
+            <linearGradient id={`${uid}-reported`} x1="0" y1="0" x2="0" y2="1" className="text-slate-500 dark:text-slate-200">
+              <stop offset="0" stopColor="currentColor" stopOpacity={0.55}/>
+              <stop offset="1" stopColor="currentColor" stopOpacity={1}/>
+            </linearGradient>
+          </defs>
+
           {/* Cloud: each pressure level fills the band halfway to its neighbours. */}
-          <g className="fill-slate-500 dark:fill-slate-300">
-            {segments.map((s, i) => {
-              const x0 = x(s.segment.startNm), x1 = x(s.segment.startNm + s.segment.distanceNm);
-              const layers = s.layers;
-              return layers.map((l, j) => {
-                if (l.cloudCover < 10) return null;
-                const below = j === 0 ? s.segment.groundFt ?? 0 : (layers[j - 1].heightFt + l.heightFt) / 2;
-                const above = j === layers.length - 1
-                  ? l.heightFt + (j > 0 ? (l.heightFt - layers[j - 1].heightFt) / 2 : 1000)
-                  : (l.heightFt + layers[j + 1].heightFt) / 2;
-                if (below >= topFt) return null;
-                return <rect key={`${i}-${j}`} x={x0} width={Math.max(0, x1 - x0)} y={y(above)} height={Math.max(0, y(below) - y(above))}
-                  fillOpacity={(l.cloudCover / 100) * 0.75}/>;
-              });
-            })}
+          <g clipPath={`url(#${uid}-plot)`} aria-hidden="true">
+            <g filter={`url(#${uid}-puff)`} fill={`url(#${uid}-cloud)`}>
+              {segments.map((s, i) => {
+                // A hair wider than the segment, so neighbours overlap and no seam shows.
+                const x0 = x(s.segment.startNm) - 1, x1 = x(s.segment.startNm + s.segment.distanceNm) + 1;
+                const layers = s.layers;
+                return layers.map((l, j) => {
+                  if (l.cloudCover < 10) return null;
+                  const below = j === 0 ? s.segment.groundFt ?? 0 : (layers[j - 1].heightFt + l.heightFt) / 2;
+                  const above = j === layers.length - 1
+                    ? l.heightFt + (j > 0 ? (l.heightFt - layers[j - 1].heightFt) / 2 : 1000)
+                    : (l.heightFt + layers[j + 1].heightFt) / 2;
+                  if (below >= topFt) return null;
+                  // Only the top of a cloud is puffy: a band with more cloud above it gets a flat top.
+                  const next = layers[j + 1];
+                  const capped = next && next.cloudCover >= 10;
+                  const d = capped ? `M${x0},${y(below)}V${y(above)}H${x1}V${y(below)}Z` : cloudPath(x0, x1, y(above), y(below));
+                  // Shaded (pale top) only at the cloud's top; inside it, one even tone so stacked bands don't stripe.
+                  return <path key={`${i}-${j}`} d={d} fill={capped ? `url(#${uid}-cloud-solid)` : undefined} fillOpacity={0.15 + (l.cloudCover / 100) * 0.7}/>;
+                });
+              })}
+            </g>
           </g>
 
-          {/* Reported cloud: each METAR's layers around its station, its base above the station. */}
-          <g aria-hidden="true">
+          {/* Reported cloud: each METAR's layers around its station, its base above the station. A METAR
+              gives only the base, so the base is a firm line and the top is soft. */}
+          <g aria-hidden="true" clipPath={`url(#${uid}-plot)`}>
             {reported.flatMap((r, i) => {
               const half = Math.min(5, Math.max(1.5, totalNm * 0.12));
               const x0 = x(Math.max(0, r.nm - half)), x1 = x(Math.min(totalNm, (r.nmTo ?? r.nm) + half));
@@ -224,12 +282,16 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
                 if (base >= topFt) return null;
                 const style = REPORTED_STYLE[c.cover];
                 const label = `${c.cover}${String(Math.round((c.baseFt as number) / 100)).padStart(3, '0')}${c.type ?? ''}`;
+                const yTop = y(base + style.depthFt), yBase = y(base);
                 return (
                   <g key={`r${i}-${j}`}>
-                    <rect x={x0} width={Math.max(0, x1 - x0)} y={y(base + style.depthFt)} height={Math.max(2, y(base) - y(base + style.depthFt))}
-                      className="fill-slate-600 stroke-slate-700 dark:fill-slate-200 dark:stroke-slate-100" fillOpacity={style.opacity} strokeWidth={1}/>
+                    <path d={cloudPath(x0, x1, yTop, Math.max(yBase, yTop + 2), 12)}
+                      filter={`url(#${uid}-puff)`} fill={`url(#${uid}-reported)`} fillOpacity={style.opacity}/>
+                    <line x1={x0 + 2} x2={x1 - 2} y1={yBase} y2={yBase} className="stroke-slate-700 dark:stroke-slate-100"
+                      strokeWidth={1.5} strokeOpacity={0.5 + style.opacity / 2} strokeLinecap="round"/>
                     {x1 - x0 > 40 && (
-                      <text x={x0 + 3} y={y(base) - 3} className="fill-foreground text-[9px] font-semibold">{label} {r.station}</text>
+                      <text x={x0 + 3} y={yTop - 6} className="fill-foreground text-[9px] font-semibold"
+                        paintOrder="stroke" stroke="var(--background, white)" strokeWidth={3} strokeOpacity={0.7}>{label} {r.station}</text>
                     )}
                   </g>
                 );
@@ -263,6 +325,26 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           {/* Terrain */}
           <path className="fill-stone-400/60 dark:fill-stone-600/70"
             d={`M${x(0)},${y(0)}${segments.map((s, i) => `L${x(s.segment.startNm)},${y(terrain[i])}L${x(s.segment.startNm + s.segment.distanceNm)},${y(terrain[i])}`).join('')}L${x(totalNm)},${y(0)}Z`}/>
+
+          {/* Obstacles, from their foot to their top, where they are abeam the route. */}
+          <g aria-hidden="true">
+            {/* Labels only on the worst of a cluster (they're least clearance first), one per ~28 px. */}
+            {(() => { const labelled: number[] = []; return obstacles.filter(o => o.alongNm >= 0 && o.alongNm <= totalNm && o.topFt - o.heightFt < topFt).map((o, i) => {
+              const ox = x(o.alongNm), warn = o.clearanceFt < OBSTACLE_MARGIN_FT;
+              const label = warn && !labelled.some(lx => Math.abs(lx - ox) < 28);
+              if (label) labelled.push(ox);
+              const yTop = y(o.topFt), yFoot = y(o.topFt - o.heightFt);
+              const cls = warn ? 'fill-red-600 stroke-red-600 dark:fill-red-400 dark:stroke-red-400' : 'fill-stone-700 stroke-stone-700 dark:fill-stone-200 dark:stroke-stone-200';
+              return (
+                <g key={i} className={cls} opacity={warn ? 1 : 0.75}>
+                  <title>{`${obstacleText(o)}, ${o.offNm.toFixed(1)} NM off the route`}</title>
+                  <line x1={ox} x2={ox} y1={yTop} y2={Math.max(yFoot, yTop + 3)} strokeWidth={warn ? 1.5 : 1}/>
+                  <path d={`M${ox},${yTop - 1}l-2.5,4h5z`} strokeWidth={0.5}/>
+                  {label && <text x={ox} y={yTop - 4} textAnchor="middle" className="stroke-none text-[9px] font-semibold">{Math.round(o.topFt).toLocaleString('en')}</text>}
+                </g>
+              );
+            }); })()}
+          </g>
 
           {/* Freezing level */}
           {freezingPath && <path d={freezingPath} fill="none" className="stroke-sky-600 dark:stroke-sky-400" strokeWidth={2} strokeDasharray="5 4"/>}

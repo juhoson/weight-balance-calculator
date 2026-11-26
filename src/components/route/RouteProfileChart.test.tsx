@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import RouteProfileChart from './RouteProfileChart';
+import RouteProfileChart, { cloudPath } from './RouteProfileChart';
 import { planRoute } from '../../lib/enroute';
 import type { EnrouteSegment } from '../../types/route';
 
@@ -206,7 +206,23 @@ it('draws the cloud a METAR reports at its station, and the path on down from ci
     profile={profile as unknown as Parameters<typeof RouteProfileChart>[0]['profile']} arrivalFt={100}
     reported={[{ nm: 0, station: 'ESSX', elevationFt: 100, clouds: [{ cover: 'OVC', baseFt: 500, type: null }] }]}/>);
   expect(screen.getByText('OVC005 ESSX')).toBeInTheDocument();
-  expect(screen.getByText('Cloud reported (METAR)')).toBeInTheDocument();
+  expect(screen.getByText(/Cloud reported \(METAR/)).toBeInTheDocument();
   // Circuit height to the runway: a dashed line on to the end of the route at the field's elevation.
   expect(container.querySelector('path[stroke-dasharray="4 3"]')).not.toBeNull();
+});
+
+it('draws the obstacles near the route, labelling the top of one with too little clearance', () => {
+  const o = (alongNm: number, topFt: number, clearanceFt: number) => ({
+    lat: 59, lon: 17, topFt, heightFt: 400, type: 'ANTENNA', name: 'Mast', lit: true, offNm: 1, alongNm, plannedFt: topFt + clearanceFt, clearanceFt,
+  });
+  const { container } = render(<RouteProfileChart legs={legs()} altitudeFt={3000} obstacles={[o(10, 2700, 300), o(30, 900, 2100)]}/>);
+  expect(screen.getByText(/Obstacle within 5 NM/)).toBeInTheDocument();
+  expect(screen.getByText('2,700')).toBeInTheDocument();
+  expect(screen.queryByText('900')).not.toBeInTheDocument();
+  expect(container.querySelectorAll('title')).toHaveLength(2);
+});
+
+it('gives a cloud a puffy top', () => {
+  expect(cloudPath(0, 40, 10, 40)).toMatch(/^M0\.0,40\.0L0\.0,17\.0(Q[^Q]+){3}L40\.0,40\.0Z$/);
+  expect(cloudPath(10, 5, 10, 40)).toBe('');
 });

@@ -26,7 +26,7 @@ import {genericKey} from '../lib/aircraftCatalog';
 import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../lib/emptyOverrides';
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
-import ObstaclePanel from './route/ObstaclePanel';
+import ObstaclePanel, { useRouteObstacles } from './route/ObstaclePanel';
 import type { ReportedCloud } from './route/RouteProfileChart';
 import { decodeMetar } from '../lib/metarTaf';
 import AirspacePanel from './route/AirspacePanel';
@@ -884,6 +884,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const routePoints = React.useMemo(() => (trip ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival] : []), [trip]);
   const obstaclePath = React.useMemo<PathPoint[]>(() => airspaceCheck?.path
     ?? [{ nm: 0, ft: altitudeFt }, { nm: trip?.distanceNm ?? 0, ft: altitudeFt }], [airspaceCheck, altitudeFt, trip]);
+  const { list: routeObstacles } = useRouteObstacles(routePoints, obstaclePath);
   const obstacleBasis = airspaceCheck ? 'the planned path' : `${altitudeFt.toLocaleString('en')} ft`;
   const avoid = React.useMemo<AvoidHandler | undefined>(() => {
     if (!trip || !airspaceCheck) return undefined;
@@ -1049,6 +1050,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               <EnroutePanel
                 reported={reportedClouds}
                 arrivalFt={trip.arrival.elevationFt ?? null}
+                obstacles={routeObstacles}
                 altitudeFt={altitudeFt}
                 onAltitudeChange={setAltitudeFt}
                 departure={departure}

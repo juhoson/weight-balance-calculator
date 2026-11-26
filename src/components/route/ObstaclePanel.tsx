@@ -15,7 +15,8 @@ const SHOWN = 5;
  * The obstacles of 100 m or more within 5 NM of the route (AIP ENR 5.4), against the planned
  * altitude abeam each: less than 500 ft clearance is a warning.
  */
-const ObstaclePanel: React.FC<{ route: At[]; path: PathPoint[]; basis: string }> = ({ route, path, basis }) => {
+/** The obstacles along a route against a planned path, loaded once (null while loading). */
+export function useRouteObstacles(route: At[], path: PathPoint[]) {
   const [data, setData] = React.useState<Awaited<ReturnType<typeof loadObstacles>> | null>(null);
   const [failed, setFailed] = React.useState(false);
   React.useEffect(() => {
@@ -24,8 +25,13 @@ const ObstaclePanel: React.FC<{ route: At[]; path: PathPoint[]; basis: string }>
     return () => { live = false; };
   }, []);
   const list = React.useMemo(
-    () => (data ? obstaclesAlong(data.obstacles, route, altitudeAlongPoints(path)) : []),
+    () => (data && route.length > 1 ? obstaclesAlong(data.obstacles, route, altitudeAlongPoints(path)) : []),
     [data, route, path]);
+  return { data, failed, list };
+}
+
+const ObstaclePanel: React.FC<{ route: At[]; path: PathPoint[]; basis: string }> = ({ route, path, basis }) => {
+  const { data, failed, list } = useRouteObstacles(route, path);
 
   if (failed) return null;
   if (!data) return <p className="text-xs text-muted-foreground">Loading obstacles…</p>;
