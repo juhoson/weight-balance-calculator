@@ -9,7 +9,11 @@ import { useMyClubs } from '../../lib/useMyClubs';
 import type { MyClub } from '../../types/profile';
 
 /** The signed-in user's account, and which clubs they belong to. */
-const ProfilePage: React.FC = () => {
+/**
+ * @param openDelete opened from the account deletion link: the deletion form open and in view
+ * @param onDeleted  the account is gone (and signed out), for the page around to say so
+ */
+const ProfilePage: React.FC<{ openDelete?: boolean; onDeleted?: () => void }> = ({ openDelete = false, onDeleted }) => {
   const { user } = useAuth();
   const [clubs, setClubs] = useMyClubs();
   const [busyId, setBusyId] = React.useState<number | null>(null);
@@ -127,7 +131,7 @@ const ProfilePage: React.FC = () => {
         </CardContent>
       </Card>
 
-      <DeleteAccount onDeleted={() => setDeleted(true)}/>
+      <DeleteAccount initiallyOpen={openDelete} onDeleted={() => { setDeleted(true); onDeleted?.(); }}/>
     </div>
   );
 };
@@ -135,8 +139,12 @@ const ProfilePage: React.FC = () => {
 const CONFIRM_WORD = 'DELETE';
 
 /** Deleting the account from inside the app, as both app stores require; typed confirmation first. */
-const DeleteAccount: React.FC<{ onDeleted: () => void }> = ({ onDeleted }) => {
-  const [open, setOpen] = React.useState(false);
+const DeleteAccount: React.FC<{ initiallyOpen: boolean; onDeleted: () => void }> = ({ initiallyOpen, onDeleted }) => {
+  const [open, setOpen] = React.useState(initiallyOpen);
+  const card = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (initiallyOpen) card.current?.scrollIntoView?.({ block: 'center' });
+  }, [initiallyOpen]);
   const [typed, setTyped] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -154,7 +162,7 @@ const DeleteAccount: React.FC<{ onDeleted: () => void }> = ({ onDeleted }) => {
   };
 
   return (
-    <Card className="border-red-300 dark:border-red-900">
+    <Card ref={card} id="delete-account" className="border-red-300 dark:border-red-900">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base"><Trash2 className="h-5 w-5 text-red-600"/> Delete account</CardTitle>
       </CardHeader>

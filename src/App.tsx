@@ -11,18 +11,35 @@ import SignedOutNotice from './components/auth/SignedOutNotice';
 import ResetPasswordDialog from './components/auth/ResetPasswordDialog';
 import AdminTabs from './components/admin/AdminTabs';
 import ProfilePage from './components/profile/ProfilePage';
+import AuthDialog from './components/auth/AuthDialog';
 import {useAdminAccess} from './lib/useAdminAccess';
 import {useAuth} from './api/useAuth';
 
 type View = 'calculator' | 'add-aircraft' | 'admin' | 'profile';
 
+/** ?delete-account (the link in public/delete-account.html and the store listings): the profile's account deletion. */
+export const DELETE_ACCOUNT_PARAM = 'delete-account';
+
+function deleteAccountRequested(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has(DELETE_ACCOUNT_PARAM)) return false;
+  params.delete(DELETE_ACCOUNT_PARAM);
+  const rest = params.toString();
+  window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash);
+  return true;
+}
+
 function App() {
-  const [view, setView] = React.useState<View>('calculator');
+  const [deleteRequested] = React.useState(deleteAccountRequested);
+  const [view, setView] = React.useState<View>(deleteRequested ? 'profile' : 'calculator');
   const [addedRegistration, setAddedRegistration] = React.useState<string | null>(null);
   const adminAccess = useAdminAccess();
   const {user} = useAuth();
+  const [signInToDelete, setSignInToDelete] = React.useState(deleteRequested);
+  const [accountDeleted, setAccountDeleted] = React.useState(false);
   // Signing out (or losing admin rights) leaves the admin and profile pages.
-  const shown: View = (view === 'admin' && !adminAccess) || (view === 'profile' && !user) ? 'calculator' : view;
+  // (Except for an account deletion request: it waits for the sign-in.)
+  const shown: View = (view === 'admin' && !adminAccess) || (view === 'profile' && !user && !deleteRequested) ? 'calculator' : view;
 
   return (
     <ThemeProvider defaultTheme="system">
@@ -75,7 +92,21 @@ function App() {
           <SignedOutNotice />
           <ResetPasswordDialog />
           {shown === 'admin' && adminAccess && <AdminTabs access={adminAccess} />}
-          {shown === 'profile' && <ProfilePage />}
+          {accountDeleted && (
+            <p role="status" className="mb-5 rounded-md border border-emerald-500 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30">
+              Your account and its data are deleted. Thank you for flying with us.
+            </p>
+          )}
+          {shown === 'profile' && user && (
+            <ProfilePage openDelete={deleteRequested} onDeleted={() => { setAccountDeleted(true); setView('calculator'); }}/>
+          )}
+          {deleteRequested && shown === 'profile' && !user && !accountDeleted && (
+            <div className="mx-auto max-w-md space-y-3 py-6 text-center">
+              <p>Sign in to delete your account and its data.</p>
+              <Button type="button" onClick={() => setSignInToDelete(true)}>Sign in</Button>
+              <AuthDialog open={signInToDelete} onOpenChange={setSignInToDelete}/>
+            </div>
+          )}
           {shown === 'calculator' && (
             <WeightBalanceCalculator preferredRegistration={addedRegistration} onOpenProfile={() => setView('profile')} />
           )}

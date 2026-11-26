@@ -20,7 +20,7 @@ Part F covers every release after that.
 
 - **Deleting your account in the app**: Profile → *Delete account* (`DELETE /api/users/me`). Both
   stores require it (Apple 5.1.1(v), Google Play's account deletion policy). Play also asks for a web
-  link to the same thing: give the privacy policy, which explains it.
+  link: <https://www.flightplanningtool.com/delete-account.html>.
 - **Privacy policy**: <https://www.flightplanningtool.com/privacy.html> (`public/privacy.html`),
   linked in the footer. **Read it before submitting**: it describes what the app does, but it's
   your legal text.
@@ -225,8 +225,10 @@ work through **Dashboard → Set up your app**:
   - Location: precise, collected, for app functionality, optional. Location sharing is limited to flights the user saves.
   - Personal info: name and email, for account management.
   - Data encrypted in transit: yes.
-  - Users can delete their data: yes, in the app (Profile → Delete account). The deletion web link is
-    the privacy policy URL.
+  - Users can delete their data: yes, in the app (Profile → Delete account).
+  - **Delete account URL**: `https://www.flightplanningtool.com/delete-account.html`. It describes the
+    steps and what's deleted or kept, and its button opens the website's deletion (`/?delete-account`), which
+    asks you to sign in first if needed.
 - store listing: short and full description, a 512×512 icon, a 1024×500 feature graphic, and phone
   screenshots (and 7"/10" tablet ones for the tablet listing).
 
