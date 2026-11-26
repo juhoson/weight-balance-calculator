@@ -395,6 +395,17 @@ input::-webkit-inner-spin-button {
   color: #0f172a;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
 }
+/* Close in on an airfield: the runways show through the route and the airspace (enlarged from a lower zoom). */
+.route-map--close .nav-route-casing {
+  display: none;
+}
+.route-map--close .nav-route-line {
+  stroke-width: 2.5px;
+  stroke-opacity: 0.55;
+}
+.route-map--close .airspace-tiles {
+  opacity: 0.35;
+}
 /* A tapped navaid: what to tune. */
 .navaid-popup .leaflet-popup-content {
   margin: 8px 12px;

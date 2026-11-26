@@ -82,6 +82,10 @@ const SHOW_TRAFFIC_KEY = 'nav.showTraffic';
 const TREND_MINUTES = [1, 2, 3];
 /** Not drawn slower than this (taxiing, or standing). */
 const TREND_MIN_KT = 20;
+/** Auto-zoom: slower than this is on the ground (zoom 13); within this of the departure or arrival and lower than this above it, zoom 12. */
+const AUTO_ZOOM_SLOW_KT = 50;
+const AUTO_ZOOM_NEAR_NM = 3;
+const AUTO_ZOOM_LOW_FT = 1500;
 /** Traffic asked this often while flying, ms. */
 const TRAFFIC_POLL_MS = 5000;
 const TRAFFIC_CREDIT = 'traffic &copy; <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL)';
@@ -332,6 +336,18 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const navaidLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
   const trafficLayer = React.useRef(L.layerGroup());
+  /** The map zooms itself by the phase of flight until the pilot zooms. */
+  const autoZoom = React.useRef(true);
+  /** Set while the map zooms itself, so its own zoom isn't taken for the pilot's. */
+  const zooming = React.useRef(false);
+  /** Close in when slow (on the ground), closer when low near the departure or arrival; 10 en route. */
+  const zoomFor = (f: Fix): number => {
+    if ((f.speedKt ?? 0) < AUTO_ZOOM_SLOW_KT) return 13;
+    const fields = route.length ? [route[0], route[route.length - 1]] : [];
+    const nearField = fields.find(a => distanceNm(a.lat, a.lon, f.lat, f.lon) <= AUTO_ZOOM_NEAR_NM);
+    if (nearField && f.altFt != null && f.altFt - (nearField.elevationFt ?? 0) < AUTO_ZOOM_LOW_FT) return 12;
+    return 10;
+  };
   const own = React.useRef<{
     marker: L.Marker; glide: L.Polygon; direct: L.Polyline; trail: L.Polyline; trend: L.Polyline; ticks: L.Marker[];
   } | null>(null);
@@ -355,6 +371,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       if (live && status?.airspace) {
         cachedTileLayer(AIRSPACE_TILE_URL, {
           minZoom: status.minZoom, maxNativeZoom: Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM), maxZoom: 19, attribution: OPENAIP_CREDIT,
+          className: 'airspace-tiles',
         }).addTo(map);
       }
     };
@@ -382,8 +399,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     // Without a route the map starts over Sweden, and follows the aircraft once the GPS has it.
     const startAt = pts[0] ?? L.latLng(fix?.lat ?? 62, fix?.lon ?? 16);
     if (pts.length > 1) {
-      L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(map);
-      L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
+      L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false, className: 'nav-route-casing' }).addTo(map);
+      L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false, className: 'nav-route-line' }).addTo(map);
     }
     flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(flownLabels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
@@ -402,15 +419,18 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       keyboard: false, interactive: false, zIndexOffset: 1000,
     }).addTo(map);
     // Where the aircraft will be on this track at this ground speed: a line to 3 minutes, ticks at each minute.
-    const trend = L.polyline([], { color: '#0f172a', weight: 3, opacity: 0.85, interactive: false }).addTo(map);
-    const ticks = TREND_MINUTES.map(min => L.marker(startAt, {
-      icon: L.divIcon({ className: 'trend-tick', iconSize: [12, 12], html: `<span>${min === TREND_MINUTES[TREND_MINUTES.length - 1] ? `${min} min` : min}</span>` }),
+    const trend = L.polyline([], { color: '#0f172a', weight: 2.5, opacity: 0.8, dashArray: '6 6', interactive: false }).addTo(map);
+    const ticks = TREND_MINUTES.map(() => L.marker(startAt, {
+      icon: L.divIcon({ className: 'trend-tick', iconSize: [12, 12], html: '<span></span>' }),
       keyboard: false, interactive: false, opacity: 0,
     }).addTo(map));
     own.current = { marker, glide, direct, trail, trend, ticks };
     if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
     else map.setView(startAt, fix ? 10 : 6);
     map.on('dragstart', () => setFollow(false));
+    // A zoom the pilot made (not ours) stops the automatic one until Centre.
+    map.on('zoomstart', () => { if (!zooming.current) autoZoom.current = false; });
+    map.on('zoomend', () => { zooming.current = false; });
     mapRef.current = map;
     // The map's box changes when a page opens below it or the tablet turns: Leaflet must measure again.
     const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => map.invalidateSize());
@@ -634,14 +654,24 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const end = ahead(TREND_MINUTES[TREND_MINUTES.length - 1]);
     o.trend.setLatLngs(moving ? [at, [end.lat, end.lon]] : []);
     o.ticks.forEach((t, i) => {
-      const p = ahead(TREND_MINUTES[i]);
+      const min = TREND_MINUTES[i];
+      const p = ahead(min);
       t.setLatLng([p.lat, p.lon]).setOpacity(moving ? 1 : 0);
+      // "2 min · 2.6 NM" on the later ticks; the first is a dot (the labels would crowd).
+      const label = t.getElement()?.querySelector('span');
+      if (label) label.textContent = moving && min > 1 ? `${min} min · ${nmText(((fix.speedKt as number) * min) / 60)} NM` : '';
     });
+    // Closer in when slow or low near the departure or arrival (rolling, taking off, landing), unless the pilot zoomed.
+    if (follow && autoZoom.current) {
+      const z = zoomFor(fix);
+      if (z !== map.getZoom()) { zooming.current = true; map.setZoom(z, { animate: true }); }
+    }
     if (follow) map.panTo(at, { animate: true });
   }, [fix, glideEdge, directTo, follow, started]);
 
   const recenter = () => {
     setFollow(true);
+    autoZoom.current = true;
     if (fix && mapRef.current) mapRef.current.panTo([fix.lat, fix.lon]);
   };
 

@@ -449,7 +449,8 @@ const RouteMap: React.FC<RouteMapProps> = ({
     };
     // Each leg, wide and unseen: hovering it says how long it is.
     for (let i = 0; i < shown.length - 1; i++) {
-      L.polyline([points[i], points[i + 1]], { color: '#000000', weight: 18, opacity: 0, className: 'route-map-leg' })
+      L.polyline(i === 0 && climbAt ? [points[0], climbAt, points[1]] : [points[i], points[i + 1]],
+        { color: '#000000', weight: 18, opacity: 0, className: 'route-map-leg' })
         .bindTooltip(legText(labels[i], labels[i + 1], shown[i], shown[i + 1]), { sticky: true, direction: 'top', offset: [0, -8] })
         .addTo(group);
     }
@@ -556,7 +557,9 @@ const RouteMap: React.FC<RouteMapProps> = ({
     // A handle in the middle of each leg: drag it out to add a waypoint there.
     if (editable && !plotting && between.length < maxWaypoints) {
       for (let i = 0; i < points.length - 1; i++) {
-        const mid = L.latLng((points[i].lat + points[i + 1].lat) / 2, (points[i].lng + points[i + 1].lng) / 2);
+        // On the line as drawn: the first leg goes out to the climb-out point and turns there.
+        const from = i === 0 && climbAt ? climbAt : points[i];
+        const mid = L.latLng((from.lat + points[i + 1].lat) / 2, (from.lng + points[i + 1].lng) / 2);
         const handle = L.marker(mid, {
           icon: L.divIcon({ className: 'route-map-insert', iconSize: [12, 12] }), draggable: true, autoPan: true, keyboard: false,
           title: 'Drag to add a waypoint',
