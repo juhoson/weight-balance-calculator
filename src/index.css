@@ -345,6 +345,30 @@ input::-webkit-inner-spin-button {
   font-size: 10px;
   opacity: 0.85;
 }
+/* Other traffic: an arrow along its track; amber within 1,000 ft of our height, red in conflict. */
+.traffic-marker {
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.traffic-marker svg path {
+  fill: #0ea5e9;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+.traffic-marker--near svg path {
+  fill: #f59e0b;
+}
+.traffic-marker--conflict svg path {
+  fill: #dc2626;
+}
+.route-map .leaflet-tooltip.traffic-label {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 /* A tapped navaid: what to tune. */
 .navaid-popup .leaflet-popup-content {
   margin: 8px 12px;

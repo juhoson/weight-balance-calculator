@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { Crosshair, Radio, TriangleAlert, X } from 'lucide-react';
 import {
   acceptNavTerms, AIRSPACE_TILE_URL, airspacesFetchedAt as fetchedAtOf, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea,
-  fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
+  fetchMapStatus, fetchTraffic, type MapStatus, saveTrack, type Traffic, type TrackPoint,
 } from '../../api/backend';
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
 import { clearNavSession, type NavSession, saveNavSession, updateNavSession } from '../../lib/navSession';
@@ -24,6 +24,7 @@ import type { RoutePosition } from '../../lib/openMeteo';
 import { GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
 import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/native';
 import { cachedTileLayer } from '../../lib/tileCache';
+import { relativeAltText, TRAFFIC_ALERT_FT, TRAFFIC_RANGE_NM, trafficName, trafficNear } from '../../lib/traffic';
 import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../lib/departure';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
@@ -74,6 +75,10 @@ const SHOW_NAVAID_KEY = 'nav.showNavaids';
 /** Radio navaids this far from the route are drawn: a VOR is used well off it. */
 const NAVAID_RANGE_NM = 40;
 const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
+const SHOW_TRAFFIC_KEY = 'nav.showTraffic';
+/** Traffic asked this often while flying, ms. */
+const TRAFFIC_POLL_MS = 5000;
+const TRAFFIC_CREDIT = 'traffic &copy; <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL)';
 /** Without a route: what's loaded around the aircraft, NM either way, ... */
 const AREA_NM = 25;
 /** ... and loaded again once it's this far from where it was. */
@@ -318,6 +323,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const fixLayer = React.useRef(L.layerGroup());
   const navaidLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
+  const trafficLayer = React.useRef(L.layerGroup());
   const own = React.useRef<{ marker: L.Marker; glide: L.Polygon; direct: L.Polyline; trail: L.Polyline } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
@@ -372,6 +378,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(flownLabels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
     obstacleLayer.current.addTo(map);
+    trafficLayer.current.addTo(map);
+    map.attributionControl?.addAttribution(TRAFFIC_CREDIT);
     navaidLayer.current.addTo(map);
     fixLayer.current.addTo(map);
     vrpLayer.current.addTo(map);
@@ -457,6 +465,46 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       }).bindPopup(obstaclePopup(o, obstacleData.dates), { className: 'navaid-popup', closeButton: false, autoPan: false }).addTo(layer);
     });
   }, [routeObstacles, showObstacle, obstacleData]);
+  // Other traffic (ADS-B, online only), asked every few seconds around the aircraft.
+  const [showTraffic, toggleTraffic] = useShown(SHOW_TRAFFIC_KEY, true);
+  const [trafficList, setTrafficList] = React.useState<Traffic[] | null>(null);
+  const [trafficFailed, setTrafficFailed] = React.useState(false);
+  const fixRef = React.useRef<Fix | null>(null);
+  fixRef.current = fix;
+  const hasFix = fix != null;
+  React.useEffect(() => {
+    // From the first position on (not before: it's asked around the aircraft).
+    if (!started || !hasFix) return;
+    let live = true;
+    const ask = () => {
+      const f = fixRef.current;
+      if (!f) return;
+      fetchTraffic(f.lat, f.lon, TRAFFIC_RANGE_NM).then(
+        list => { if (live) { setTrafficList(list); setTrafficFailed(false); } },
+        () => { if (live) setTrafficFailed(true); });
+    };
+    ask();
+    const id = setInterval(ask, TRAFFIC_POLL_MS);
+    return () => { live = false; clearInterval(id); };
+  }, [started, hasFix]);
+  const traffic = React.useMemo(() => (fix && trafficList ? trafficNear(fix, trafficList) : []), [fix, trafficList]);
+  const conflict = traffic.find(t => t.conflict) ?? null;
+  React.useEffect(() => {
+    const layer = trafficLayer.current;
+    layer.clearLayers();
+    if (!showTraffic) return;
+    traffic.forEach(t => {
+      const near = t.dAltFt != null && Math.abs(t.dAltFt) <= TRAFFIC_ALERT_FT;
+      const cls = t.conflict ? 'traffic-marker traffic-marker--conflict' : near ? 'traffic-marker traffic-marker--near' : 'traffic-marker';
+      L.marker([t.lat, t.lon], {
+        icon: L.divIcon({ className: cls, iconSize: [26, 26],
+          html: `<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true" style="transform: rotate(${t.trackDeg ?? 0}deg)">`
+            + '<path d="M13 3 L19 21 L13 17 L7 21 Z"/></svg>' }),
+        keyboard: false, title: `${trafficName(t)} ${t.type ?? ''}`.trim(), zIndexOffset: 500,
+      }).bindTooltip(`${relativeAltText(t)} ${trafficName(t)}`.trim(), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label traffic-label' })
+        .addTo(layer);
+    });
+  }, [traffic, showTraffic]);
   // Whatever the layer shows: the one ahead is always called out.
   const ahead = React.useMemo(
     () => (fix && obstacleData
@@ -746,6 +794,17 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           );
         })()}
+        {conflict && (
+          <div role="alert" aria-label="Traffic" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-amber-500 px-3 py-1.5 font-bold text-slate-950">
+            <TriangleAlert className="h-4 w-4 self-center"/>
+            <span>TRAFFIC {conflict.clock} O&apos;CLOCK {nmText(conflict.nm)} NM</span>
+            <span className="font-semibold">
+              {conflict.dAltFt == null ? 'height unknown' : Math.abs(conflict.dAltFt) < 100 ? 'same height'
+                : `${ft(Math.abs(conflict.dAltFt))} ft ${conflict.dAltFt > 0 ? 'above' : 'below'}`}
+            </span>
+            <span className="ml-auto font-normal">{trafficName(conflict)}{conflict.type ? ` ${conflict.type}` : ''}</span>
+          </div>
+        )}
         {terrainNow && (
           <div role="alert" aria-label="Terrain" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-red-700 px-3 py-1.5 font-semibold text-white">
             <TriangleAlert className="h-4 w-4 self-center"/>
@@ -901,6 +960,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
                   : ownBasemap ? 'Map saved for offline' : 'Airspace saved for offline (base map needs a connection here)'}
             </span>
           )}
+          {showTraffic && started && (
+            <span className={`rounded px-1.5 py-0.5 font-semibold ${trafficFailed ? 'bg-slate-700 text-slate-300' : 'bg-slate-900/80 text-slate-100'}`}>
+              {trafficFailed ? 'Traffic: no connection' : trafficList == null ? 'Traffic: looking…'
+                : `Traffic: ${traffic.length} within ${TRAFFIC_RANGE_NM} NM (ADS-B only)`}
+            </span>
+          )}
           {started === 'demo' && <span className="rounded bg-sky-600 px-1.5 py-0.5 font-semibold text-white">DEMO FLIGHT ({DEMO_SPEEDUP}× speed)</span>}
           {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
         </div>
@@ -920,6 +985,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <button type="button" aria-pressed={showObstacle} onClick={toggleObstacle} title="Obstacles of 100 m or more (AIP ENR 5.4)"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showObstacle ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             OBS
+          </button>
+          <button type="button" aria-pressed={showTraffic} onClick={toggleTraffic} title="Traffic: aircraft sending ADS-B (online)"
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showTraffic ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            TFC
           </button>
         </div>
         {!follow && fix && (

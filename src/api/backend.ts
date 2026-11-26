@@ -387,3 +387,27 @@ export async function removeClubAircraft(clubId: number, airframeId: number): Pr
 export function listClubAircraftChanges(clubId: number): Promise<ChangeView[]> {
   return request<ChangeView[]>(`/api/admin/clubs/${clubId}/aircraft-changes`);
 }
+
+/** An aircraft near the pilot (ADS-B, adsb.lol): see the backend's TrafficView. */
+export interface Traffic {
+  hex: string;
+  callsign: string | null;
+  registration: string | null;
+  type: string | null;
+  lat: number;
+  lon: number;
+  /** True altitude, ft MSL; null on the ground or unknown. */
+  altFt: number | null;
+  altFromPressure: boolean;
+  onGround: boolean;
+  gsKt: number | null;
+  trackDeg: number | null;
+  vsFpm: number | null;
+  seenS: number;
+}
+
+/** The traffic within `nm` of a point (signed in). */
+export function fetchTraffic(lat: number, lon: number, nm = 10): Promise<Traffic[]> {
+  return request<Traffic[]>(`/api/traffic?${new URLSearchParams({ lat: lat.toFixed(3), lon: lon.toFixed(3), nm: String(nm) })}`)
+    .then(list => (Array.isArray(list) ? list : []));
+}

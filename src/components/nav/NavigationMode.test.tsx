@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea, fetchMapStatus, saveTrack } from '../../api/backend';
+import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea, fetchMapStatus, fetchTraffic, saveTrack } from '../../api/backend';
 import { useAuth } from '../../api/useAuth';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 
@@ -13,6 +13,7 @@ jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
   fetchAirportsAlong: jest.fn(),
   fetchAirspacesAlong: jest.fn(),
+  fetchTraffic: jest.fn(),
   airspacesFetchedAt: () => null,
   fetchMapArea: jest.fn(),
   saveTrack: jest.fn(),
@@ -53,6 +54,8 @@ beforeEach(() => {
   signedIn();
   (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
   (fetchAirportsAlong as jest.Mock).mockResolvedValue([esow, essb, essx]);
+  // No traffic answer unless a test gives one.
+  (fetchTraffic as jest.Mock).mockReturnValue(new Promise(() => undefined));
   (fetchMapArea as jest.Mock).mockResolvedValue({ airports: [], reportingPoints: [], complete: true, reportingPointsAvailable: true });
 });
 
@@ -342,4 +345,29 @@ test('without a route: GPS only, no demo; the airspace and airfields around the 
   expect(await within(here).findByText('VÄSTERÅS CTR')).toBeInTheDocument();
   expect(screen.getByText('Next none')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'No route' })).toBeDisabled();
+});
+
+test('traffic near the aircraft is on the map with its height, and one heading for us is called out', async () => {
+  // Over Västerås at 2,000 ft, eastbound; an aircraft 2 NM ahead coming the other way 200 ft higher.
+  (fetchTraffic as jest.Mock).mockResolvedValue([{
+    hex: '4ab4d9', callsign: 'SEABC', registration: 'SE-ABC', type: 'PA28', lat: 59.59, lon: 16.765, altFt: 2200, altFromPressure: false,
+    onGround: false, gsKt: 100, trackDeg: 270, vsFpm: 0, seenS: 1,
+  }]);
+  const watchPosition = jest.fn((ok: PositionCallback) => {
+    ok({ timestamp: Date.now(), coords: { latitude: 59.59, longitude: 16.7, altitude: 609.6, speed: 51.4, heading: 90, accuracy: 8 } } as GeolocationPosition);
+    return 1;
+  });
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
+  const alert = await screen.findByRole('alert', { name: 'Traffic' });
+  expect(alert).toHaveTextContent('TRAFFIC 12 O\'CLOCK 2.0 NM');
+  expect(alert).toHaveTextContent('200 ft above');
+  expect(alert).toHaveTextContent('SE-ABC PA28');
+  expect(screen.getByText('+02 SE-ABC')).toBeInTheDocument();
+  expect(screen.getByText('Traffic: 1 within 10 NM (ADS-B only)')).toBeInTheDocument();
+  // Switched off: gone from the map, still called out.
+  fireEvent.click(screen.getByRole('button', { name: 'TFC' }));
+  await waitFor(() => expect(screen.queryByText('+02 SE-ABC')).toBeNull());
+  expect(screen.getByRole('alert', { name: 'Traffic' })).toBeInTheDocument();
 });
