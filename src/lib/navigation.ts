@@ -159,6 +159,73 @@ export function routeLengthNm(route: At[]): number {
   return nm;
 }
 
+/** A standard-rate turn's radius (3°/s, two minutes a circle), NM, at a ground speed in kt. */
+export const turnRadiusNm = (kt: number) => kt / (60 * Math.PI);
+
+/**
+ * The route with its corners flown as turns: each turning point is cut by an arc of `radiusNm`
+ * (smaller where the legs are too short for it), the turn starting before the point as an
+ * aircraft's does. Flat over the few miles of a turn.
+ */
+export function roundedRoute(route: At[], radiusNm: number): At[] {
+  if (route.length < 3 || !(radiusNm > 0)) return route;
+  const out: At[] = [route[0]];
+  for (let i = 1; i < route.length - 1; i++) {
+    const a = route[i - 1], b = route[i], c = route[i + 1];
+    const k = Math.cos((b.lat * Math.PI) / 180);
+    const xy = (p: At) => ({ x: (p.lon - b.lon) * k * 60, y: (p.lat - b.lat) * 60 });
+    const ll = (x: number, y: number): At => ({ lat: b.lat + y / 60, lon: b.lon + x / (60 * k) });
+    const pa = xy(a), pc = xy(c);
+    const la = Math.hypot(pa.x, pa.y), lc = Math.hypot(pc.x, pc.y);
+    if (la < 1e-6 || lc < 1e-6) { out.push(b); continue; }
+    const ua = { x: pa.x / la, y: pa.y / la }, uc = { x: pc.x / lc, y: pc.y / lc };
+    // The angle between the legs at the point; the turn is its supplement.
+    const between = Math.acos(Math.max(-1, Math.min(1, ua.x * uc.x + ua.y * uc.y)));
+    const turn = Math.PI - between;
+    if (turn < (5 * Math.PI) / 180) { out.push(b); continue; }
+    const d = Math.min(radiusNm * Math.tan(turn / 2), 0.45 * la, 0.45 * lc);
+    const r = d / Math.tan(turn / 2);
+    const t1 = { x: ua.x * d, y: ua.y * d }, t2 = { x: uc.x * d, y: uc.y * d };
+    // The centre: on the bisector, r / sin(between/2) from the point.
+    const bis = { x: ua.x + uc.x, y: ua.y + uc.y };
+    const bl = Math.hypot(bis.x, bis.y);
+    const h = r / Math.sin(between / 2);
+    const o = { x: (bis.x / bl) * h, y: (bis.y / bl) * h };
+    const s1 = Math.atan2(t1.y - o.y, t1.x - o.x), s2 = Math.atan2(t2.y - o.y, t2.x - o.x);
+    let sweep = s2 - s1;
+    if (sweep > Math.PI) sweep -= 2 * Math.PI;
+    if (sweep < -Math.PI) sweep += 2 * Math.PI;
+    const steps = Math.max(2, Math.ceil(Math.abs(sweep) / ((10 * Math.PI) / 180)));
+    for (let j = 0; j <= steps; j++) {
+      const t = s1 + (sweep * j) / steps;
+      out.push(ll(o.x + r * Math.cos(t), o.y + r * Math.sin(t)));
+    }
+  }
+  out.push(route[route.length - 1]);
+  return out;
+}
+
+/** A point `nm` ahead on a true track (flat over a few NM). */
+export function pointAhead(at: At, trackDeg: number, nm: number): At {
+  const r = (trackDeg * Math.PI) / 180;
+  return { lat: at.lat + (nm * Math.cos(r)) / 60, lon: at.lon + (nm * Math.sin(r)) / (60 * Math.cos((at.lat * Math.PI) / 180)) };
+}
+
+/**
+ * Without a route: a zigzag over the square `nm` around a point, so the services that look a few
+ * miles either side of a route (airspace: 5 NM) cover the whole area. Rows 10 NM apart.
+ */
+export function areaAround(at: At, nm = 25): At[] {
+  const rows = Math.ceil((2 * nm) / 10) + 1;
+  const out: At[] = [];
+  for (let i = 0; i < rows; i++) {
+    const dy = -nm + (2 * nm * i) / (rows - 1);
+    const west = pointAhead(pointAhead(at, 0, dy), 270, nm), east = pointAhead(pointAhead(at, 0, dy), 90, nm);
+    out.push(...(i % 2 === 0 ? [west, east] : [east, west]));
+  }
+  return out;
+}
+
 /** Circuit height over the arrival, where the demo's descent ends. */
 export const DEMO_CIRCUIT_FT = 1000;
 /** The demo's climb and descent, ft/min. */

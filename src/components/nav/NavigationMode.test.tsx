@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchMapArea, fetchMapStatus, saveTrack } from '../../api/backend';
+import { acceptNavTerms, downloadTrackKml, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea, fetchMapStatus, saveTrack } from '../../api/backend';
 import { useAuth } from '../../api/useAuth';
 import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route';
 
@@ -12,6 +12,8 @@ const { default: NavigationMode } = require('./NavigationMode') as typeof import
 jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
   fetchAirportsAlong: jest.fn(),
+  fetchAirspacesAlong: jest.fn(),
+  airspacesFetchedAt: () => null,
   fetchMapArea: jest.fn(),
   saveTrack: jest.fn(),
   acceptNavTerms: jest.fn(),
@@ -312,4 +314,26 @@ test('the radio navaids near the route, with what to tune; switched off with NAV
   fireEvent.click(screen.getByRole('button', { name: 'NAV' }));
   expect(screen.queryByText('ARS 112.80')).toBeNull();
   expect(localStorage.getItem('nav.showNavaids')).toBe('no');
+});
+
+test('without a route: GPS only, no demo; the airspace and airfields around the aircraft load as it flies', async () => {
+  (fetchAirspacesAlong as jest.Mock).mockResolvedValue([ctr]);
+  const watchPosition = jest.fn((ok: PositionCallback) => {
+    ok({ timestamp: Date.now(), coords: { latitude: 59.59, longitude: 16.7, altitude: 300, speed: 50, heading: 100, accuracy: 8 } } as GeolocationPosition);
+    return 1;
+  });
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
+  await settled(<NavigationMode trip={null} airspaces={null} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
+    cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
+  expect(screen.queryByRole('button', { name: 'Demo flight' })).toBeNull();
+  expect(screen.getByText(/No route planned/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
+  // Around the aircraft: a zigzag over the area, for the airspace and the airfields.
+  await waitFor(() => expect(fetchAirspacesAlong).toHaveBeenCalled());
+  expect((fetchAirspacesAlong as jest.Mock).mock.calls[0][0].length).toBeGreaterThan(4);
+  await waitFor(() => expect(fetchAirportsAlong).toHaveBeenCalled());
+  const here = await screen.findByRole('status', { name: 'Airspace here' });
+  expect(await within(here).findByText('VÄSTERÅS CTR')).toBeInTheDocument();
+  expect(screen.getByText('Next none')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'No route' })).toBeDisabled();
 });

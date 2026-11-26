@@ -937,6 +937,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     } : null,
   } : null;
 
+  /** A route to navigate; without one the navigation mode flies GPS only. */
+  const hasRoute = !!trip && trip.distanceNm > 0;
+
   return (
     <>
       <DisclaimerModal open={!disclaimerAccepted} onAccept={handleDisclaimerAccept}/>
@@ -1047,18 +1050,20 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             {trip && trip.distanceNm > 0 && (
               <ObstaclePanel route={routePoints} path={obstaclePath} basis={obstacleBasis}/>
             )}
-            {trip && trip.distanceNm > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={startNavigation}>
-                  <Navigation className="mr-1 h-4 w-4"/> Navigation mode
-                </Button>
-                {userId !== null && <React.Suspense fallback={null}><MyFlightsButton/></React.Suspense>}
-                <span className="text-xs text-muted-foreground">
-                  VFR navigation aid (beta): the route on a moving map with GPS, the airspace you&apos;re in, the frequencies along
-                  the way and the nearest airfields, kept for flying without a connection.{userId === null && ' Sign in to use it.'}
-                </span>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={startNavigation}>
+                <Navigation className="mr-1 h-4 w-4"/> {hasRoute ? 'Navigation mode' : 'Navigate without a route'}
+              </Button>
+              {userId !== null && <React.Suspense fallback={null}><MyFlightsButton/></React.Suspense>}
+              <span className="text-xs text-muted-foreground">
+                {hasRoute
+                  ? <>VFR navigation aid (beta): the route on a moving map with GPS, the airspace you&apos;re in, the frequencies along
+                    the way and the nearest airfields, kept for flying without a connection.</>
+                  : <>VFR navigation aid (beta) without a flight plan: your position on a moving map with the airspace, airfields and
+                    obstacles around you, loaded as you fly.</>}
+                {userId === null && ' Sign in to use it.'}
+              </span>
+            </div>
           </Section>
 
           <Section step={4} title="Fuel and flight" className={onStep(3)}>
@@ -1189,10 +1194,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
           <NavigationMode {...resumeNav} resumed={resumeNav} signedIn={userId !== null} onClose={() => setResumeNav(null)}/>
         </React.Suspense>
       )}
-      {navigating && trip && (
+      {navigating && (
         <React.Suspense fallback={null}>
           <NavigationMode
-            trip={trip}
+            trip={hasRoute ? trip : null}
             airspaces={airspaces.data}
             airspacesFetchedAt={airspacesFetchedAt(airspaces.data)}
             reportingPoints={weather.reportingPoints}
@@ -1214,9 +1219,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             aria-label="Previous step">
             <ChevronLeft className="h-5 w-5"/>
           </Button>
-          {step === PLANNING_STEPS.length - 1 && trip && trip.distanceNm > 0 ? (
+          {step === PLANNING_STEPS.length - 1 ? (
             <Button type="button" className="h-12 flex-1 text-base" onClick={startNavigation}>
-              <Navigation className="mr-2 h-5 w-5"/> Start navigation
+              <Navigation className="mr-2 h-5 w-5"/> {hasRoute ? 'Start navigation' : 'Navigate without a route'}
             </Button>
           ) : results && verdict ? (
             <button type="button" onClick={() => goToStep(PLANNING_STEPS.length - 1)}

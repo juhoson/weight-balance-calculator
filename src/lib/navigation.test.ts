@@ -1,5 +1,5 @@
 import {
-  activeLeg, airspacesHere, demoAltitudeFt, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
+  activeLeg, airspacesHere, areaAround, demoAltitudeFt, roundedRoute, turnRadiusNm, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
 } from './navigation';
 import type { AirportInfo, AirspaceView } from '../types/route';
 
@@ -120,4 +120,24 @@ it('the demo climbs to cruise, then descends to circuit height over the arrival;
   const top = Math.max(...Array.from({ length: 80 }, (_, i) => demoAltitudeFt(i / 10, 8, 100, 0, 0, 3000)));
   expect(top).toBeLessThan(3000);
   expect(demoAltitudeFt(7.9, 8, 100, 0, 0, 3000)).toBeLessThanOrEqual(1100);
+});
+
+it('rounds a corner into a standard-rate turn: no heading change bigger than 10° between points', () => {
+  expect(turnRadiusNm(110)).toBeCloseTo(0.58, 2);
+  // North 5 NM, then east 5 NM.
+  const corner = [{ lat: 60, lon: 15 }, { lat: 60 + 5 / 60, lon: 15 }, { lat: 60 + 5 / 60, lon: 15 + 5 / 30 }];
+  const path = roundedRoute(corner, turnRadiusNm(110));
+  expect(path.length).toBeGreaterThan(8);
+  const tracks = path.slice(1).map((p, i) => positionAlong([path[i], p], 0).trackDeg);
+  for (let i = 1; i < tracks.length; i++) expect(Math.abs(((tracks[i] - tracks[i - 1] + 540) % 360) - 180)).toBeLessThanOrEqual(10.5);
+  expect(path[0]).toEqual(corner[0]);
+  expect(path[path.length - 1]).toEqual(corner[2]);
+  // A straight route stays as it is.
+  expect(roundedRoute([corner[0], corner[1], { lat: 60 + 10 / 60, lon: 15 }], 0.6)).toHaveLength(3);
+});
+
+it('covers the area around a point with a zigzag 10 NM apart', () => {
+  const pts = areaAround({ lat: 60, lon: 15 }, 25);
+  expect(pts).toHaveLength(12);
+  expect(Math.max(...pts.map(p => p.lat)) - 60).toBeCloseTo(25 / 60, 3);
 });

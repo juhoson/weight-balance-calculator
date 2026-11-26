@@ -3,7 +3,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Crosshair, Radio, TriangleAlert, X } from 'lucide-react';
 import {
-  acceptNavTerms, AIRSPACE_TILE_URL, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchMapArea, fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
+  acceptNavTerms, AIRSPACE_TILE_URL, airspacesFetchedAt as fetchedAtOf, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea,
+  fetchMapStatus, type MapStatus, saveTrack, type TrackPoint,
 } from '../../api/backend';
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
 import { clearNavSession, type NavSession, saveNavSession, updateNavSession } from '../../lib/navSession';
@@ -27,11 +28,14 @@ import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../li
 import { loadObstacles, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
-  demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, nextAirspace, pad3, positionAlong, routeLengthNm,
+  areaAround, demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, NEXT_AIRSPACE_NM, nextAirspace, pad3, pointAhead, positionAlong,
+  roundedRoute, routeLengthNm, turnRadiusNm,
 } from '../../lib/navigation';
+import { distanceNm } from '../../lib/openMeteo';
 
 export interface NavigationModeProps {
-  trip: RouteWeather;
+  /** The planned flight; null flies without a route (GPS only): everything around the aircraft instead. */
+  trip: RouteWeather | null;
   airspaces: AirspaceView[] | null;
   /** When the airspace was downloaded, for showing its age. */
   airspacesFetchedAt?: number | null;
@@ -69,6 +73,10 @@ const SHOW_NAVAID_KEY = 'nav.showNavaids';
 /** Radio navaids this far from the route are drawn: a VOR is used well off it. */
 const NAVAID_RANGE_NM = 40;
 const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
+/** Without a route: what's loaded around the aircraft, NM either way, ... */
+const AREA_NM = 25;
+/** ... and loaded again once it's this far from where it was. */
+const AREA_RELOAD_NM = 15;
 /** The obstacles drawn: this far either side of the route. */
 const OBSTACLE_RANGE_NM = 10;
 type Vrp = { name: string; lat: number; lon: number; compulsory: boolean };
@@ -169,11 +177,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const { user } = useAuth();
   const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
   const [agreed, setAgreed] = React.useState(false);
-  const route = React.useMemo(() => [trip.departure, ...(trip.waypoints ?? []), trip.arrival], [trip]);
+  const route = React.useMemo(() => (trip ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival] : []), [trip]);
   const labels = React.useMemo(() => routeLabels(route.map(a => a.code)), [route]);
   // The route as flown: out on the runway heading to 700 ft first, then on course.
-  const climbOut = React.useMemo(() => departureClimb(trip.departure,
-    trip.points?.find(p => p.role === 'DEPARTURE')?.metar ?? null, route[1] ?? trip.arrival, climb), [trip, route, climb]);
+  const climbOut = React.useMemo(() => (trip ? departureClimb(trip.departure,
+    trip.points?.find(p => p.role === 'DEPARTURE')?.metar ?? null, route[1] ?? trip.arrival, climb) : null), [trip, route, climb]);
   const flown = React.useMemo(() => (climbOut
     ? [route[0], { ...route[0], code: departureClimbLabel(climbOut), name: departureClimbLabel(climbOut), lat: climbOut.lat, lon: climbOut.lon, type: 'point' }, ...route.slice(1)]
     : route), [route, climbOut]);
@@ -187,6 +195,24 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const [airfields, setAirfields] = React.useState<AirportInfo[]>(() => resumed?.airfields?.length ? resumed.airfields : route.filter(a => a.type !== 'point'));
   const [airfieldsState, setAirfieldsState] = React.useState<'loading' | 'ok' | 'error'>(resumed?.airfields?.length ? 'ok' : 'loading');
   const [ratio, setRatio] = useGlideRatio();
+  // Without a route: everything around the aircraft (airspace, airfields, points, obstacles), loaded
+  // again once it has gone AREA_RELOAD_NM from where it was last loaded.
+  const [areaCenter, setAreaCenter] = React.useState<{ lat: number; lon: number } | null>(null);
+  React.useEffect(() => {
+    if (trip || !fix) return;
+    if (!areaCenter || distanceNm(areaCenter.lat, areaCenter.lon, fix.lat, fix.lon) > AREA_RELOAD_NM) setAreaCenter({ lat: fix.lat, lon: fix.lon });
+  }, [trip, fix, areaCenter]);
+  /** What the lists near "the route" are near: the route, or the area around the aircraft. */
+  const area = React.useMemo(() => (trip ? route : areaCenter ? areaAround(areaCenter, AREA_NM) : []), [trip, route, areaCenter]);
+  const [areaAirspaces, setAreaAirspaces] = React.useState<AirspaceView[] | null>(null);
+  React.useEffect(() => {
+    if (trip || area.length === 0) return;
+    let live = true;
+    fetchAirspacesAlong(area).then(list => { if (live) setAreaAirspaces(list); }, () => undefined);
+    return () => { live = false; };
+  }, [trip, area]);
+  const airspacesNow = trip ? airspaces : areaAirspaces;
+  const airspacesAt = trip ? airspacesFetchedAt : areaAirspaces ? fetchedAtOf(areaAirspaces) : null;
   const closeRef = React.useRef<() => void>(onClose);
   useWakeLock(started !== null);
 
@@ -199,15 +225,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     return () => { document.removeEventListener('keydown', key); document.body.style.overflow = overflow; };
   }, [sheet, onClose]);
 
-  // Every airfield along the route, kept for the emergency list.
+  // Every airfield along the route (or around the aircraft), kept for the emergency list.
   React.useEffect(() => {
+    if (area.length === 0) return;
     let live = true;
-    Promise.resolve().then(() => fetchAirportsAlong(route, 25))
+    Promise.resolve().then(() => fetchAirportsAlong(area, 25))
       .then(list => { if (live && list?.length) { setAirfields(list); setAirfieldsState('ok'); } else if (live) setAirfieldsState(s => (s === 'ok' ? s : 'error')); })
       // Offline after a reload: the list kept with the flight stands.
       .catch(() => { if (live) setAirfieldsState(s => (s === 'ok' ? s : 'error')); });
     return () => { live = false; };
-  }, [route]);
+  }, [area]);
 
   // The app's whole screen while flying: no status bar (the browser's full screen needs a tap, in begin).
   React.useEffect(() => {
@@ -231,24 +258,26 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
 
   // The demo flight: along the route at the cruise speed, climbing and descending at 500 ft/min.
   React.useEffect(() => {
-    if (started !== 'demo') return;
+    if (started !== 'demo' || !trip) return;
     const kt = cruiseKt > 40 ? cruiseKt : 100;
     const depFt = trip.departure.elevationFt ?? 0;
     const arrFt = trip.arrival.elevationFt ?? 0;
-    const totalNm = routeLengthNm(flown);
+    // Flown with standard-rate turns at the corners, not on the spot.
+    const path = roundedRoute(flown, turnRadiusNm(kt));
+    const totalNm = routeLengthNm(path);
     const t0 = Date.now();
     const tick = () => {
       const nm = ((Date.now() - t0) / 3_600_000) * DEMO_SPEEDUP * kt;
-      const p = positionAlong(flown, nm);
+      const p = positionAlong(path, nm);
       setFix({
         lat: p.lat, lon: p.lon, speedKt: p.done ? 0 : kt, trackDeg: p.trackDeg,
         altFt: demoAltitudeFt(nm, totalNm, kt, depFt, arrFt, cruiseAltFt), accuracyM: 5, at: Date.now(),
       });
     };
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [started, flown, cruiseKt, cruiseAltFt, trip.departure.elevationFt, trip.arrival.elevationFt]);
+  }, [started, flown, cruiseKt, cruiseAltFt, trip]);
 
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
@@ -303,8 +332,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     }
     labelsByZoom(map, container.current);
     const pts = flown.map(a => L.latLng(a.lat, a.lon));
-    L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(map);
-    L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
+    // Without a route the map starts over Sweden, and follows the aircraft once the GPS has it.
+    const startAt = pts[0] ?? L.latLng(fix?.lat ?? 62, fix?.lon ?? 16);
+    if (pts.length > 1) {
+      L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(map);
+      L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
+    }
     flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(flownLabels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
     obstacleLayer.current.addTo(map);
@@ -313,14 +346,15 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     vrpLayer.current.addTo(map);
     const trail = L.polyline(trailRef.current.map(p => [p.lat, p.lon] as [number, number]),
       { color: '#1e3a8a', weight: 3, opacity: 0.75, interactive: false }).addTo(map);
-    const glide = L.circle(pts[0], { radius: 0, color: '#16a34a', weight: 2, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
+    const glide = L.circle(startAt, { radius: 0, color: '#16a34a', weight: 2, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
     const direct = L.polyline([], { color: '#dc2626', weight: 4, dashArray: '10 8', interactive: false }).addTo(map);
-    const marker = L.marker(pts[0], {
+    const marker = L.marker(startAt, {
       icon: L.divIcon({ className: 'nav-ownship', iconSize: [32, 32], html: AIRPLANE_SVG }),
       keyboard: false, interactive: false, zIndexOffset: 1000,
     }).addTo(map);
     own.current = { marker, glide, direct, trail };
-    map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
+    if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
+    else map.setView(startAt, fix ? 10 : 6);
     map.on('dragstart', () => setFollow(false));
     mapRef.current = map;
     // The map's box changes when a page opens below it or the tablet turns: Leaflet must measure again.
@@ -333,7 +367,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const [nearVrps, setNearVrps] = React.useState<Vrp[]>(() => resumed?.nearVrps ?? []);
   React.useEffect(() => {
     let live = true;
-    Promise.resolve().then(() => reportingPointsNear(route)).then(list => { if (live && list.length) setNearVrps(list); }, () => undefined);
+    if (area.length === 0) return;
+    Promise.resolve().then(() => reportingPointsNear(area)).then(list => { if (live && list.length) setNearVrps(list); }, () => undefined);
     return () => { live = false; };
   }, [route]);
   const vrps = React.useMemo(() => {
@@ -346,7 +381,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const [showVrp, toggleVrp] = useShown(SHOW_VRP_KEY, true);
   // The AIP's IFR/GNSS fixes near the route.
   const [showFix, toggleFix] = useShown(SHOW_FIX_KEY, true);
-  const fixes = React.useMemo(() => fixesNear(route, VRP_CORRIDOR_NM), [route]);
+  const fixes = React.useMemo(() => fixesNear(area, VRP_CORRIDOR_NM), [area]);
   React.useEffect(() => {
     const layer = fixLayer.current;
     layer.clearLayers();
@@ -357,7 +392,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }, [fixes, showFix]);
   // The AIP's en-route radio navaids (VOR, DME) near the route, labelled with what to tune.
   const [showNavaid, toggleNavaid] = useShown(SHOW_NAVAID_KEY, true);
-  const navaids = React.useMemo(() => navaidsNear(route, NAVAID_RANGE_NM), [route]);
+  const navaids = React.useMemo(() => navaidsNear(area, NAVAID_RANGE_NM), [area]);
   React.useEffect(() => {
     const layer = navaidLayer.current;
     layer.clearLayers();
@@ -377,8 +412,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     return () => { live = false; };
   }, []);
   const routeObstacles = React.useMemo(
-    () => (obstacleData ? obstaclesAlong(obstacleData.obstacles, route, () => cruiseAltFt, OBSTACLE_RANGE_NM) : []),
-    [obstacleData, route, cruiseAltFt]);
+    () => (obstacleData ? obstaclesAlong(obstacleData.obstacles, area, () => cruiseAltFt, OBSTACLE_RANGE_NM) : []),
+    [obstacleData, area, cruiseAltFt]);
   React.useEffect(() => {
     const layer = obstacleLayer.current;
     layer.clearLayers();
@@ -415,7 +450,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // On start, the route's map is kept for flying without a connection.
   const [offline, setOffline] = React.useState<OfflineProgress | null>(null);
   React.useEffect(() => {
-    if (!started || status === undefined || !canKeepOffline()) return;
+    // Without a route there is nothing to know ahead: the map is online only.
+    if (!started || !trip || status === undefined || !canKeepOffline()) return;
     const urls: string[] = [];
     if (ownBasemap && status?.basemap) {
       const max = status.basemap.maxZoom;
@@ -430,21 +466,25 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     setOffline({ done: 0, total: urls.length, failed: 0 });
     keepOffline(urls, setOffline, abort.signal).then(setOffline, () => undefined);
     return () => abort.abort();
-  }, [started, status, ownBasemap, route]);
+  }, [started, trip, status, ownBasemap, route]);
 
   // Where everything is now.
-  const leg = fix ? activeLeg(flown, fix) : null;
-  const target = directTo ?? (leg ? flown[leg.index + 1] : flown[flown.length - 1]);
-  const targetLabel = directTo ? directTo.code : leg ? flownLabels[leg.index + 1] : flownLabels[flownLabels.length - 1];
-  const toTarget = fix ? bearingDistance(fix, target) : null;
-  const here = fix && airspaces ? airspacesHere(airspaces, fix, fix.altFt) : null;
+  const leg = fix && flown.length > 1 ? activeLeg(flown, fix) : null;
+  const target = directTo ?? (flown.length === 0 ? null : leg ? flown[leg.index + 1] : flown[flown.length - 1]);
+  const targetLabel = directTo ? directTo.code : flown.length === 0 ? 'none' : leg ? flownLabels[leg.index + 1] : flownLabels[flownLabels.length - 1];
+  const toTarget = fix && target ? bearingDistance(fix, target) : null;
+  const here = fix && airspacesNow ? airspacesHere(airspacesNow, fix, fix.altFt) : null;
   const sweden = fix ? swedenControlAt(fix.lat, fix.lon) : null;
   // The next controlled airspace within 10 NM, along the route or straight to the Direct-to field.
-  const routeCrossings = React.useMemo(() => crossingsAlong(flown, airspaces ?? []), [flown, airspaces]);
+  const routeCrossings = React.useMemo(() => crossingsAlong(flown, airspacesNow ?? []), [flown, airspacesNow]);
+  // Without a route: straight ahead on the track.
+  const ahead10 = fix && flown.length === 0 && fix.trackDeg != null
+    ? [{ code: 'here', lat: fix.lat, lon: fix.lon }, { code: 'ahead', ...pointAhead(fix, fix.trackDeg, NEXT_AIRSPACE_NM) }] : null;
   const insideIds = new Set((here?.inside ?? []).map(a => a.id));
-  const next = !fix || !airspaces ? null
-    : directTo ? nextAirspace(crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, directTo], airspaces), 0, fix.altFt, insideIds)
-      : leg ? nextAirspace(routeCrossings, leg.alongNm, fix.altFt, insideIds) : null;
+  const next = !fix || !airspacesNow ? null
+    : directTo ? nextAirspace(crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, directTo], airspacesNow), 0, fix.altFt, insideIds)
+      : ahead10 ? nextAirspace(crossingsAlong(ahead10, airspacesNow), 0, fix.altFt, insideIds)
+        : leg ? nextAirspace(routeCrossings, leg.alongNm, fix.altFt, insideIds) : null;
   const nearest = React.useMemo(() => (fix ? nearestAirfields(airfields, fix, fix.altFt, ratio, 8) : []), [fix, airfields, ratio]);
   const groundFt = nearest[0]?.airport.elevationFt ?? null;
   const glideNm = fix?.altFt != null && groundFt != null ? glideRangeNm(fix.altFt - groundFt, ratio) : null;
@@ -485,9 +525,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (mode === 'gps') {
       // A flight recorded in the last half hour (the page reloaded) carries on.
       trailRef.current = loadTrack();
-      saveNavSession({
-        trip, airspaces, airspacesFetchedAt, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, airfields, nearVrps, climb,
-      });
+      // A flight with a route carries on after a reload with what it loaded; without one it loads afresh.
+      if (trip) {
+        saveNavSession({
+          trip, airspaces, airspacesFetchedAt, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, airfields, nearVrps, climb,
+        });
+      }
       fullScreen(true);
     }
     setStarted(mode);
@@ -499,7 +542,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       <div className="fixed inset-0 z-[2000] flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 text-slate-100" role="dialog" aria-modal="true" aria-label="Navigation mode">
         <div className="max-w-lg space-y-4">
           <h2 className="text-xl font-semibold">Navigation mode <span className="rounded bg-sky-600 px-1.5 py-0.5 text-xs font-bold text-white">BETA</span></h2>
-          {resumed && (
+          {resumed && trip && (
             <p className="rounded-md border border-emerald-500 p-3 text-sm font-semibold">
               Your flight {trip.departure.code} → {trip.arrival.code} was still going when the page closed: carry on with GPS,
               its track and map kept.
@@ -529,18 +572,22 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           )}
           <p className="text-xs text-slate-400">
-            The route&apos;s map is saved when you start, for flying without a connection: start while you still have one.
-            Keep the app in front with the screen on.
+            {trip
+              ? <>The route&apos;s map is saved when you start, for flying without a connection: start while you still have one.</>
+              : <>No route planned: the airspace, airfields and obstacles around you load as you fly, so keep a connection.</>}
+            {' '}Keep the app in front with the screen on.
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={!canStart} className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
               onClick={() => begin('gps')}>
               {resumed ? 'Resume with GPS' : 'Start with GPS'}
             </button>
-            <button type="button" disabled={!canStart} className="rounded-md border border-slate-500 px-4 py-2 hover:bg-slate-800 disabled:opacity-40"
-              onClick={() => begin('demo')}>
-              Demo flight
-            </button>
+            {trip && (
+              <button type="button" disabled={!canStart} className="rounded-md border border-slate-500 px-4 py-2 hover:bg-slate-800 disabled:opacity-40"
+                onClick={() => begin('demo')}>
+                Demo flight
+              </button>
+            )}
             <button type="button" className="rounded-md px-4 py-2 text-slate-300 hover:bg-slate-800" onClick={onClose}>Cancel</button>
           </div>
         </div>
@@ -592,7 +639,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         <div className="order-2 space-y-px text-sm" role="status" aria-label="Airspace here">
           {!fix ? (
             <div className="bg-slate-800 px-3 py-1.5">{gpsError ?? (started === 'demo' ? 'Starting the demo…' : 'Waiting for GPS…')}</div>
-          ) : airspaces == null ? (
+          ) : airspacesNow == null ? (
             <div className="bg-slate-800 px-3 py-1.5">Airspace not loaded.</div>
           ) : (
             <>
@@ -619,12 +666,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             Above: {here.above.slice(0, 2).map(a => `${a.name} from ${a.lower.label}`).join(' · ')}
             </div>
           )}
-          {airspaces != null && airspacesFetchedAt != null && (
-            <div className={`px-3 py-0.5 text-[11px] ${dataAgeDays(airspacesFetchedAt) > AIRAC_DAYS ? 'bg-amber-600 font-semibold text-white' : 'bg-slate-900 text-slate-400'}`}>
-              {dataAgeDays(airspacesFetchedAt) > AIRAC_DAYS
-                ? `Airspace data is ${dataAgeDays(airspacesFetchedAt)} days old: update it with a connection. `
+          {airspacesNow != null && airspacesAt != null && (
+            <div className={`px-3 py-0.5 text-[11px] ${dataAgeDays(airspacesAt) > AIRAC_DAYS ? 'bg-amber-600 font-semibold text-white' : 'bg-slate-900 text-slate-400'}`}>
+              {dataAgeDays(airspacesAt) > AIRAC_DAYS
+                ? `Airspace data is ${dataAgeDays(airspacesAt)} days old: update it with a connection. `
                 : 'Airspace: openAIP (volunteers), '}
-            downloaded {new Date(airspacesFetchedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. No NOTAMs: check them.
+            downloaded {new Date(airspacesAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. No NOTAMs: check them.
             </div>
           )}
         </div>
@@ -649,13 +696,15 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         {!sheet && <div className="order-4 hidden lg:landscape:block lg:landscape:flex-1"/>}
         {sheet === 'freq' && (
           <Sheet title="Frequencies" onClose={() => setSheet(null)}>
-            <FrequencyList route={flown} airspaces={airspaces} swedenControl={swedenControl} alongNm={leg?.alongNm ?? null}/>
+            <FrequencyList route={trip ? flown : (ahead10 ?? [])} airspaces={airspacesNow} swedenControl={swedenControl}
+              alongNm={trip ? leg?.alongNm ?? null : 0}/>
           </Sheet>
         )}
         {sheet === 'end' && (
           <Sheet title="End flight" onClose={() => setSheet(null)}>
             <EndFlight points={trailRef.current} signedIn={signedIn}
-              defaultName={trackName(trip.departure.code, trip.arrival.code, trailRef.current[0]?.at ?? Date.now())}
+              defaultName={trip ? trackName(trip.departure.code, trip.arrival.code, trailRef.current[0]?.at ?? Date.now())
+                : trackName(nearest[0]?.airport.code ?? 'GPS', 'free flight', trailRef.current[0]?.at ?? Date.now())}
               onDone={() => { clearTrack(); clearNavSession(); exit(); }} onKeepFlying={() => setSheet(null)}/>
           </Sheet>
         )}
@@ -739,7 +788,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           </button>
           <button type="button" className="rounded-md bg-slate-800 py-3 font-semibold hover:bg-slate-700 disabled:opacity-50"
             disabled={!directTo} onClick={() => setDirectTo(null)}>
-            {directTo ? 'Back to route' : 'On route'}
+            {directTo ? (trip ? 'Back to route' : 'Cancel direct') : trip ? 'On route' : 'No route'}
           </button>
           <button type="button" className="flex items-center justify-center gap-2 rounded-md bg-red-700 py-3 font-bold hover:bg-red-600"
             onClick={() => setSheet(sheet === 'emergency' ? null : 'emergency')}>
