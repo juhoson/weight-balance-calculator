@@ -199,3 +199,14 @@ it('hovering shows the weather only over the wind strip, and moving down onto th
   enter(columns(container)[0]);
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+it('draws the cloud a METAR reports at its station, and the path on down from circuit height to the field', () => {
+  const profile = { topFt: 3000, reachesCruise: true, tocNm: 5, todNm: 40, path: [{ nm: 0, ft: 100 }, { nm: 5, ft: 3000 }, { nm: 40, ft: 3000 }, { nm: 48, ft: 1100 }] };
+  const { container } = render(<RouteProfileChart legs={legs()} altitudeFt={3000}
+    profile={profile as unknown as Parameters<typeof RouteProfileChart>[0]['profile']} arrivalFt={100}
+    reported={[{ nm: 0, station: 'ESSX', elevationFt: 100, clouds: [{ cover: 'OVC', baseFt: 500, type: null }] }]}/>);
+  expect(screen.getByText('OVC005 ESSX')).toBeInTheDocument();
+  expect(screen.getByText('Cloud reported (METAR)')).toBeInTheDocument();
+  // Circuit height to the runway: a dashed line on to the end of the route at the field's elevation.
+  expect(container.querySelector('path[stroke-dasharray="4 3"]')).not.toBeNull();
+});

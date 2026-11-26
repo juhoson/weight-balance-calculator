@@ -9,13 +9,17 @@ import {
 } from '../../lib/useEnrouteForecast';
 import { type AltitudeHold, type RoutePlan, warningsOf, withStretchAltitude } from '../../lib/enroute';
 import AltitudeChanges from './AltitudeChanges';
-import RouteProfileChart from './RouteProfileChart';
+import RouteProfileChart, { type ReportedCloud } from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
 import type { AvoidHandler } from '../../lib/avoidAirspace';
 import type { Suggestions } from '../../lib/suggestAltitude';
 import AltitudeSuggestions from './AltitudeSuggestions';
 
 interface EnroutePanelProps {
+  /** The cloud the METARs along the route report, for the profile. */
+  reported?: ReportedCloud[];
+  /** The arrival field's elevation, for the profile's landing. */
+  arrivalFt?: number | null;
   altitudeFt: number;
   onAltitudeChange: (ft: number) => void;
   /** datetime-local value; empty = now. */
@@ -57,7 +61,7 @@ export function localInputValue(d: Date): string {
 
 /** Cruise altitude and departure time; the route flown in the forecast as a profile and a nav log. */
 const EnroutePanel: React.FC<EnroutePanelProps> = ({
-  altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
+  reported, arrivalFt, altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
   onClimbRatesChange, airspaces, avoid, suggestions = null, suggestMaxFt, onSuggestMaxChange, holds = [], onHoldsChange,
 }) => {
   const now = new Date();
@@ -149,6 +153,7 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
           )}
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
           <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}
+            reported={reported} arrivalFt={arrivalFt}
             onLegAltitude={onHoldsChange && ((i, to) => {
               const segs = plan.legs[i].segments;
               const last = segs[segs.length - 1].segment;

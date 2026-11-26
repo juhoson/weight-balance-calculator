@@ -27,6 +27,8 @@ import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../li
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
 import ObstaclePanel from './route/ObstaclePanel';
+import type { ReportedCloud } from './route/RouteProfileChart';
+import { decodeMetar } from '../lib/metarTaf';
 import AirspacePanel from './route/AirspacePanel';
 import { altitudeAlongPoints, checkCrossings, type Crossing, crossingsAlong, pointsOf, stillAirProfile } from '../lib/airspace';
 import { avoidOptions, type AvoidHandler, crossingContext, withEffects } from '../lib/avoidAirspace';
@@ -857,6 +859,27 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
     }
     return { checks: checkPath(trip, crossings, path), basis, path };
   }, [trip, crossings, windPlan, vertical, cruiseKt, tasKt, altitudeFt, activeHolds, climbRates.climbFpm, climbRates.descentFpm]);
+  /**
+   * The cloud the route's airports' own METARs report (a station at the field), for the profile:
+   * the forecast model often misses a low stratus deck the METAR has.
+   */
+  const reportedClouds = React.useMemo<ReportedCloud[]>(() => {
+    if (!trip) return [];
+    const fields = [trip.departure, ...(trip.waypoints ?? []), trip.arrival];
+    const out: ReportedCloud[] = [];
+    for (const pt of trip.points ?? []) {
+      const field = fields.find(f => f.code === pt.airportCode);
+      if (!pt.metar || !pt.station || !field || pt.station.distanceNm > 5) continue;
+      const clouds = decodeMetar(pt.metar.raw).clouds ?? [];
+      if (!clouds.length) continue;
+      // A field without its own METAR shares a neighbour's: one band over both.
+      const same = out.find(r => r.station === pt.station?.code);
+      if (same) same.nmTo = Math.max(same.nmTo ?? same.nm, pt.alongTrackNm);
+      else out.push({ nm: pt.alongTrackNm, station: pt.station.code, elevationFt: field.elevationFt ?? 0, clouds });
+    }
+    return out;
+  }, [trip]);
+
   // Obstacles against the same planned path as the airspace check (cruise altitude level without one).
   const routePoints = React.useMemo(() => (trip ? [trip.departure, ...(trip.waypoints ?? []), trip.arrival] : []), [trip]);
   const obstaclePath = React.useMemo<PathPoint[]>(() => airspaceCheck?.path
@@ -1024,6 +1047,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             />
             {trip && cruiseKt > 0 && (
               <EnroutePanel
+                reported={reportedClouds}
+                arrivalFt={trip.arrival.elevationFt ?? null}
                 altitudeFt={altitudeFt}
                 onAltitudeChange={setAltitudeFt}
                 departure={departure}

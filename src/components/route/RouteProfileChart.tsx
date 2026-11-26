@@ -8,6 +8,7 @@ import { type AvoidHandler, canAvoid, holdFor } from '../../lib/avoidAirspace';
 import AvoidAirspace from './AvoidAirspace';
 import { isCruisingLevel } from '../../lib/suggestAltitude';
 import { vfrLevel } from '../../lib/avoidAirspace';
+import type { CloudLayer } from '../../lib/metarTaf';
 
 interface RouteProfileChartProps {
   legs: LegPlan[];
@@ -20,7 +21,28 @@ interface RouteProfileChartProps {
   avoid?: AvoidHandler;
   /** Makes each leg's altitude a handle to drag (or step with the arrow keys). */
   onLegAltitude?: (leg: number, ft: number) => void;
+  /** The cloud the METARs along the route report, drawn where each station is (the model often misses low stratus). */
+  reported?: ReportedCloud[];
+  /** The arrival field's elevation: the path goes on from circuit height down to it. */
+  arrivalFt?: number | null;
 }
+
+/** A METAR's cloud at its place along the route. */
+export interface ReportedCloud {
+  /** Along the route, NM; to nmTo where the same station reports for several points (a field without its own). */
+  nm: number;
+  nmTo?: number;
+  station: string;
+  /** The station's elevation (cloud bases are above it), ft. */
+  elevationFt: number;
+  clouds: CloudLayer[];
+}
+
+/** How dark a reported layer is drawn, and how thick (ft; a METAR gives only the base). */
+const REPORTED_STYLE: Record<CloudLayer['cover'], { opacity: number; depthFt: number }> = {
+  FEW: { opacity: 0.25, depthFt: 300 }, SCT: { opacity: 0.45, depthFt: 500 }, BKN: { opacity: 0.65, depthFt: 800 },
+  OVC: { opacity: 0.85, depthFt: 1000 }, VV: { opacity: 0.9, depthFt: 600 },
+};
 
 /** The highest altitude a leg can be dragged to. */
 const LEG_MAX_FT = 18000;
@@ -59,7 +81,7 @@ type Active = { kind: 'segment'; i: number; hover?: boolean } | { kind: 'airspac
  * segment, or hover the wind strip along the top, for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null }) => {
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<Active | null>(null);
   const [dragging, setDragging] = React.useState<{ leg: number; ft: number } | null>(null);
@@ -151,7 +173,10 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
             ? profile.path.length > 4 ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft with altitude changes`
               : profile.reachesCruise ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft` : `Flight path, highest ≈ ${(Math.round(profile.topFt / 100) * 100).toLocaleString('en')} ft`
             : `Cruise ${altitudeFt.toLocaleString('en')} ft`}</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud (darker = more)</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-slate-400/70 dark:bg-slate-300/60"/> Cloud, forecast (darker = more)</span>
+        {reported.some(r => r.clouds.length) && (
+          <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-slate-700 bg-slate-600/70 dark:bg-slate-200/70"/> Cloud reported (METAR)</span>
+        )}
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
         <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
         {onLegAltitude && <span>Drag a leg&apos;s altitude up or down to change it there (amber: not a VFR cruising level for its course)</span>}
@@ -185,6 +210,29 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
                 if (below >= topFt) return null;
                 return <rect key={`${i}-${j}`} x={x0} width={Math.max(0, x1 - x0)} y={y(above)} height={Math.max(0, y(below) - y(above))}
                   fillOpacity={(l.cloudCover / 100) * 0.75}/>;
+              });
+            })}
+          </g>
+
+          {/* Reported cloud: each METAR's layers around its station, its base above the station. */}
+          <g aria-hidden="true">
+            {reported.flatMap((r, i) => {
+              const half = Math.min(5, Math.max(1.5, totalNm * 0.12));
+              const x0 = x(Math.max(0, r.nm - half)), x1 = x(Math.min(totalNm, (r.nmTo ?? r.nm) + half));
+              return r.clouds.filter(c => c.baseFt != null).map((c, j) => {
+                const base = r.elevationFt + (c.baseFt as number);
+                if (base >= topFt) return null;
+                const style = REPORTED_STYLE[c.cover];
+                const label = `${c.cover}${String(Math.round((c.baseFt as number) / 100)).padStart(3, '0')}${c.type ?? ''}`;
+                return (
+                  <g key={`r${i}-${j}`}>
+                    <rect x={x0} width={Math.max(0, x1 - x0)} y={y(base + style.depthFt)} height={Math.max(2, y(base) - y(base + style.depthFt))}
+                      className="fill-slate-600 stroke-slate-700 dark:fill-slate-200 dark:stroke-slate-100" fillOpacity={style.opacity} strokeWidth={1}/>
+                    {x1 - x0 > 40 && (
+                      <text x={x0 + 3} y={y(base) - 3} className="fill-foreground text-[9px] font-semibold">{label} {r.station}</text>
+                    )}
+                  </g>
+                );
               });
             })}
           </g>
@@ -224,6 +272,17 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
             <g>
               <path fill="none" className="stroke-primary" strokeWidth={2} strokeLinejoin="round"
                 d={profile.path.map((p, i) => `${i ? 'L' : 'M'}${x(p.nm)},${y(p.ft)}`).join('')}/>
+              {/* From circuit height down to the field: the circuit and landing. */}
+              {arrivalFt != null && profile.path.length > 0 && profile.path[profile.path.length - 1].ft > arrivalFt && (() => {
+                const end = profile.path[profile.path.length - 1];
+                return (
+                  <g>
+                    <path fill="none" className="stroke-primary" strokeWidth={2} strokeDasharray="4 3"
+                      d={`M${x(end.nm)},${y(end.ft)}L${x(totalNm)},${y(arrivalFt)}`}/>
+                    <line x1={x(totalNm) - 10} x2={x(totalNm)} y1={y(arrivalFt)} y2={y(arrivalFt)} className="stroke-foreground" strokeWidth={3}/>
+                  </g>
+                );
+              })()}
               {(x(profile.todNm) - x(profile.tocNm) < 40
                 // Too close to label apart (a short hop): one point.
                 ? [{ nm: (profile.tocNm + profile.todNm) / 2, ft: profile.topFt, label: 'TOC/TOD', anchor: 'middle' as const, dx: 0 }]
