@@ -27,6 +27,20 @@ export interface Fix extends At {
   accuracyM: number | null;
   /** ms since the epoch. */
   at: number;
+  /** Climb (+) or descent (-), ft/min, smoothed over the last few fixes; null until there are two. */
+  vsFpm?: number | null;
+}
+
+/** Each new fix's climb rate counts this much in the smoothed one (GPS altitude is noisy). */
+const VS_WEIGHT = 0.3;
+
+/** The smoothed climb rate from the last fix to this altitude. */
+export function verticalSpeed(prev: Fix | null, altFt: number | null, at: number): number | null {
+  if (!prev || prev.altFt == null || altFt == null) return null;
+  const min = (at - prev.at) / 60_000;
+  if (!(min > 0)) return prev.vsFpm ?? null;
+  const raw = (altFt - prev.altFt) / min;
+  return prev.vsFpm == null ? raw : prev.vsFpm * (1 - VS_WEIGHT) + raw * VS_WEIGHT;
 }
 
 /** Below this the GPS's own track is noise. */
@@ -44,11 +58,12 @@ export function fixFrom(c: Pick<GeolocationCoordinates, 'latitude' | 'longitude'
   if (c.heading != null && Number.isFinite(c.heading) && (c.speed ?? 0) >= MOVING_MS) trackDeg = c.heading;
   else if (prev && movedNm * 1852 > 25) trackDeg = courseDeg(prev.lat, prev.lon, lat, lon);
   else if (prev && (speedKt ?? 0) >= MOVING_MS * MS_TO_KT) trackDeg = prev.trackDeg;
+  const altFt = c.altitude != null && Number.isFinite(c.altitude) ? c.altitude * M_TO_FT : null;
   return {
-    lat, lon, speedKt, trackDeg,
-    altFt: c.altitude != null && Number.isFinite(c.altitude) ? c.altitude * M_TO_FT : null,
+    lat, lon, speedKt, trackDeg, altFt,
     accuracyM: Number.isFinite(c.accuracy) ? c.accuracy : null,
     at,
+    vsFpm: verticalSpeed(prev, altFt, at),
   };
 }
 

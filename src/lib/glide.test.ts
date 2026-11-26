@@ -46,3 +46,22 @@ it('says which way to turn', () => {
   expect(turnTo(10, 355)).toBe('left');
   expect(turnTo(165, 168)).toBe('on');
 });
+
+it('warns of rising ground ahead and of flying low away from an airfield, not near one', async () => {
+  const { terrainAlert, terrainGridFor: grid } = await import('./glide');
+  const g = grid([{ lat: 60, lon: 15 }], 6, 0.25);
+  if (!g) throw new Error('no grid');
+  // Ground 800 ft, with a 1,500 ft hill 1–1.5 NM east.
+  const ft = Array.from({ length: g.rows * g.cols }, (_, i) => {
+    const lon = g.west + (i % g.cols) * g.dLon;
+    return lon > 15.033 && lon < 15.05 ? 1500 : 800;
+  });
+  const terrain = { ...g, ft };
+  const at = { lat: 60, lon: 15 };
+  expect(terrainAlert(at, 90, 1700, 100, 0, terrain, [])).toMatchObject({ kind: 'ahead' });
+  expect(terrainAlert(at, 270, 1700, 100, 0, terrain, [])).toBeNull(); // the other way: 900 ft clear
+  expect(terrainAlert(at, 270, 1200, 100, -300, terrain, [])).toMatchObject({ kind: 'low', aglFt: 400 });
+  expect(terrainAlert(at, 270, 1200, 100, 500, terrain, [])).toBeNull(); // climbing away
+  expect(terrainAlert(at, 270, 1200, 100, -300, terrain, [{ lat: 60.02, lon: 15 }])).toBeNull(); // 1.2 NM from a field
+  expect(terrainAlert(at, 90, 1700, 100, 0, null, [])).toBeNull();
+});

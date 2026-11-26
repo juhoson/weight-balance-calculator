@@ -33,7 +33,7 @@ interface ObstacleFile extends AipDates {
 export const OBSTACLE_CORRIDOR_NM = 5;
 /** Less clearance than this over an obstacle's top is a warning (SERA's 500 ft, and more over a congested area). */
 export const OBSTACLE_MARGIN_FT = 500;
-/** In the navigation mode, an obstacle this far ahead or nearer is called out. */
+/** In the navigation mode, an obstacle this far ahead or nearer is called out (further at speed: a minute and a half). */
 export const OBSTACLE_AHEAD_NM = 2;
 /** ... within this many degrees either side of the track. */
 const AHEAD_CONE_DEG = 30;
@@ -110,16 +110,17 @@ export interface ObstacleAhead extends Obstacle {
  * The nearest obstacle the aircraft is heading for: within OBSTACLE_AHEAD_NM, inside the cone
  * ahead of the track, with less than OBSTACLE_MARGIN_FT clearance at the altitude now.
  */
-export function obstacleAhead(all: Obstacle[], at: At, trackDeg: number | null, altFt: number | null): ObstacleAhead | null {
+export function obstacleAhead(all: Obstacle[], at: At, trackDeg: number | null, altFt: number | null,
+  aheadNm = OBSTACLE_AHEAD_NM): ObstacleAhead | null {
   if (altFt == null || trackDeg == null) return null;
-  const pad = OBSTACLE_AHEAD_NM / 60, padLon = pad / Math.cos((at.lat * Math.PI) / 180);
+  const pad = aheadNm / 60, padLon = pad / Math.cos((at.lat * Math.PI) / 180);
   let best: ObstacleAhead | null = null;
   for (const o of all) {
     if (Math.abs(o.lat - at.lat) > pad || Math.abs(o.lon - at.lon) > padLon) continue;
     const clearanceFt = altFt - o.topFt;
     if (clearanceFt >= OBSTACLE_MARGIN_FT) continue;
     const { nm, deg } = bearingDistance(at, o);
-    if (nm > OBSTACLE_AHEAD_NM) continue;
+    if (nm > aheadNm) continue;
     const off = Math.abs(((deg - trackDeg + 540) % 360) - 180);
     // Right next to it, any direction counts.
     if (off > AHEAD_CONE_DEG && nm > 0.3) continue;

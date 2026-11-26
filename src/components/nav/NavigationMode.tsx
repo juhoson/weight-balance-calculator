@@ -25,14 +25,14 @@ import { GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChe
 import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/native';
 import { cachedTileLayer } from '../../lib/tileCache';
 import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../lib/departure';
-import { loadObstacles, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
+import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
   areaAround, demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, NEXT_AIRSPACE_NM, nextAirspace, pad3, pointAhead, positionAlong,
-  roundedRoute, routeLengthNm, turnRadiusNm,
+  roundedRoute, routeLengthNm, turnRadiusNm, verticalSpeed,
 } from '../../lib/navigation';
 import { distanceNm, type Forecast, forecastAt, fromOf, speedOf, type Wind, windNow } from '../../lib/openMeteo';
-import { fetchTerrain, glideArea, type GlideInput, headingFor, reachesField, type TerrainGrid, terrainGridFor, turnTo } from '../../lib/glide';
+import { fetchTerrain, glideArea, type GlideInput, headingFor, reachesField, terrainAlert, type TerrainGrid, terrainGridFor, turnTo } from '../../lib/glide';
 
 export interface NavigationModeProps {
   /** The planned flight; null flies without a route (GPS only): everything around the aircraft instead. */
@@ -299,10 +299,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const tick = () => {
       const nm = ((Date.now() - t0) / 3_600_000) * DEMO_SPEEDUP * kt;
       const p = positionAlong(path, nm);
-      setFix({
-        lat: p.lat, lon: p.lon, speedKt: p.done ? 0 : kt, trackDeg: p.trackDeg,
-        altFt: demoAltitudeFt(nm, totalNm, kt, depFt, arrFt, cruiseAltFt), accuracyM: 5, at: Date.now(),
-      });
+      const altFt = demoAltitudeFt(nm, totalNm, kt, depFt, arrFt, cruiseAltFt);
+      const at = Date.now();
+      setFix(prev => ({
+        lat: p.lat, lon: p.lon, speedKt: p.done ? 0 : kt, trackDeg: p.trackDeg, altFt, accuracyM: 5, at, vsFpm: verticalSpeed(prev, altFt, at),
+      }));
     };
     tick();
     const id = setInterval(tick, 500);
@@ -458,7 +459,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }, [routeObstacles, showObstacle, obstacleData]);
   // Whatever the layer shows: the one ahead is always called out.
   const ahead = React.useMemo(
-    () => (fix && obstacleData ? obstacleAhead(obstacleData.obstacles, fix, fix.trackDeg, fix.altFt) : null),
+    () => (fix && obstacleData
+      ? obstacleAhead(obstacleData.obstacles, fix, fix.trackDeg, fix.altFt, Math.max(OBSTACLE_AHEAD_NM, ((fix.speedKt ?? 0) * 1.5) / 60))
+      : null),
     [fix, obstacleData]);
   const aipStale = (showFix && fixes.length > 0 && fixesOutOfDate()) ? fixesAiracText()
     : (showNavaid && navaids.length > 0 && navaidsOutOfDate()) ? navaidsAiracText() : null;
@@ -534,6 +537,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     ? nearestStill.map(n => ({ ...n, reachable: reachesField(glideIn, n.airport, n.nm, n.deg, ARRIVAL_MARGIN_FT) }))
     : nearestStill), [nearestStill, glideIn]);
   const glideNm = fix?.altFt != null && groundFt != null ? glideRangeNm(fix.altFt - groundFt, ratio) : null;
+  // Too close to the ground away from an airfield, or rising ground ahead (with the terrain loaded).
+  const terrainNow = React.useMemo(
+    () => (fix ? terrainAlert(fix, fix.trackDeg, fix.altFt, fix.speedKt, fix.vsFpm ?? null, terrain, airfields) : null),
+    [fix, terrain, airfields]);
 
   React.useEffect(() => {
     const map = mapRef.current, o = own.current;
@@ -622,6 +629,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
               ? <>The route&apos;s map is saved when you start, for flying without a connection: start while you still have one.</>
               : <>No route planned: the airspace, airfields and obstacles around you load as you fly, so keep a connection.</>}
             {' '}Keep the app in front with the screen on.
+          </p>
+          <p className="text-xs text-slate-400">
+            Terrain and obstacle warnings come from GPS altitude, a 90 m elevation model and the AIP&apos;s obstacles of 100 m or more
+            (not complete): they can be late or missing. Keep a lookout and your own margins.
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={!canStart} className="rounded-md bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
@@ -735,6 +746,25 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           );
         })()}
+        {terrainNow && (
+          <div role="alert" aria-label="Terrain" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-red-700 px-3 py-1.5 font-semibold text-white">
+            <TriangleAlert className="h-4 w-4 self-center"/>
+            {terrainNow.kind === 'ahead' ? (
+              <>
+                <span>TERRAIN AHEAD {nmText(terrainNow.nm)} NM</span>
+                <span className="font-normal tabular-nums">
+                  ground {ft(terrainNow.groundFt)} ft, {terrainNow.clearFt >= 0 ? `${ft(terrainNow.clearFt)} ft below your path` : `${ft(-terrainNow.clearFt)} ft above it`}
+                </span>
+                <span className="ml-auto">CLIMB OR TURN</span>
+              </>
+            ) : (
+              <>
+                <span>LOW: {ft(Math.max(0, terrainNow.aglFt))} ft above the ground</span>
+                <span className="ml-auto">CLIMB</span>
+              </>
+            )}
+          </div>
+        )}
         {ahead && (
           <div role="alert" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-red-700 px-3 py-1.5 font-semibold text-white">
             <TriangleAlert className="h-4 w-4 self-center"/>

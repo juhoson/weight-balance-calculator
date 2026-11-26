@@ -141,3 +141,11 @@ it('covers the area around a point with a zigzag 10 NM apart', () => {
   expect(pts).toHaveLength(12);
   expect(Math.max(...pts.map(p => p.lat)) - 60).toBeCloseTo(25 / 60, 3);
 });
+
+it('smooths the climb rate over the fixes', async () => {
+  const { verticalSpeed } = await import('./navigation');
+  const prev = { lat: 60, lon: 15, speedKt: 90, trackDeg: 0, altFt: 2000, accuracyM: 5, at: 0, vsFpm: -500 };
+  expect(verticalSpeed(null, 1000, 1000)).toBeNull();
+  expect(verticalSpeed({ ...prev, vsFpm: null }, 1990, 1000)).toBeCloseTo(-600, 5);
+  expect(verticalSpeed(prev, 1990, 1000)).toBeCloseTo(-500 * 0.7 + -600 * 0.3, 5);
+});

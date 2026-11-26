@@ -4,6 +4,7 @@
  * the heading to fly to an airfield. Wind as lib/openMeteo's Wind: the vector the air moves along.
  */
 import type { Wind } from './openMeteo';
+import { distanceNm } from './openMeteo';
 import { pointAhead } from './navigation';
 
 type At = { lat: number; lon: number };
@@ -161,4 +162,42 @@ export function turnTo(trackNowDeg: number | null, wantedDeg: number): 'left' | 
   if (trackNowDeg == null) return 'on';
   const diff = ((wantedDeg - trackNowDeg + 540) % 360) - 180;
   return Math.abs(diff) <= 10 ? 'on' : diff > 0 ? 'right' : 'left';
+}
+
+/** Lower than this over the ground, away from an airfield, is a warning. */
+export const LOW_AGL_FT = 500;
+/** Within this of an airfield, low is expected (arriving, departing): no terrain warnings. */
+export const NEAR_FIELD_NM = 3;
+/** Ground ahead less than this below the path flown now is a warning. */
+export const AHEAD_CLEAR_FT = 300;
+
+export type TerrainAlert =
+  | { kind: 'ahead'; nm: number; groundFt: number; clearFt: number }
+  | { kind: 'low'; aglFt: number };
+
+/**
+ * The terrain warning now: ground rising within about a minute ahead on the track to less than
+ * AHEAD_CLEAR_FT below the path (descending as now), or the aircraft under LOW_AGL_FT over the
+ * ground and not climbing. Nothing near an airfield, or without terrain or an altitude.
+ */
+export function terrainAlert(at: At, trackDeg: number | null, altFt: number | null, gsKt: number | null, vsFpm: number | null,
+  terrain: TerrainGrid | null, fields: At[]): TerrainAlert | null {
+  if (altFt == null || !terrain) return null;
+  if (fields.some(f => distanceNm(at.lat, at.lon, f.lat, f.lon) <= NEAR_FIELD_NM)) return null;
+  const here = terrainAt(terrain, at);
+  if (trackDeg != null && gsKt != null && gsKt > 20) {
+    const look = Math.min(3, Math.max(1, gsKt / 60));
+    for (let d = STEP_NM; d <= look + 1e-9; d += STEP_NM) {
+      const groundFt = terrainAt(terrain, pointAhead(at, trackDeg, d));
+      if (groundFt == null) continue;
+      const pathFt = altFt + Math.min(0, vsFpm ?? 0) * ((d / gsKt) * 60);
+      // Rising ground (flat ground is "low", below), or a path that meets the ground.
+      const rising = here == null || groundFt >= here + 100;
+      if ((rising && pathFt - groundFt < AHEAD_CLEAR_FT) || pathFt <= groundFt) {
+        return { kind: 'ahead', nm: d, groundFt, clearFt: pathFt - groundFt };
+      }
+    }
+  }
+  if (here != null && altFt - here < LOW_AGL_FT && (vsFpm == null || vsFpm <= 100)) return { kind: 'low', aglFt: altFt - here };
+  return null;
 }
