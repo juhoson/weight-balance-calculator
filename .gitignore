@@ -53,7 +53,6 @@ out/
 /backups
 
 # Private documents kept next to the project; never commit or publish them.
-/public/Brandflyget 2024.xlsm
-/public/OH-WOW-Weighing-Report.pdf
-/public/POH TB9.pdf
 /public/images/319-Current-Tasting-and-Food-Menu-1.pdf
+# Reference documents (POH, weighing reports): kept here, out of public/ so they are not in the app builds.
+/reference-docs/
