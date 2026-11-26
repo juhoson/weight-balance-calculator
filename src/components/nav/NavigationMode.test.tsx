@@ -75,7 +75,8 @@ test('a VFR navigation aid: the terms are accepted once, with the account', asyn
   fireEvent.click(screen.getByLabelText('I understand and accept this'));
   fireEvent.click(start);
   expect(acceptNavTerms).toHaveBeenCalledWith(1);
-  expect(await screen.findByText('Next ESSB')).toBeInTheDocument();
+  // First out on the runway heading to 700 ft, then on to ESSB.
+  expect(await screen.findByText(/^Next RWY \d+ · 700 ft$/)).toBeInTheDocument();
   unmount();
   // Accepted on this device even before the account has it (no connection): not asked again here.
   await open();
@@ -109,7 +110,7 @@ test('the demo flight shows speed, track, the next point and the airspace it is 
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('DEMO FLIGHT (4× speed)')).toBeInTheDocument();
   expect(screen.getByText('110')).toBeInTheDocument(); // GS
-  expect(screen.getByText('Next ESSB')).toBeInTheDocument();
+  expect(screen.getByText(/^Next RWY \d+ · 700 ft$/)).toBeInTheDocument(); // the climb-out first
   const here = screen.getByRole('status', { name: 'Airspace here' });
   expect(within(here).getByText('VÄSTERÅS CTR')).toBeInTheDocument();
   expect(within(here).getByText('130.605 VÄSTERÅS TOWER')).toBeInTheDocument();

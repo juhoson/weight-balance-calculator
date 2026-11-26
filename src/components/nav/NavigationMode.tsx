@@ -23,6 +23,7 @@ import type { RoutePosition } from '../../lib/openMeteo';
 import { GENERIC_EMERGENCY_CHECKLIST, MAYDAY_CALL } from '../../lib/emergencyChecklist';
 import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/native';
 import { cachedTileLayer } from '../../lib/tileCache';
+import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../lib/departure';
 import { loadObstacles, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
@@ -41,6 +42,8 @@ export interface NavigationModeProps {
   /** For the demo flight. */
   cruiseKt: number;
   cruiseAltFt: number;
+  /** The aircraft's climb (ft/min) at Vy (kt), for the climb-out on the runway heading. */
+  climb?: { fpm: number; kt: number } | null;
   /** Signed in: a flight flown with GPS can be saved to the account when it ends. */
   signedIn?: boolean;
   /** A GPS flight in progress before the page reloaded: offered to carry on, with what it had loaded. */
@@ -161,13 +164,20 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, signedIn = false, resumed, onClose,
+  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, signedIn = false, resumed, onClose,
 }) => {
   const { user } = useAuth();
   const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
   const [agreed, setAgreed] = React.useState(false);
   const route = React.useMemo(() => [trip.departure, ...(trip.waypoints ?? []), trip.arrival], [trip]);
   const labels = React.useMemo(() => routeLabels(route.map(a => a.code)), [route]);
+  // The route as flown: out on the runway heading to 700 ft first, then on course.
+  const climbOut = React.useMemo(() => departureClimb(trip.departure,
+    trip.points?.find(p => p.role === 'DEPARTURE')?.metar ?? null, route[1] ?? trip.arrival, climb), [trip, route, climb]);
+  const flown = React.useMemo(() => (climbOut
+    ? [route[0], { ...route[0], code: departureClimbLabel(climbOut), name: departureClimbLabel(climbOut), lat: climbOut.lat, lon: climbOut.lon, type: 'point' }, ...route.slice(1)]
+    : route), [route, climbOut]);
+  const flownLabels = React.useMemo(() => (climbOut ? [labels[0], `RWY ${climbOut.runway} · ${DEPARTURE_TURN_FT} ft`, ...labels.slice(1)] : labels), [labels, climbOut]);
   const [started, setStarted] = React.useState<null | 'gps' | 'demo'>(null);
   const [fix, setFix] = React.useState<Fix | null>(null);
   const [gpsError, setGpsError] = React.useState<string | null>(null);
@@ -225,11 +235,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const kt = cruiseKt > 40 ? cruiseKt : 100;
     const depFt = trip.departure.elevationFt ?? 0;
     const arrFt = trip.arrival.elevationFt ?? 0;
-    const totalNm = routeLengthNm(route);
+    const totalNm = routeLengthNm(flown);
     const t0 = Date.now();
     const tick = () => {
       const nm = ((Date.now() - t0) / 3_600_000) * DEMO_SPEEDUP * kt;
-      const p = positionAlong(route, nm);
+      const p = positionAlong(flown, nm);
       setFix({
         lat: p.lat, lon: p.lon, speedKt: p.done ? 0 : kt, trackDeg: p.trackDeg,
         altFt: demoAltitudeFt(nm, totalNm, kt, depFt, arrFt, cruiseAltFt), accuracyM: 5, at: Date.now(),
@@ -238,7 +248,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [started, route, cruiseKt, cruiseAltFt, trip.departure.elevationFt, trip.arrival.elevationFt]);
+  }, [started, flown, cruiseKt, cruiseAltFt, trip.departure.elevationFt, trip.arrival.elevationFt]);
 
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
@@ -292,11 +302,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       airspace();
     }
     labelsByZoom(map, container.current);
-    const pts = route.map(a => L.latLng(a.lat, a.lon));
+    const pts = flown.map(a => L.latLng(a.lat, a.lon));
     L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(map);
     L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false }).addTo(map);
-    route.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
-      .bindTooltip(labels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
+      .bindTooltip(flownLabels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
     obstacleLayer.current.addTo(map);
     navaidLayer.current.addTo(map);
     fixLayer.current.addTo(map);
@@ -317,7 +327,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => map.invalidateSize());
     resized?.observe(container.current);
     return () => { live = false; resized?.disconnect(); map.remove(); mapRef.current = null; own.current = null; };
-  }, [started, status, ownBasemap, route, labels]);
+  }, [started, status, ownBasemap, route, flown, flownLabels, climbOut]);
 
   // Visual reporting points: the route's airports' (given), and every other one near the route. Shown or not, as the pilot likes.
   const [nearVrps, setNearVrps] = React.useState<Vrp[]>(() => resumed?.nearVrps ?? []);
@@ -423,14 +433,14 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }, [started, status, ownBasemap, route]);
 
   // Where everything is now.
-  const leg = fix ? activeLeg(route, fix) : null;
-  const target = directTo ?? (leg ? route[leg.index + 1] : route[route.length - 1]);
-  const targetLabel = directTo ? directTo.code : leg ? labels[leg.index + 1] : labels[labels.length - 1];
+  const leg = fix ? activeLeg(flown, fix) : null;
+  const target = directTo ?? (leg ? flown[leg.index + 1] : flown[flown.length - 1]);
+  const targetLabel = directTo ? directTo.code : leg ? flownLabels[leg.index + 1] : flownLabels[flownLabels.length - 1];
   const toTarget = fix ? bearingDistance(fix, target) : null;
   const here = fix && airspaces ? airspacesHere(airspaces, fix, fix.altFt) : null;
   const sweden = fix ? swedenControlAt(fix.lat, fix.lon) : null;
   // The next controlled airspace within 10 NM, along the route or straight to the Direct-to field.
-  const routeCrossings = React.useMemo(() => crossingsAlong(route, airspaces ?? []), [route, airspaces]);
+  const routeCrossings = React.useMemo(() => crossingsAlong(flown, airspaces ?? []), [flown, airspaces]);
   const insideIds = new Set((here?.inside ?? []).map(a => a.id));
   const next = !fix || !airspaces ? null
     : directTo ? nextAirspace(crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, directTo], airspaces), 0, fix.altFt, insideIds)
@@ -476,7 +486,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       // A flight recorded in the last half hour (the page reloaded) carries on.
       trailRef.current = loadTrack();
       saveNavSession({
-        trip, airspaces, airspacesFetchedAt, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, airfields, nearVrps,
+        trip, airspaces, airspacesFetchedAt, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, airfields, nearVrps, climb,
       });
       fullScreen(true);
     }
@@ -639,7 +649,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         {!sheet && <div className="order-4 hidden lg:landscape:block lg:landscape:flex-1"/>}
         {sheet === 'freq' && (
           <Sheet title="Frequencies" onClose={() => setSheet(null)}>
-            <FrequencyList route={route} airspaces={airspaces} swedenControl={swedenControl} alongNm={leg?.alongNm ?? null}/>
+            <FrequencyList route={flown} airspaces={airspaces} swedenControl={swedenControl} alongNm={leg?.alongNm ?? null}/>
           </Sheet>
         )}
         {sheet === 'end' && (

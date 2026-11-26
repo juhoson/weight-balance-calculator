@@ -340,6 +340,11 @@ input::-webkit-inner-spin-button {
   align-items: center;
   justify-content: center;
 }
+/* The climb-out point: smaller than a waypoint's name. */
+.route-map .leaflet-tooltip.climb-label {
+  font-size: 10px;
+  opacity: 0.85;
+}
 /* A tapped navaid: what to tune. */
 .navaid-popup .leaflet-popup-content {
   margin: 8px 12px;

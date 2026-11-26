@@ -1,4 +1,5 @@
 import React from 'react';
+import { departureClimb } from '../../lib/departure';
 import { ArrowDown, ArrowLeftRight, ArrowUp, Crosshair, Loader2, Plus, RefreshCw, X } from 'lucide-react';
 import AirportField from './AirportField';
 import WeatherCard from './WeatherCard';
@@ -19,6 +20,8 @@ const RouteMap = lazyWithReload(() => import('./RouteMap'));
 const MAX_WAYPOINTS = MAX_IMPORTED_WAYPOINTS;
 
 interface RouteSectionProps {
+  /** The aircraft's climb (ft/min) at Vy (kt), for the climb-out drawn on the map. */
+  climb?: { fpm: number; kt: number } | null;
   route: PlannedRoute;
   onChange: (route: PlannedRoute) => void;
   /** Saved with a route, and given back when one is loaded. */
@@ -38,9 +41,14 @@ const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 
 /** Departure, waypoints and arrival, and the weather at each and along the way. */
 const RouteSection: React.FC<RouteSectionProps> = ({
-  route, onChange, altitudes, onLoad, weather, maxCrosswindKt, onUseLocation, locating, locationError, defaultNote, signedIn,
+  route, onChange, altitudes, onLoad, weather, maxCrosswindKt, onUseLocation, locating, locationError, defaultNote, signedIn, climb,
 }) => {
   const { data } = weather;
+  // Out on the runway heading to 700 ft before turning on course (the runway into the wind).
+  const climbOut = React.useMemo(() => (data
+    ? departureClimb(data.departure, data.points?.find(p => p.role === 'DEPARTURE')?.metar ?? null,
+      (data.waypoints ?? [])[0] ?? data.arrival, climb)
+    : null), [data, climb]);
   const known = React.useMemo(() => {
     const m = new Map<string, AirportInfo>();
     if (data) [data.departure, ...(data.waypoints ?? []), data.arrival].forEach(a => m.set(a.code, a));
@@ -178,7 +186,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
         <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
           <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}
             onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS} reportingPoints={weather.reportingPoints}
-            onArrivalChange={isLocal ? undefined : code => pick(route.from, code)}/>
+            onArrivalChange={isLocal ? undefined : code => pick(route.from, code)} departureClimb={isLocal ? null : climbOut}/>
         </React.Suspense>
       )}
       {weather.error && <p className="text-sm text-red-600" role="alert">{weather.error}</p>}

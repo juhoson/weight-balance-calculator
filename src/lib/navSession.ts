@@ -19,6 +19,8 @@ export interface NavSession {
   cruiseAltFt: number;
   /** Every airfield along the route, for the emergency page, once loaded. */
   airfields?: AirportInfo[];
+  /** The aircraft's climb, for the climb-out on the runway heading. */
+  climb?: { fpm: number; kt: number } | null;
   /** The reporting points near the route, once loaded. */
   nearVrps?: Array<{ name: string; lat: number; lon: number; compulsory: boolean }>;
 }

@@ -9,6 +9,7 @@ import type { MapArea } from '../../types/route';
 import { fixesAiracText, fixesIn, fixesOutOfDate, type SignificantPoint } from '../../lib/swedenFixes';
 import { type Navaid, navaidPopup, navaidsIn, navaidSvg, navaidText } from '../../lib/swedenNavaids';
 import { labelsByZoom } from '../../lib/mapLabels';
+import { type DepartureClimb, departureClimbLabel } from '../../lib/departure';
 import { loadObstacles, obstaclePopup, obstaclesIn, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
@@ -32,6 +33,8 @@ interface RouteMapProps {
   reportingPoints?: RouteReportingPoint[];
   /** Makes the arrival draggable: dropped on another airport, called with that airport's code. */
   onArrivalChange?: (code: string) => void;
+  /** The climb-out on the runway heading: the line goes through it after the departure. */
+  departureClimb?: DepartureClimb | null;
 }
 
 /** Reporting point names show from this zoom in; further out, on hover only. */
@@ -133,7 +136,7 @@ export function resetMapStatus(): void {
 
 /** The route on a map, with openAIP's airspace on top. */
 const RouteMap: React.FC<RouteMapProps> = ({
-  airports, onWaypointsChange, maxWaypoints = 18, reportingPoints = [], onArrivalChange,
+  airports, onWaypointsChange, maxWaypoints = 18, reportingPoints = [], onArrivalChange, departureClimb = null,
 }) => {
   const container = React.useRef<HTMLDivElement>(null);
   /** While plotting a course: what a click on the map does. */
@@ -321,11 +324,19 @@ const RouteMap: React.FC<RouteMapProps> = ({
     if (shown.length === 0) return;
     const points = shown.map(a => L.latLng(a.lat, a.lon));
     const off: Array<() => void> = [];
+    // The line goes out on the runway heading first; the waypoints and their handles stay as they are.
+    const climbAt = departureClimb ? L.latLng(departureClimb.lat, departureClimb.lon) : null;
+    const flown = (pts: L.LatLng[]) => (climbAt && pts.length > 1 ? [pts[0], climbAt, ...pts.slice(1)] : pts);
     const lines = points.length > 1 ? [
-      L.polyline(points, { color: '#ffffff', weight: 6, opacity: 0.8, interactive: false }).addTo(group),
-      L.polyline(points, { color: ROUTE_COLOR, weight: 3, opacity: 1, interactive: false }).addTo(group),
+      L.polyline(flown(points), { color: '#ffffff', weight: 6, opacity: 0.8, interactive: false }).addTo(group),
+      L.polyline(flown(points), { color: ROUTE_COLOR, weight: 3, opacity: 1, interactive: false }).addTo(group),
     ] : [];
-    const redraw = (pts: L.LatLng[]) => lines.forEach(l => l.setLatLngs(pts));
+    if (climbAt && departureClimb && points.length > 1) {
+      L.circleMarker(climbAt, { radius: 4, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1, interactive: false })
+        .bindTooltip(departureClimbLabel(departureClimb), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label climb-label' })
+        .addTo(group);
+    }
+    const redraw = (pts: L.LatLng[]) => lines.forEach(l => l.setLatLngs(flown(pts)));
     const between = shown.slice(1, -1);
     const commit = (waypoints: MapAirport[]) => {
       const next = [shown[0], ...waypoints, shown[shown.length - 1]];
@@ -566,7 +577,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
     };
     fit();
     return () => off.forEach(f => f());
-  }, [shownKey, vrpKey, status, editable, canMoveArrival, maxWaypoints, plotting]);
+  }, [shownKey, vrpKey, status, editable, canMoveArrival, maxWaypoints, plotting, departureClimb]);
 
   // The airports in view and their reporting points, except those the route already shows.
   React.useEffect(() => {

@@ -1004,6 +1004,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
 
           <Section step={3} title="Route and weather" className={onStep(2)}>
             <RouteSection
+              climb={vyKt > 0 && validRate(climbRates.climbFpm) ? { fpm: climbRates.climbFpm, kt: vyKt } : null}
               route={route}
               onChange={setRoute}
               altitudes={routeAltitudes}
@@ -1199,6 +1200,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             bestGlideKt={perf?.bestGlideSpeed ? Math.round(perf.speedUnit === 'MPH' ? perf.bestGlideSpeed * MPH_TO_KT : perf.bestGlideSpeed) : null}
             cruiseKt={tasKt}
             cruiseAltFt={altitudeFt}
+            climb={vyKt > 0 && validRate(climbRates.climbFpm) ? { fpm: climbRates.climbFpm, kt: vyKt } : null}
             signedIn={userId !== null}
             onClose={() => setNavigating(false)}
           />
