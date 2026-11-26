@@ -117,7 +117,9 @@ test('the demo flight shows speed, track, the next point and the airspace it is 
   await open();
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
   expect(await screen.findByText('DEMO FLIGHT (4× speed)')).toBeInTheDocument();
-  expect(screen.getByText('110')).toBeInTheDocument(); // GS
+  // From standstill on the runway, at the field's elevation.
+  expect(screen.getByText('GS kt').nextSibling).toHaveTextContent(/^0$/);
+  expect(screen.getByText('GPS alt ft').nextSibling).toHaveTextContent(/^50$/);
   expect(screen.getByText(/^Next RWY \d+ · 700 ft$/)).toBeInTheDocument(); // the climb-out first
   const here = screen.getByRole('status', { name: 'Airspace here' });
   expect(within(here).getByText('VÄSTERÅS CTR')).toBeInTheDocument();

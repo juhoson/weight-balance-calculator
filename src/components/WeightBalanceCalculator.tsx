@@ -1206,6 +1206,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             cruiseKt={tasKt}
             cruiseAltFt={altitudeFt}
             climb={vyKt > 0 && validRate(climbRates.climbFpm) ? { fpm: climbRates.climbFpm, kt: vyKt } : null}
+            approachKt={perf?.approachSpeedNormal ? Math.round(perf.speedUnit === 'MPH' ? perf.approachSpeedNormal * MPH_TO_KT : perf.approachSpeedNormal) : null}
             signedIn={userId !== null}
             onClose={() => setNavigating(false)}
           />

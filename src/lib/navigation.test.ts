@@ -1,5 +1,5 @@
 import {
-  activeLeg, airspacesHere, areaAround, demoAltitudeFt, roundedRoute, turnRadiusNm, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
+  activeLeg, airspacesHere, areaAround, demoStart, demoStep, roundedRoute, turnRadiusNm, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
 } from './navigation';
 import type { AirportInfo, AirspaceView } from '../types/route';
 
@@ -109,17 +109,33 @@ describe('the next controlled airspace', () => {
   });
 });
 
-it('the demo climbs to cruise, then descends to circuit height over the arrival; a short flight levels off lower', () => {
-  // 100 kt: 300 ft per NM at 500 ft/min.
-  expect(demoAltitudeFt(0, 40, 100, 50, 100, 3000)).toBe(50);
-  expect(demoAltitudeFt(5, 40, 100, 50, 100, 3000)).toBe(1550);
-  expect(demoAltitudeFt(20, 40, 100, 50, 100, 3000)).toBe(3000);
-  expect(demoAltitudeFt(39, 40, 100, 50, 100, 3000)).toBe(1400); // 1 NM out: circuit height + 300
-  expect(demoAltitudeFt(40, 40, 100, 50, 100, 3000)).toBe(100); // landed
-  // 8 NM hop: the climb and descent meet below cruise, never above it.
-  const top = Math.max(...Array.from({ length: 80 }, (_, i) => demoAltitudeFt(i / 10, 8, 100, 0, 0, 3000)));
-  expect(top).toBeLessThan(3000);
-  expect(demoAltitudeFt(7.9, 8, 100, 0, 0, 3000)).toBeLessThanOrEqual(1100);
+it('the demo starts at a standstill, climbs at Vy, and comes down a 3.5° approach at the approach speed to a stop', () => {
+  const plan = { totalNm: 30, depFt: 50, arrFt: 100, cruiseFt: 3000, cruiseKt: 110, climbKt: 79, climbFpm: 700, approachKt: 65 };
+  let st = demoStart(plan);
+  expect(st).toMatchObject({ kt: 0, phase: 'roll', altFt: 50 });
+  const seen: Array<typeof st> = [st];
+  for (let i = 0; i < 4000 && !(st.phase === 'landed' && st.kt === 0); i++) { st = demoStep(st, 1, plan); seen.push(st); }
+  const at = (phase: string) => seen.filter(x => x.phase === phase);
+  // Rolling: on the ground, speeding up from 0 to rotation.
+  expect(at('roll').every(x => x.altFt === 50)).toBe(true);
+  expect(at('roll')[1].kt).toBe(3);
+  // Climbing at Vy and the climb rate; cruising at the cruise speed.
+  expect(at('climb').slice(-1)[0].kt).toBe(79);
+  expect(at('climb')[5].vsFpm).toBe(700);
+  expect(Math.max(...seen.map(x => x.altFt))).toBe(3000);
+  expect(at('cruise').slice(-1)[0].kt).toBe(110);
+  // Descending at 500 ft/min, then the approach: slower, about 400 ft/min down a 3.5° path from circuit height.
+  expect(at('descent')[3].vsFpm).toBe(-500);
+  const approach = at('approach');
+  expect(approach[0].altFt).toBeCloseTo(1100, -2);
+  const final = approach.slice(-10);
+  expect(final[0].kt).toBe(65);
+  expect(final[5].vsFpm).toBeGreaterThan(-500);
+  expect(final[5].vsFpm).toBeLessThan(-300);
+  // Then on the ground at the arrival, braking to a stop.
+  expect(st).toMatchObject({ phase: 'landed', kt: 0, altFt: 100, nm: 30 });
+  // Altitude never jumps: at most a few hundred feet a step.
+  for (let i = 1; i < seen.length; i++) expect(Math.abs(seen[i].altFt - seen[i - 1].altFt)).toBeLessThan(50);
 });
 
 it('rounds a corner into a standard-rate turn: no heading change bigger than 10° between points', () => {

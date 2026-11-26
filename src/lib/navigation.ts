@@ -241,22 +241,93 @@ export function areaAround(at: At, nm = 25): At[] {
   return out;
 }
 
-/** Circuit height over the arrival, where the demo's descent ends. */
+/** Circuit height over the arrival, where the demo's descent ends and the approach begins. */
 export const DEMO_CIRCUIT_FT = 1000;
-/** The demo's climb and descent, ft/min. */
+/** The demo's en-route descent, ft/min. */
 export const DEMO_VS_FPM = 500;
+/** The demo's final approach path, degrees. */
+export const DEMO_APPROACH_DEG = 3.5;
+const APPROACH_FT_PER_NM = Math.tan((DEMO_APPROACH_DEG * Math.PI) / 180) * FT_PER_NM;
+/** Speeding up on the runway and slowing after touchdown, kt per second; changing speed in the air. */
+const ROLL_ACCEL_KT_S = 3;
+const BRAKE_KT_S = 4;
+const AIR_ACCEL_KT_S = 1.5;
+
+export type DemoPhase = 'roll' | 'climb' | 'cruise' | 'descent' | 'approach' | 'landed';
+
+export interface DemoPlan {
+  totalNm: number;
+  depFt: number;
+  arrFt: number;
+  cruiseFt: number;
+  cruiseKt: number;
+  /** Vy, and the climb rate at it. */
+  climbKt: number;
+  climbFpm: number;
+  approachKt: number;
+}
+
+export interface DemoState {
+  nm: number;
+  altFt: number;
+  kt: number;
+  vsFpm: number;
+  phase: DemoPhase;
+}
+
+export const demoStart = (plan: DemoPlan): DemoState => ({ nm: 0, altFt: plan.depFt, kt: 0, vsFpm: 0, phase: 'roll' });
+
+const toward = (v: number, target: number, step: number) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
 
 /**
- * The demo flight's altitude, nm along a route of totalNm at kt: climbing from the departure at
- * DEMO_VS_FPM to the cruise altitude, and descending at the same rate to reach circuit height over
- * the arrival, so a short flight levels off lower. On the ground at the arrival once there.
+ * The demo flight a step of `dtS` seconds on: from standstill on the runway, rolling to rotation
+ * speed, climbing at Vy, cruising, descending at DEMO_VS_FPM to reach circuit height before the
+ * approach, slowing to the approach speed down a DEMO_APPROACH_DEG path, and braking to a stop.
  */
-export function demoAltitudeFt(nm: number, totalNm: number, kt: number, depFt: number, arrFt: number, cruiseFt: number): number {
-  if (nm >= totalNm) return arrFt;
-  const ftPerNm = (DEMO_VS_FPM * 60) / kt;
-  const climb = depFt + Math.max(0, nm) * ftPerNm;
-  const descent = arrFt + DEMO_CIRCUIT_FT + (totalNm - nm) * ftPerNm;
-  return Math.round(Math.min(Math.max(cruiseFt, depFt + DEMO_CIRCUIT_FT), climb, descent));
+export function demoStep(st: DemoState, dtS: number, plan: DemoPlan): DemoState {
+  const left = plan.totalNm - st.nm;
+  const approachNm = (DEMO_CIRCUIT_FT) / APPROACH_FT_PER_NM;
+  let { kt, altFt, phase } = st;
+  let vsFpm = 0;
+  const rotateKt = Math.max(40, Math.round(plan.climbKt * 0.75));
+  switch (phase) {
+  case 'roll':
+    kt = toward(kt, rotateKt, ROLL_ACCEL_KT_S * dtS);
+    if (kt >= rotateKt) phase = 'climb';
+    break;
+  case 'landed':
+    kt = toward(kt, 0, BRAKE_KT_S * dtS);
+    altFt = plan.arrFt;
+    break;
+  default: {
+    // In the air: which phase now, from the height and the distance left.
+    const glidePathFt = plan.arrFt + Math.max(0, left) * APPROACH_FT_PER_NM;
+    const descentNm = (Math.max(0, altFt - (plan.arrFt + DEMO_CIRCUIT_FT)) / DEMO_VS_FPM) * (kt / 60);
+    if (left <= approachNm && altFt >= glidePathFt - 50) phase = 'approach';
+    else if (left <= approachNm + descentNm + 0.1) phase = 'descent';
+    else if (altFt < plan.cruiseFt - 1) phase = 'climb';
+    else phase = 'cruise';
+    if (phase === 'approach') {
+      kt = toward(kt, plan.approachKt, AIR_ACCEL_KT_S * dtS);
+      const next = Math.min(altFt, glidePathFt);
+      vsFpm = ((next - altFt) / dtS) * 60;
+      altFt = next;
+    } else if (phase === 'descent') {
+      kt = toward(kt, plan.cruiseKt, AIR_ACCEL_KT_S * dtS);
+      vsFpm = -DEMO_VS_FPM;
+      altFt = Math.max(plan.arrFt + DEMO_CIRCUIT_FT, altFt - (DEMO_VS_FPM * dtS) / 60);
+    } else if (phase === 'climb') {
+      kt = toward(kt, plan.climbKt, AIR_ACCEL_KT_S * dtS);
+      vsFpm = plan.climbFpm;
+      altFt = Math.min(plan.cruiseFt, altFt + (plan.climbFpm * dtS) / 60);
+    } else {
+      kt = toward(kt, plan.cruiseKt, AIR_ACCEL_KT_S * dtS);
+    }
+  }
+  }
+  const nm = Math.min(plan.totalNm, st.nm + (kt * dtS) / 3600);
+  if (phase !== 'roll' && phase !== 'landed' && nm >= plan.totalNm) { phase = 'landed'; altFt = plan.arrFt; vsFpm = 0; }
+  return { nm, altFt, kt, vsFpm, phase };
 }
 
 /** "8 min", "1 h 05 min"; "-" without a speed. */

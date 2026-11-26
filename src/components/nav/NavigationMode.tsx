@@ -29,8 +29,8 @@ import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../li
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
-  areaAround, demoAltitudeFt, glideRangeNm, isControlled, nearestAirfields, NEXT_AIRSPACE_NM, nextAirspace, pad3, pointAhead, positionAlong,
-  roundedRoute, routeLengthNm, turnRadiusNm, verticalSpeed,
+  areaAround, demoStart, demoStep, glideRangeNm, isControlled, nearestAirfields, NEXT_AIRSPACE_NM, nextAirspace, pad3, pointAhead, positionAlong,
+  roundedRoute, routeLengthNm, turnRadiusNm,
 } from '../../lib/navigation';
 import { distanceNm, type Forecast, forecastAt, fromOf, speedOf, type Wind, windNow } from '../../lib/openMeteo';
 import { fetchTerrain, glideArea, type GlideInput, headingFor, reachesField, terrainAlert, type TerrainGrid, terrainGridFor, turnTo } from '../../lib/glide';
@@ -50,6 +50,8 @@ export interface NavigationModeProps {
   cruiseAltFt: number;
   /** The aircraft's climb (ft/min) at Vy (kt), for the climb-out on the runway heading. */
   climb?: { fpm: number; kt: number } | null;
+  /** The aircraft's approach speed, kt (the demo's final approach). */
+  approachKt?: number | null;
   /** Signed in: a flight flown with GPS can be saved to the account when it ends. */
   signedIn?: boolean;
   /** A GPS flight in progress before the page reloaded: offered to carry on, with what it had loaded. */
@@ -185,7 +187,7 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, signedIn = false, resumed, onClose,
+  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, approachKt = null, signedIn = false, resumed, onClose,
 }) => {
   const { user } = useAuth();
   const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
@@ -291,29 +293,31 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     );
   }, [started]);
 
-  // The demo flight: along the route at the cruise speed, climbing and descending at 500 ft/min.
+  // The demo flight: from standstill on the runway, climbing at Vy, cruising, descending at 500 ft/min
+  // and down a 3.5° approach at the approach speed to a stop, the corners flown as standard-rate turns.
   React.useEffect(() => {
     if (started !== 'demo' || !trip) return;
-    const kt = cruiseKt > 40 ? cruiseKt : 100;
-    const depFt = trip.departure.elevationFt ?? 0;
-    const arrFt = trip.arrival.elevationFt ?? 0;
-    // Flown with standard-rate turns at the corners, not on the spot.
-    const path = roundedRoute(flown, turnRadiusNm(kt));
-    const totalNm = routeLengthNm(path);
-    const t0 = Date.now();
+    const cruise = cruiseKt > 40 ? cruiseKt : 100;
+    const path = roundedRoute(flown, turnRadiusNm(cruise));
+    const plan = {
+      totalNm: routeLengthNm(path), depFt: trip.departure.elevationFt ?? 0, arrFt: trip.arrival.elevationFt ?? 0,
+      cruiseFt: cruiseAltFt, cruiseKt: cruise,
+      climbKt: climb && climb.kt > 30 ? climb.kt : Math.round(cruise * 0.7), climbFpm: climb && climb.fpm > 0 ? climb.fpm : 600,
+      approachKt: approachKt && approachKt > 30 ? approachKt : Math.round(cruise * 0.6),
+    };
+    let st = demoStart(plan);
+    let last = Date.now();
     const tick = () => {
-      const nm = ((Date.now() - t0) / 3_600_000) * DEMO_SPEEDUP * kt;
-      const p = positionAlong(path, nm);
-      const altFt = demoAltitudeFt(nm, totalNm, kt, depFt, arrFt, cruiseAltFt);
-      const at = Date.now();
-      setFix(prev => ({
-        lat: p.lat, lon: p.lon, speedKt: p.done ? 0 : kt, trackDeg: p.trackDeg, altFt, accuracyM: 5, at, vsFpm: verticalSpeed(prev, altFt, at),
-      }));
+      const now = Date.now();
+      st = demoStep(st, ((now - last) / 1000) * DEMO_SPEEDUP, plan);
+      last = now;
+      const p = positionAlong(path, st.nm);
+      setFix({ lat: p.lat, lon: p.lon, speedKt: Math.round(st.kt), trackDeg: p.trackDeg, altFt: st.altFt, accuracyM: 5, at: now, vsFpm: st.vsFpm });
     };
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [started, flown, cruiseKt, cruiseAltFt, trip]);
+  }, [started, flown, cruiseKt, cruiseAltFt, trip, climb, approachKt]);
 
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
