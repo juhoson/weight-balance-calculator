@@ -12,6 +12,8 @@ const config: CapacitorConfig = {
   plugins: {
     SplashScreen: { launchShowDuration: 600, backgroundColor: '#0f172a', showSpinner: false },
     StatusBar: { overlaysWebView: true, style: 'DARK' },
+    // Only the sign-ins the app offers: Facebook's SDK would bring the advertising ID (AD_ID) along.
+    SocialLogin: { providers: { google: true, apple: true, facebook: false, twitter: false } },
   },
 };
 
