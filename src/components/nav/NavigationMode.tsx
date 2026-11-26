@@ -78,6 +78,10 @@ const SHOW_NAVAID_KEY = 'nav.showNavaids';
 const NAVAID_RANGE_NM = 40;
 const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
 const SHOW_TRAFFIC_KEY = 'nav.showTraffic';
+/** The trend line's ticks: where the aircraft will be in this many minutes. */
+const TREND_MINUTES = [1, 2, 3];
+/** Not drawn slower than this (taxiing, or standing). */
+const TREND_MIN_KT = 20;
 /** Traffic asked this often while flying, ms. */
 const TRAFFIC_POLL_MS = 5000;
 const TRAFFIC_CREDIT = 'traffic &copy; <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL)';
@@ -328,7 +332,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const navaidLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
   const trafficLayer = React.useRef(L.layerGroup());
-  const own = React.useRef<{ marker: L.Marker; glide: L.Polygon; direct: L.Polyline; trail: L.Polyline } | null>(null);
+  const own = React.useRef<{
+    marker: L.Marker; glide: L.Polygon; direct: L.Polyline; trail: L.Polyline; trend: L.Polyline; ticks: L.Marker[];
+  } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
   /** What the server has: the airspace overlay, and the self-hosted base map (undefined until asked). */
@@ -395,7 +401,13 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       icon: L.divIcon({ className: 'nav-ownship', iconSize: [32, 32], html: AIRPLANE_SVG }),
       keyboard: false, interactive: false, zIndexOffset: 1000,
     }).addTo(map);
-    own.current = { marker, glide, direct, trail };
+    // Where the aircraft will be on this track at this ground speed: a line to 3 minutes, ticks at each minute.
+    const trend = L.polyline([], { color: '#0f172a', weight: 3, opacity: 0.85, interactive: false }).addTo(map);
+    const ticks = TREND_MINUTES.map(min => L.marker(startAt, {
+      icon: L.divIcon({ className: 'trend-tick', iconSize: [12, 12], html: `<span>${min === TREND_MINUTES[TREND_MINUTES.length - 1] ? `${min} min` : min}</span>` }),
+      keyboard: false, interactive: false, opacity: 0,
+    }).addTo(map));
+    own.current = { marker, glide, direct, trail, trend, ticks };
     if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
     else map.setView(startAt, fix ? 10 : 6);
     map.on('dragstart', () => setFollow(false));
@@ -613,6 +625,14 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     }
     o.glide.setLatLngs(glideEdge.map(p => [p.lat, p.lon] as [number, number]));
     o.direct.setLatLngs(directTo ? [at, [directTo.lat, directTo.lon]] : []);
+    const moving = fix.trackDeg != null && (fix.speedKt ?? 0) > TREND_MIN_KT;
+    const ahead = (min: number) => (moving ? pointAhead(fix, fix.trackDeg as number, ((fix.speedKt as number) * min) / 60) : fix);
+    const end = ahead(TREND_MINUTES[TREND_MINUTES.length - 1]);
+    o.trend.setLatLngs(moving ? [at, [end.lat, end.lon]] : []);
+    o.ticks.forEach((t, i) => {
+      const p = ahead(TREND_MINUTES[i]);
+      t.setLatLng([p.lat, p.lon]).setOpacity(moving ? 1 : 0);
+    });
     if (follow) map.panTo(at, { animate: true });
   }, [fix, glideEdge, directTo, follow, started]);
 

@@ -369,6 +369,31 @@ input::-webkit-inner-spin-button {
   font-weight: 700;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+/* The trend line's minute ticks: a dot, and the time beside it. */
+.trend-tick {
+  background: none;
+  border: none;
+}
+.trend-tick::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #0f172a;
+  border: 2px solid #ffffff;
+}
+.trend-tick span {
+  position: absolute;
+  left: 14px;
+  top: -3px;
+  white-space: nowrap;
+  font: 700 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+  color: #0f172a;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+}
 /* A tapped navaid: what to tune. */
 .navaid-popup .leaflet-popup-content {
   margin: 8px 12px;

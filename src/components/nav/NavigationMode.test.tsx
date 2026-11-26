@@ -368,6 +368,8 @@ test('traffic near the aircraft is on the map with its height, and one heading f
   expect(alert).toHaveTextContent('SE-ABC PA28');
   expect(screen.getByText('+02 SE-ABC')).toBeInTheDocument();
   expect(screen.getByText('Traffic: 1 within 10 NM (ADS-B only)')).toBeInTheDocument();
+  // The trend line ahead: where we'll be in 1, 2 and 3 minutes on this track.
+  for (const min of ['1', '2', '3 min']) expect(document.querySelector('.trend-tick span') && screen.getAllByText(min).length).toBeGreaterThan(0);
   // Switched off: gone from the map, still called out.
   fireEvent.click(screen.getByRole('button', { name: 'TFC' }));
   await waitFor(() => expect(screen.queryByText('+02 SE-ABC')).toBeNull());
