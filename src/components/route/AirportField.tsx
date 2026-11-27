@@ -13,12 +13,20 @@ interface AirportFieldProps {
   onChange: (code: string, airport: AirportInfo | null) => void;
 }
 
-/** Type a code, name or town; the server searches all open airports. */
+/**
+ * Type a code, name or town; the server searches all open airports. Tapped, the field empties for
+ * typing (the current airport as its placeholder); the airport changes only when one is picked from
+ * the list, and leaving without picking puts the current one back.
+ */
 const AirportField: React.FC<AirportFieldProps> = ({ label, value, valueName, onChange }) => {
   const [query, setQuery] = React.useState('');
   const [results, setResults] = React.useState<AirportInfo[]>([]);
   const [loading, setLoading] = React.useState(false);
+  /** Being typed in: shown empty, whatever the airport is. */
+  const [editing, setEditing] = React.useState(false);
   const id = React.useId();
+  const shown = value ? (valueName ? `${value} · ${valueName}` : value) : '';
+  const stopEditing = () => { setEditing(false); setQuery(''); };
 
   React.useEffect(() => {
     const q = query.trim();
@@ -44,9 +52,10 @@ const AirportField: React.FC<AirportFieldProps> = ({ label, value, valueName, on
         value={value || null}
         onChange={(code: string | null) => {
           if (!code) return;
+          setEditing(false);
           onChange(code, results.find(a => a.code === code) ?? null);
         }}
-        onClose={() => setQuery('')}
+        onClose={stopEditing}
       >
         <div className="relative">
           <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
@@ -54,10 +63,11 @@ const AirportField: React.FC<AirportFieldProps> = ({ label, value, valueName, on
             id={id}
             aria-label={label}
             className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-9 text-sm font-medium outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-            displayValue={(code: string | null) => (code ? (valueName ? `${code} · ${valueName}` : code) : '')}
-            placeholder="ICAO, name or town"
+            displayValue={() => (editing ? '' : shown)}
+            placeholder={editing && shown ? `${shown}: type to change` : 'ICAO, name or town'}
             onChange={e => setQuery(e.target.value)}
-            onFocus={e => e.target.select()}
+            onFocus={() => setEditing(true)}
+            onBlur={() => { if (!query.trim()) stopEditing(); }}
           />
           {loading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"/>}
         </div>
