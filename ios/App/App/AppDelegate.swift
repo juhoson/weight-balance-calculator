@@ -42,3 +42,51 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return config
     }
 }
+
+
+// MARK: - The app's own plugins
+
+/// Prints the web view (with the page's print styles) from the system print dialog, which also saves a
+/// PDF: the web view itself ignores window.print(). Called from src/lib/print.ts.
+@objc(WebPrintPlugin)
+public class WebPrintPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "WebPrintPlugin"
+    public let jsName = "WebPrint"
+    public let pluginMethods: [CAPPluginMethod] = [CAPPluginMethod(name: "print", returnType: CAPPluginReturnPromise)]
+
+    @objc func print(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let webView = self.bridge?.webView else {
+                call.reject("No web view to print")
+                return
+            }
+            let info = UIPrintInfo(dictionary: nil)
+            info.outputType = .general
+            info.jobName = call.getString("name") ?? "Flight Planning Tool"
+            let controller = UIPrintInteractionController.shared
+            controller.printInfo = info
+            controller.printFormatter = webView.viewPrintFormatter()
+            let done: UIPrintInteractionController.CompletionHandler = { _, completed, error in
+                if let error = error {
+                    call.reject(error.localizedDescription)
+                } else {
+                    call.resolve(["completed": completed])
+                }
+            }
+            // On the iPad the print options are a popover: anchored to the middle of the screen.
+            if UIDevice.current.userInterfaceIdiom == .pad, let view = self.bridge?.viewController?.view {
+                let rect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+                controller.present(from: rect, in: view, animated: true, completionHandler: done)
+            } else {
+                controller.present(animated: true, completionHandler: done)
+            }
+        }
+    }
+}
+
+/// The app's web view controller (Main.storyboard): registers the app's own plugins.
+class MainViewController: CAPBridgeViewController {
+    override open func capacitorDidLoad() {
+        bridge?.registerPluginInstance(WebPrintPlugin())
+    }
+}

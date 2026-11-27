@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { fetchAerodrome, fetchPointInfo } from '../../api/backend';
 import type { AerodromeInfo } from '../../types/route';
 import { track } from '../../lib/analytics';
+import { printPage, printWaits } from '../../lib/print';
 import BriefingPack, { type AirportFrequencies, BRIEFING_SECTIONS, type BriefingData, type BriefingSection } from './BriefingPack';
 
 /** The sections left out (so a section added later starts ticked); v2 since the pages were rearranged. */
@@ -102,8 +103,13 @@ const BriefingButton: React.FC<{ data: Given | null }> = ({ data }) => {
         return;
       }
       const asked = Date.now();
-      window.print();
+      const printing = printPage('Briefing pack');
       setPrinted(true);
+      // The iOS app: done once its print dialog has closed.
+      if (printWaits()) {
+        printing.then(done, done);
+        return;
+      }
       // A browser that waits in print() until its dialog is closed: done.
       if (Date.now() - asked > BLOCKING_PRINT_MS) {
         done();

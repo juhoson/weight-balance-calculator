@@ -6,6 +6,7 @@ import { type BlockTimes, hhmm, localTime, utcTime } from '../../lib/blockTimes'
 import { distanceNm } from '../../lib/openMeteo';
 import { flightKml, kmlFileName } from '../../lib/kml';
 import { isNative } from '../../lib/native';
+import { printPage } from '../../lib/print';
 import { saveFile, standaloneHtml } from '../../lib/share';
 
 export interface PlannedPoint { lat: number; lon: number; code?: string }
@@ -202,10 +203,10 @@ const DebriefPack: React.FC<{
   const [shareError, setShareError] = React.useState<string | null>(null);
   const print = () => {
     document.body.classList.add('print-debrief');
-    window.print();
+    printPage(`Flight debrief ${name}`).catch(() => setShareError('Could not print the pack: share it instead.'));
     // Safari returns at once; the class stays until the pack closes, which is harmless on screen.
   };
-  // The apps can't print from their web view: the pack goes to the share sheet as a page of its own.
+  // Shared from the apps as a page of its own (Mail, Files, AirDrop); printing goes through printPage.
   const share = () => {
     if (!article.current) return;
     setShareError(null);
@@ -224,13 +225,12 @@ const DebriefPack: React.FC<{
       <div className="no-print safe-top sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white/95 px-4 py-2">
         <strong className="mr-auto">Debriefing pack</strong>
         {shareError && <span className="text-sm text-red-600" role="alert">{shareError}</span>}
-        {isNative() ? (
-          <button type="button" className="flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-semibold text-white" onClick={share}>
-            <Share2 className="h-4 w-4"/> Share (print, PDF, mail)
-          </button>
-        ) : (
-          <button type="button" className="flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-semibold text-white" onClick={print}>
-            <Printer className="h-4 w-4"/> Print or save as PDF
+        <button type="button" className="flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-semibold text-white" onClick={print}>
+          <Printer className="h-4 w-4"/> Print or save as PDF
+        </button>
+        {isNative() && (
+          <button type="button" className="flex items-center gap-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-semibold" onClick={share}>
+            <Share2 className="h-4 w-4"/> Share
           </button>
         )}
         <button type="button" className="flex items-center gap-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-semibold" onClick={kml}>
