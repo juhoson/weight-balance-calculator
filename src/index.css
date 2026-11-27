@@ -536,3 +536,16 @@ input::-webkit-inner-spin-button {
 .nav-map--field .airspace-tiles {
   opacity: 0;
 }
+
+/* The debriefing pack: printed on its own. */
+@media print {
+  body.print-debrief > *:not(.debrief-pack) {
+    display: none !important;
+  }
+  body.print-debrief .debrief-pack {
+    position: static;
+    overflow: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

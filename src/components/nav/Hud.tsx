@@ -98,8 +98,12 @@ const Hud: React.FC<HudProps> = ({ speedKt, altFt, vsFpm, trackDeg, bankDeg, pat
                   className="stroke-white" strokeWidth={t === 0 ? 2.5 : 1.5}/>
               );
             })}
-            <g transform={`rotate(${-bankDeg})`}>
+            {/* The bank pointer moves towards the low wing (a "ground pointer"): right in a right turn,
+                as the map's turn reads. The horizon below tilts the way the real one does. */}
+            <g transform={`rotate(${bankDeg})`} data-testid="hud-bank-pointer">
               <path d={`M0,${-BANK_R + 2} l-6,10 h12 z`} className={Math.abs(bankDeg) > 35 ? 'fill-amber-400' : 'fill-white'} stroke="rgba(2,6,23,.85)" strokeWidth={1}/>
+            </g>
+            <g transform={`rotate(${-bankDeg})`}>
               {/* Horizon and pitch ladder, moved by the flight path, with a gap round the aircraft. */}
               <g transform={`translate(0,${pitchPx})`}>
                 <path d={`M${-TAPE_GAP + 6},0 H-26 M26,0 H${TAPE_GAP - 6}`} fill="none" className="stroke-white" strokeWidth={2} strokeOpacity={0.9}/>

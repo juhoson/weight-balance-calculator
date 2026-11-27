@@ -22,6 +22,7 @@ import type { RouteAltitudes } from '../lib/route';
 import type { ClubName, MyClub } from '../types/profile';
 import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
 import type { AirportLayout } from '../lib/airportLayout';
+import type { BlockTimes } from '../lib/blockTimes';
 
 // The backend's address: set at build time for production, from .env.development for npm start.
 // Empty = same origin.
@@ -163,12 +164,14 @@ export interface FlightTrack {
   endedAt: string;
   distanceNm: number;
   pointCount: number;
+  /** The logged times (off block, takeoff, landing, on block), when the navigation mode worked them out. */
+  times?: BlockTimes | null;
 }
 
 export interface TrackPoint { lat: number; lon: number; altFt: number | null; at: number }
 
-export function saveTrack(name: string, points: TrackPoint[]): Promise<FlightTrack> {
-  return request<FlightTrack>('/api/tracks', { method: 'POST', body: JSON.stringify({ name, points }) });
+export function saveTrack(name: string, points: TrackPoint[], times?: BlockTimes | null): Promise<FlightTrack> {
+  return request<FlightTrack>('/api/tracks', { method: 'POST', body: JSON.stringify({ name, points, times: times ?? null }) });
 }
 
 export function listTracks(): Promise<FlightTrack[]> {
@@ -184,14 +187,9 @@ export async function downloadTrackKml(id: number): Promise<void> {
   const res = await authFetch(`${API_BASE}/api/tracks/${id}/kml`);
   if (!res.ok) throw new ApiError(res.status, 'Could not download the flight.', null);
   const name = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `flight-${id}.kml`;
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  // A download in the browser, the share sheet in the app.
+  const { saveFile } = await import('../lib/share');
+  await saveFile(name, await res.text(), 'application/vnd.google-earth.kml+xml');
 }
 
 /** The airports in a part of the map (at most 5° north to south) and their reporting points. Public. */

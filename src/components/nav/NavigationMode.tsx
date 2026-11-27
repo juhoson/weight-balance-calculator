@@ -3,10 +3,14 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Crosshair, Radio, TriangleAlert, X } from 'lucide-react';
 import {
-  acceptNavTerms, AIRSPACE_TILE_URL, airspacesFetchedAt as fetchedAtOf, BASEMAP_TILE_URL, downloadTrackKml, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea,
+  acceptNavTerms, AIRSPACE_TILE_URL, airspacesFetchedAt as fetchedAtOf, BASEMAP_TILE_URL, fetchAirportsAlong, fetchAirspacesAlong, fetchMapArea,
   fetchMapStatus, fetchTraffic, type MapStatus, saveTrack, type Traffic, type TrackPoint,
 } from '../../api/backend';
 import { clearTrack, loadTrack, storeTrack, thinned, trackName, trackStats } from '../../lib/flightTrack';
+import { type BlockLog, blockTimesOf, clearBlockLog, finishBlockLog, loadBlockLog, newBlockLog, nextBlockLog, storeBlockLog, utcTime } from '../../lib/blockTimes';
+import { flightKml, kmlFileName } from '../../lib/kml';
+import { saveFile } from '../../lib/share';
+import DebriefPack, { TimesTable } from './DebriefPack';
 import { clearNavSession, type NavSession, saveNavSession, updateNavSession } from '../../lib/navSession';
 import { AIRAC_DAYS, acceptedHere, dataAgeDays, markAcceptedHere, NAV_TERMS, NAV_TERMS_VERSION } from '../../lib/navTerms';
 import { useAuth } from '../../api/useAuth';
@@ -408,6 +412,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   } | null>(null);
   /** Where the aircraft has been, for the trail on the map. */
   const trailRef = React.useRef<TrackPoint[]>([]);
+  /** Off block, takeoff, landing and on block, as the fixes come (kept on the device for a reload). */
+  const blockRef = React.useRef<BlockLog>(newBlockLog());
+  const [blockLog, setBlockLog] = React.useState<BlockLog>(blockRef.current);
   /** What the server has: the airspace overlay, and the self-hosted base map (undefined until asked). */
   const [status, setStatus] = React.useState<MapStatus | null | undefined>(undefined);
   React.useEffect(() => {
@@ -605,7 +612,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const turn = React.useRef<TurnState | null>(null);
   const turnDps = React.useMemo(() => {
     if (!fix) return 0;
-    if (turn.current?.at !== fix.at) turn.current = nextTurn(turn.current, fix.trackDeg, fix.at, fix.speedKt);
+    // The demo flies DEMO_SPEEDUP times faster than the clock: its turn rate is in its own seconds.
+    const at = started === 'demo' ? fix.at * DEMO_SPEEDUP : fix.at;
+    if (turn.current?.at !== at) turn.current = nextTurn(turn.current, fix.trackDeg, at, fix.speedKt);
     return turn.current.dps;
   }, [fix]);
   const [trafficList, setTrafficList] = React.useState<Traffic[] | null>(null);
@@ -758,6 +767,13 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (!map || !o || !fix) return;
     const at = L.latLng(fix.lat, fix.lon);
     o.marker.setLatLng(at);
+    // The logged times: shown when one changes, kept on the device in a GPS flight.
+    const before = blockRef.current, after = nextBlockLog(before, fix);
+    blockRef.current = after;
+    if (after.phase !== before.phase || after.landings !== before.landings || after.offBlockAt !== before.offBlockAt) {
+      setBlockLog(after);
+    }
+    if (started === 'gps' && after !== before) storeBlockLog(after);
     const last = trailRef.current[trailRef.current.length - 1];
     if (!last || at.distanceTo([last.lat, last.lon]) >= TRAIL_STEP_M) {
       trailRef.current = thinned([...trailRef.current, { lat: fix.lat, lon: fix.lon, altFt: fix.altFt == null ? null : Math.round(fix.altFt), at: fix.at }]);
@@ -811,6 +827,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (mode === 'gps') {
       // A flight recorded in the last half hour (the page reloaded) carries on.
       trailRef.current = loadTrack();
+      blockRef.current = (trailRef.current.length ? loadBlockLog() : null) ?? newBlockLog();
+      setBlockLog(blockRef.current);
       // A flight with a route carries on after a reload with what it loaded; without one it loads afresh.
       if (trip) {
         saveNavSession({
@@ -891,7 +909,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   };
   // A GPS flight ends on its own page: save it (signed in) or let it go.
   const close = () => {
-    if (started === 'gps' && trailRef.current.length >= 2) setSheet('end');
+    if (started && trailRef.current.length >= 2) setSheet('end');
     else exit();
   };
   closeRef.current = close;
@@ -921,7 +939,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           </div>
           <button type="button" aria-label="Close navigation mode" onClick={close}
             className="flex items-center justify-center gap-1 bg-slate-950 px-3 hover:bg-slate-800 lg:landscape:order-first lg:landscape:col-span-2 lg:landscape:justify-end lg:landscape:py-1.5 lg:landscape:text-sm">
-            <span className="hidden lg:landscape:inline">Close</span><X className="h-5 w-5"/>
+            {started && trailRef.current.length >= 2
+              ? <span className="text-xs font-semibold leading-tight lg:landscape:text-sm">End flight</span>
+              : <><span className="hidden lg:landscape:inline">Close</span><X className="h-5 w-5"/></>}
           </button>
         </div>
 
@@ -1035,10 +1055,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         )}
         {sheet === 'end' && (
           <Sheet title="End flight" onClose={() => setSheet(null)}>
-            <EndFlight points={trailRef.current} signedIn={signedIn}
+            <EndFlight points={trailRef.current} signedIn={signedIn && started === 'gps'} demo={started === 'demo'}
+              log={finishBlockLog(blockRef.current, Date.now())}
+              planned={trip ? flown : []} from={trip?.departure.code ?? nearest[0]?.airport.code ?? null} to={trip?.arrival.code ?? null}
               defaultName={trip ? trackName(trip.departure.code, trip.arrival.code, trailRef.current[0]?.at ?? Date.now())
                 : trackName(nearest[0]?.airport.code ?? 'GPS', 'free flight', trailRef.current[0]?.at ?? Date.now())}
-              onDone={() => { clearTrack(); clearNavSession(); exit(); }} onKeepFlying={() => setSheet(null)}/>
+              onDone={() => { clearTrack(); clearBlockLog(); clearNavSession(); exit(); }} onKeepFlying={() => setSheet(null)}/>
           </Sheet>
         )}
         {sheet === 'emergency' && (
@@ -1177,6 +1199,14 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
                 : `Traffic: ${traffic.length} within ${TRAFFIC_RANGE_NM} NM (ADS-B only)`}
             </span>
           )}
+          {blockLog.offBlockAt != null && (
+            <span className="rounded bg-slate-900/80 px-1.5 py-0.5 font-semibold tabular-nums text-slate-100" data-testid="block-times">
+              Off block {utcTime(blockLog.offBlockAt)}
+              {blockLog.takeoffAt != null && ` · T/O ${utcTime(blockLog.takeoffAt)}`}
+              {blockLog.landingAt != null && ` · LDG ${utcTime(blockLog.landingAt)}${blockLog.landings > 1 ? ` (${blockLog.landings})` : ''}`}
+              {blockLog.onBlockAt != null && ` · On block ${utcTime(blockLog.onBlockAt)}`}
+            </span>
+          )}
           {started === 'demo' && <span className="rounded bg-sky-600 px-1.5 py-0.5 font-semibold text-white">DEMO FLIGHT ({DEMO_SPEEDUP}× speed)</span>}
           {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
         </div>
@@ -1228,35 +1258,47 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   );
 };
 
-/** Ending a GPS flight: save it to the account (then get its KML), or close without. */
+/**
+ * Ending a flight: the logged times (off block, takeoff, landing, on block), the debriefing pack and
+ * the KML (made on the device), and saving it to the account with its times (signed in).
+ */
 const EndFlight: React.FC<{
-  points: TrackPoint[]; signedIn: boolean; defaultName: string; onDone: () => void; onKeepFlying: () => void;
-}> = ({ points, signedIn, defaultName, onDone, onKeepFlying }) => {
+  points: TrackPoint[]; log: BlockLog; signedIn: boolean; demo: boolean; defaultName: string;
+  planned: Array<{ lat: number; lon: number; code?: string }>; from: string | null; to: string | null;
+  onDone: () => void; onKeepFlying: () => void;
+}> = ({ points, log, signedIn, demo, defaultName, planned, onDone, onKeepFlying }) => {
   const [name, setName] = React.useState(defaultName);
   const [state, setState] = React.useState<'idle' | 'saving' | { id: number } | { error: string }>('idle');
+  const [debrief, setDebrief] = React.useState(false);
   const stats = trackStats(points);
+  // Worked out once when the page opens: on block is when it stopped (or now).
+  const [times] = React.useState(() => blockTimesOf(log));
   const save = () => {
     setState('saving');
-    saveTrack(name.trim() || defaultName, points).then(
-      t => { clearTrack(); clearNavSession(); setState({ id: t.id }); },
+    saveTrack(name.trim() || defaultName, points, times).then(
+      t => { clearTrack(); clearBlockLog(); clearNavSession(); setState({ id: t.id }); },
       e => setState({ error: e instanceof Error && e.message ? `${e.message} The flight stays on this device: try again when you have a connection.` : 'Could not save the flight.' }),
     );
+  };
+  const kml = () => {
+    saveFile(kmlFileName(points), flightKml(name.trim() || defaultName, points, times), 'application/vnd.google-earth.kml+xml')
+      .catch(() => setState(s => (typeof s === 'object' && 'id' in s ? s : { error: 'Could not share the KML.' })));
   };
   const btn = 'rounded-md px-4 py-2 font-semibold';
   const saved = typeof state === 'object' && 'id' in state ? state.id : null;
   return (
     <div className="space-y-3 text-sm">
-      <p className="tabular-nums">{nmText(stats.nm)} NM in {stats.minutes} min, {points.length} points.</p>
+      {demo && <p className="rounded bg-sky-900 px-2 py-1 text-xs">Demo flight: its times run 4× fast, and it isn&apos;t saved.</p>}
+      <TimesTable times={times} dark/>
+      <p className="tabular-nums text-slate-300">{nmText(stats.nm)} NM flown, {points.length} points. Times from the GPS: check them against the tech log.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={`${btn} bg-sky-700 hover:bg-sky-600`} onClick={() => setDebrief(true)}>Debriefing pack</button>
+        <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`} onClick={kml}>Download KML (Google Earth)</button>
+      </div>
       {saved != null ? (
         <>
-          <p className="font-semibold text-emerald-400">Saved to My flights.</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`}
-              onClick={() => { downloadTrackKml(saved).catch(() => undefined); }}>
-              Download KML (Google Earth)
-            </button>
-            <button type="button" className={`${btn} bg-emerald-600 hover:bg-emerald-500`} onClick={onDone}>Close navigation mode</button>
-          </div>
+          <p className="font-semibold text-emerald-400">Saved to My flights, with its times.</p>
+          <button type="button" className={`${btn} bg-emerald-600 hover:bg-emerald-500`} onClick={onDone}>Close navigation mode</button>
         </>
       ) : signedIn ? (
         <>
@@ -1268,7 +1310,7 @@ const EndFlight: React.FC<{
           {typeof state === 'object' && 'error' in state && <p className="text-amber-300" role="alert">{state.error}</p>}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={`${btn} bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60`} disabled={state === 'saving'} onClick={save}>
-              {state === 'saving' ? 'Saving…' : 'Save flight'}
+              {state === 'saving' ? 'Saving…' : 'Save to My flights'}
             </button>
             <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`} onClick={onKeepFlying}>Keep flying</button>
             <button type="button" className={`${btn} text-slate-300 hover:bg-slate-800`} onClick={onDone}>Close without saving</button>
@@ -1276,13 +1318,14 @@ const EndFlight: React.FC<{
         </>
       ) : (
         <>
-          <p className="text-slate-300">Sign in to save your flights and download them as KML for Google Earth.</p>
+          {!demo && <p className="text-slate-300">Sign in to keep your flights and their times in My flights.</p>}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={`${btn} bg-slate-700 hover:bg-slate-600`} onClick={onKeepFlying}>Keep flying</button>
             <button type="button" className={`${btn} text-slate-300 hover:bg-slate-800`} onClick={onDone}>Close</button>
           </div>
         </>
       )}
+      {debrief && <DebriefPack name={name.trim() || defaultName} points={points} times={times} planned={planned} demo={demo} onClose={() => setDebrief(false)}/>}
     </div>
   );
 };

@@ -211,12 +211,22 @@ test('a GPS flight ends on its own page: saved to the account, then its KML', as
   fireEvent.click(screen.getByRole('button', { name: 'Close navigation mode' }));
   const end = screen.getByRole('region', { name: 'End flight' });
   expect(within(end).getByDisplayValue(/^ESOW → ESSB, /)).toBeInTheDocument();
-  fireEvent.click(within(end).getByRole('button', { name: 'Save flight' }));
-  expect(await within(end).findByText('Saved to My flights.')).toBeInTheDocument();
+  // Recorded from the takeoff roll on: off block and takeoff are the first fix; still flying, no landing.
+  expect(within(end).getByText('Takeoff').nextSibling).toHaveTextContent(/^\d\d:\d\dZ$/);
+  fireEvent.click(within(end).getByRole('button', { name: 'Save to My flights' }));
+  expect(await within(end).findByText('Saved to My flights, with its times.')).toBeInTheDocument();
   expect((saveTrack as jest.Mock).mock.calls[0][1]).toHaveLength(3);
   expect((saveTrack as jest.Mock).mock.calls[0][1][0]).toEqual({ lat: 59.59, lon: 16.7, altFt: 1969, at: 1_000_000 });
+  expect((saveTrack as jest.Mock).mock.calls[0][2]).toEqual({
+    offBlock: new Date(1_000_000).toISOString(), takeoff: new Date(1_000_000).toISOString(), landing: null, onBlock: null, landings: 0,
+  });
+  // The KML is made here, without the server.
+  const createObjectURL = jest.fn(() => 'blob:kml');
+  Object.assign(URL, { createObjectURL, revokeObjectURL: () => undefined });
   fireEvent.click(within(end).getByRole('button', { name: /Download KML/ }));
-  expect(downloadTrackKml).toHaveBeenCalledWith(7);
+  expect(createObjectURL).toHaveBeenCalled();
+  expect(downloadTrackKml).not.toHaveBeenCalled();
+  expect(localStorage.getItem('nav.blockLog.v1')).toBeNull();
   fireEvent.click(within(end).getByRole('button', { name: 'Close navigation mode' }));
   expect(onClose).toHaveBeenCalled();
   expect(localStorage.getItem('nav.track.v1')).toBeNull();

@@ -9,6 +9,8 @@ it('shows the speed, altitude, track and climb, and the bank around the aircraft
   expect(screen.getByText('TRK 005°')).toBeInTheDocument();
   expect(screen.getByText('−510 fpm')).toBeInTheDocument();
   expect(screen.getByText('15° R')).toBeInTheDocument();
+  // The pointer swings towards the low wing: clockwise (to the right of the scale) in a right bank.
+  expect(screen.getByTestId('hud-bank-pointer')).toHaveAttribute('transform', 'rotate(15.2)');
   // Not following the aircraft: no horizon (it wouldn't be round the aircraft).
   rerender(<Hud speedKt={98} altFt={2480} vsFpm={0} trackDeg={5} bankDeg={15} pathDeg={0} centred={false}/>);
   expect(screen.queryByText('15° R')).not.toBeInTheDocument();

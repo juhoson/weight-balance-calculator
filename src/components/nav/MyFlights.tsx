@@ -3,6 +3,7 @@ import { Download, History, Loader2, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { deleteTrack, downloadTrackKml, type FlightTrack, listTracks } from '../../api/backend';
+import { hhmm, utcTime } from '../../lib/blockTimes';
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const duration = (a: string, b: string) => {
@@ -42,7 +43,7 @@ const MyFlightsButton: React.FC = () => {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>My flights</DialogTitle>
-            <DialogDescription>Flights saved from navigation mode. Download one as KML to open it in Google Earth.</DialogDescription>
+            <DialogDescription>Flights saved from navigation mode, with the times worked out from the GPS (UTC). Download one as KML to open it in Google Earth.</DialogDescription>
           </DialogHeader>
           {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
           {flights === null && !error && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/> Loading…</p>}
@@ -56,6 +57,14 @@ const MyFlightsButton: React.FC = () => {
                     <div className="text-xs text-muted-foreground">
                       {when(f.startedAt)} · {duration(f.startedAt, f.endedAt)} · {Math.round(f.distanceNm)} NM
                     </div>
+                    {f.times && (f.times.offBlock || f.times.takeoff) && (
+                      <div className="text-xs tabular-nums text-muted-foreground" data-testid="flight-times">
+                        Off {utcTime(f.times.offBlock)} · T/O {utcTime(f.times.takeoff)} · LDG {utcTime(f.times.landing)} · On {utcTime(f.times.onBlock)}
+                        {hhmm(f.times.offBlock, f.times.onBlock) && <> · block <strong className="text-foreground">{hhmm(f.times.offBlock, f.times.onBlock)}</strong></>}
+                        {hhmm(f.times.takeoff, f.times.landing) && <> · flight <strong className="text-foreground">{hhmm(f.times.takeoff, f.times.landing)}</strong></>}
+                        {f.times.landings != null && ` · ${f.times.landings} ldg`}
+                      </div>
+                    )}
                   </div>
                   <Button type="button" variant="outline" size="sm" disabled={busy === f.id} aria-label={`Download ${f.name} as KML`}
                     onClick={() => act(f.id, () => downloadTrackKml(f.id))}>
