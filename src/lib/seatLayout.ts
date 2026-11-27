@@ -18,3 +18,16 @@ export function getSeatLayout(aircraft: HasStations | undefined): SeatLayoutKind
   if (!passengerRear && !passengerBack) return 'twoSeat';
   return 'standard';
 }
+
+/** The seats each layout has, by their weight field. */
+const SEATS: Record<SeatLayoutKind, string[]> = {
+  twoSeat: ['pilotWeight', 'frontPassengerWeight'],
+  tandem: ['pilotWeight', 'backPassengerWeight'],
+  standard: ['pilotWeight', 'frontPassengerWeight', 'rearLeftPassengerWeight', 'rearRightPassengerWeight'],
+  sixSeat: ['pilotWeight', 'frontPassengerWeight', 'rearLeftPassengerWeight', 'rearRightPassengerWeight', 'backLeftPassengerWeight', 'backRightPassengerWeight'],
+};
+
+/** Persons on board: the layout's seats with a weight in them (at least the pilot). */
+export function personsOnBoard(weights: Partial<Record<string, number | undefined>>, layout: SeatLayoutKind): number {
+  return Math.max(1, SEATS[layout].filter(k => (weights[k] ?? 0) > 0).length);
+}

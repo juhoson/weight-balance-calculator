@@ -7,7 +7,7 @@ import {useAircraftCatalog} from '../lib/useAircraftCatalog';
 import {clubFromUrl} from '../lib/clubLink';
 import ClubLinkBanner from './ClubLinkBanner';
 import {useAuth} from '../api/useAuth';
-import {getSeatLayout} from '../lib/seatLayout';
+import {getSeatLayout, personsOnBoard} from '../lib/seatLayout';
 import {FormItem, FormLabel} from './ui/Form';
 import SafetyDisclaimer from './SafetyDisclaimer';
 import DisclaimerModal from './DisclaimerModal';
@@ -46,6 +46,7 @@ import {useRouteWeather} from '../lib/useRouteWeather';
 import type {RouteWeather} from '../types/route';
 import {routeChain} from '../lib/routePoint';
 import BriefingButton from './briefing/BriefingDialog';
+import FlightPlanButton, {type FlightPlanDefaults} from './flightplan/FlightPlanDialog';
 import type {BriefingData} from './briefing/BriefingPack';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
 import {airspacesFetchedAt, nearestAirports} from '../api/backend';
@@ -165,7 +166,8 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const [clubLink] = React.useState(() => clubFromUrl());
   React.useEffect(() => { if (clubLink) track('club-link', {club: clubLink}); }, [clubLink]);
   const catalog = useAircraftCatalog(clubLink);
-  const userId = useAuth().user?.id ?? null;
+  const authUser = useAuth().user;
+  const userId = authUser?.id ?? null;
   // The generic aircraft can be hidden (remembered per user in this browser); a club link hides them.
   const hideGenericKey = `hideGenericAircraft.v1.${userId}`;
   const [hideGenericPref, setHideGeneric] = React.useState(() => readFlag(hideGenericKey));
@@ -959,6 +961,27 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const selectedMeta = catalog.meta[selectedAircraft];
   if (!aircraft) return null; // only for the render before the list effect picks another aircraft
   const verdict = results ? verdictOf(results) : null;
+  // The ICAO flight plan's defaults: the route, times, fuel and people on board from the plan.
+  const flightPlanDefaults: FlightPlanDefaults | null = (() => {
+    if (!trip || trip.distanceNm <= 0 || !plannedAircraft || !cruise) return null;
+    const totalFuel = inputs.fuelAmount + (plannedAircraft.stations.fuel2 ? inputs.fuel2Amount || 0 : 0);
+    const liters = inputs.fuelUnit === 'kg' ? totalFuel / plannedAircraft.stations.fuel.weightPerLiter : totalFuel;
+    const place = (a: {code: string; name: string; lat: number; lon: number}) => ({code: a.code, name: a.name, lat: a.lat, lon: a.lon});
+    const start = departureAt ?? new Date(Math.ceil((Date.now() + 30 * 60_000) / (5 * 60_000)) * 5 * 60_000);
+    return {
+      aircraftKey: selectedAircraft,
+      registration: metaNow?.kind === 'airframe' ? metaNow.registration : '',
+      modelCode: metaNow?.code ?? selectedAircraft,
+      departure: place(trip.departure), destination: place(trip.arrival),
+      via: (trip.waypoints ?? []).map(w => ({code: w.code, lat: w.lat, lon: w.lon})),
+      offBlock: start, speedKt: tasKt, levelFt: altitudeFt,
+      eetMinutes: Math.round(windPlan?.ok ? windPlan.minutes : noWindMinutes),
+      fuelLiters: liters,
+      enduranceMinutes: Math.max(0, Math.floor(((liters - plannedAircraft.performance.taxiFuel.liters) / cruise.litersPerHour) * 60)),
+      personsOnBoard: personsOnBoard(inputs as unknown as Record<string, number>, getSeatLayout(aircraft)),
+      pilot: authUser?.displayName ?? '',
+    };
+  })();
   const limitProblems = results ? [...(results.takeoff.problems ?? []), ...(results.landing.problems ?? [])] : [];
   const maxFuel = getMaxFuel(aircraft);
   const toLiters = (amount: number, perLiter: number) => (inputs.fuelUnit === 'liters' ? amount : amount / perLiter);
@@ -1241,7 +1264,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             waitingFor={aircraft.basicEmptyWeight > 0 ? null
               : 'Enter your aircraft\'s empty weight and arm from its weighing report (under the aircraft) to see the results.'}
             routeLabel={trip ? `${routeChain([trip.departure.code, ...(trip.waypoints ?? []).map(w => w.code), trip.arrival.code])} · ${Math.round(trip.distanceNm)} NM · ${fmtTime(inputs.flightTime)} at ${inputs.powerSetting}` : null}
-            actions={<BriefingButton data={briefing}/>}
+            actions={<><BriefingButton data={briefing}/><FlightPlanButton defaults={flightPlanDefaults}/></>}
           />
         </aside>
       </form>
