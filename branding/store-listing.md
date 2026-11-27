@@ -9,6 +9,7 @@ before submitting.
 | What | File | Store |
 |---|---|---|
 | iPhone 6.9" screenshots (1320×2868), in order | `screenshots/ios/iphone-6.9/01…10` | App Store |
+| iPhone 6.5" screenshots (1284×2778), the same, for the 6.5" slot | `screenshots/ios/iphone-6.5/01…10` | App Store |
 | iPad 13" screenshots (2064×2752), in order | `screenshots/ios/ipad-13/01…10` | App Store |
 | Phone screenshots (1080×1920) | `screenshots/android/phone/` | Google Play |
 | 10" tablet screenshots (1600×2560) | `screenshots/android/tablet-10/` | Google Play |
