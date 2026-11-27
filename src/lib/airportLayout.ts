@@ -58,6 +58,33 @@ export function loadAirportLayout(code: string, now = Date.now()): Promise<Airpo
   return p;
 }
 
+/** How often a field whose layout couldn't be had is asked for again (the server keeps a failure 2 minutes). */
+export const LAYOUT_RETRY_MS = 2.5 * 60 * 1000;
+
+/**
+ * Loads the fields' layouts, asking again every `everyMs` for any the server couldn't give (its
+ * map source is often busy), until each has one or the field turns out not to be mapped. Each one
+ * found is handed to `onLoaded`. Returns a function that stops it.
+ */
+export function keepLoadingLayouts(codes: string[], onLoaded: (code: string, layout: AirportLayout) => void,
+  everyMs = LAYOUT_RETRY_MS): () => void {
+  let stopped = false;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const attempt = (code: string) => {
+    loadAirportLayout(code).then(layout => {
+      if (stopped) return;
+      if (layout) {
+        if (layout.features.length) onLoaded(code, layout);
+        return; // found, or found to have nothing mapped
+      }
+      const t = setTimeout(() => { timers.delete(t); attempt(code); }, everyMs);
+      timers.add(t);
+    }, () => undefined);
+  };
+  codes.forEach(attempt);
+  return () => { stopped = true; timers.forEach(clearTimeout); };
+}
+
 /** For tests. */
 export function forgetAirportLayouts(): void {
   loaded.clear();

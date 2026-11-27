@@ -29,7 +29,7 @@ import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../li
 import Hud from './Hud';
 import { nextBearing, TRACK_UP_AT, trackUpFrame } from '../../lib/trackUp';
 import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
-import { type AirportLayout, loadAirportLayout } from '../../lib/airportLayout';
+import { type AirportLayout, keepLoadingLayouts } from '../../lib/airportLayout';
 import { addLayoutPanes, drawAirportLayouts } from './airportLayer';
 import RouteProfileChart from '../route/RouteProfileChart';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
@@ -726,11 +726,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }, [route, atFieldCode]);
   React.useEffect(() => {
     if (!started || !layoutCodes) return;
-    let live = true;
-    layoutCodes.split(',').filter(c => !layoutsRef.current[c]).forEach(code => {
-      loadAirportLayout(code).then(l => { if (live && l && l.features.length) setLayouts(all => ({ ...all, [code]: l })); }, () => undefined);
-    });
-    return () => { live = false; };
+    // Asked again every few minutes until the server has it (its map source is often busy).
+    return keepLoadingLayouts(layoutCodes.split(',').filter(c => !layoutsRef.current[c]),
+      (code, l) => setLayouts(all => ({ ...all, [code]: l })));
   }, [started, layoutCodes]);
   React.useEffect(() => {
     const map = mapRef.current;

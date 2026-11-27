@@ -28,6 +28,7 @@ import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
 import ObstaclePanel, { useRouteObstacles } from './route/ObstaclePanel';
 import { terrainProfile, type TerrainPoint } from '../lib/terrainProfile';
+import { keepLoadingLayouts } from '../lib/airportLayout';
 import type { ReportedCloud } from './route/RouteProfileChart';
 import { decodeMetar } from '../lib/metarTaf';
 import AirspacePanel from './route/AirspacePanel';
@@ -886,6 +887,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const obstaclePath = React.useMemo<PathPoint[]>(() => airspaceCheck?.path
     ?? [{ nm: 0, ft: altitudeFt }, { nm: trip?.distanceNm ?? 0, ft: altitudeFt }], [airspaceCheck, altitudeFt, trip]);
   const { list: routeObstacles } = useRouteObstacles(routePoints, obstaclePath);
+  // The departure's and arrival's layouts (runways, taxiways) fetched while planning, online, so the
+  // navigation map has them on the device from the start (the first fetch of a field can take a minute).
+  const layoutFields = trip ? [trip.departure, trip.arrival].filter(a => a.type !== 'point').map(a => a.code).join(',') : '';
+  React.useEffect(() => (layoutFields ? keepLoadingLayouts(layoutFields.split(','), () => undefined) : undefined), [layoutFields]);
   // The ground along the route for the profile, from the elevation model (the forecast's own is averaged per segment).
   const [routeTerrain, setRouteTerrain] = React.useState<TerrainPoint[] | null>(null);
   React.useEffect(() => {

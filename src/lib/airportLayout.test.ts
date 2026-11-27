@@ -1,4 +1,4 @@
-import { forgetAirportLayouts, holdingBar, isUnpaved, lengthM, loadAirportLayout, metersPerPixel, runwayEnds, taxiwayLabels, type LayoutFeature } from './airportLayout';
+import { forgetAirportLayouts, holdingBar, keepLoadingLayouts, isUnpaved, lengthM, loadAirportLayout, metersPerPixel, runwayEnds, taxiwayLabels, type LayoutFeature } from './airportLayout';
 import { fetchAirportLayout } from '../api/backend';
 
 jest.mock('../api/backend', () => ({ fetchAirportLayout: jest.fn() }));
@@ -86,5 +86,44 @@ describe('loadAirportLayout', () => {
     expect(await loadAirportLayout('ESSB')).toEqual(layout);
     fetchMock.mockRejectedValue(new Error('offline'));
     expect(await loadAirportLayout('ESSB')).toEqual(layout);
+  });
+});
+
+describe('keepLoadingLayouts', () => {
+  beforeEach(() => { localStorage.clear(); forgetAirportLayouts(); fetchMock.mockReset(); jest.useFakeTimers(); });
+  afterEach(() => jest.useRealTimers());
+  const layout = { code: 'ESOW', features: [f('runway', [[59, 17], [59.01, 17]], { ref: '01/19' })], available: true };
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+
+  it('asks again until the server has it', async () => {
+    fetchMock.mockResolvedValueOnce({ code: 'ESOW', features: [], available: false }).mockResolvedValueOnce(layout);
+    const got: string[] = [];
+    const stop = keepLoadingLayouts(['ESOW'], code => got.push(code), 1000);
+    await flush();
+    expect(got).toEqual([]);
+    jest.advanceTimersByTime(1000);
+    await flush();
+    expect(got).toEqual(['ESOW']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it('stops asking when stopped, or when the field has nothing mapped', async () => {
+    fetchMock.mockResolvedValue({ code: 'ESXX', features: [], available: false });
+    const stop = keepLoadingLayouts(['ESXX'], () => undefined, 1000);
+    await flush();
+    stop();
+    jest.advanceTimersByTime(5000);
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    forgetAirportLayouts();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ code: 'ESYY', features: [], available: true });
+    keepLoadingLayouts(['ESYY'], () => undefined, 1000);
+    await flush();
+    jest.advanceTimersByTime(5000);
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
