@@ -658,7 +658,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // Other traffic (ADS-B, online only), asked every few seconds around the aircraft.
   const [showTraffic, toggleTraffic] = useShown(SHOW_TRAFFIC_KEY, true);
   const [showHud, toggleHud] = useShown(SHOW_HUD_KEY, false);
-  const [trackUp, toggleTrackUp] = useShown(TRACK_UP_KEY, false);
+  const [trackUp, toggleTrackUp] = useShown(TRACK_UP_KEY, true);
   const [showProfile, toggleProfile] = useShown(SHOW_PROFILE_KEY, true);
   const profileFits = !!profile && profile.legs.length > 0 && !!frameSize && frameSize.w >= PROFILE_MIN_W && frameSize.h >= PROFILE_MIN_H;
   const strip = profileFits && showProfile && !!started ? PROFILE_H + 12 : 0;
