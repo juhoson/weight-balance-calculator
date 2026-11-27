@@ -9,6 +9,7 @@ import AvoidAirspace from './AvoidAirspace';
 import { isCruisingLevel } from '../../lib/suggestAltitude';
 import { vfrLevel } from '../../lib/avoidAirspace';
 import type { CloudLayer } from '../../lib/metarTaf';
+import type { TerrainPoint } from '../../lib/terrainProfile';
 import { OBSTACLE_MARGIN_FT, obstacleText, type RouteObstacle } from '../../lib/obstacles';
 
 interface RouteProfileChartProps {
@@ -28,6 +29,8 @@ interface RouteProfileChartProps {
   arrivalFt?: number | null;
   /** The obstacles near the route, drawn where they are abeam it (red: too little clearance). */
   obstacles?: RouteObstacle[];
+  /** The ground along the route (elevation model, every ~½ NM); without it, the forecast model's average per segment. */
+  terrainProfile?: TerrainPoint[] | null;
 }
 
 /** A METAR's cloud at its place along the route. */
@@ -104,7 +107,7 @@ type Active = { kind: 'segment'; i: number; hover?: boolean } | { kind: 'airspac
  * segment, or hover the wind strip along the top, for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null, obstacles = [] }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null, obstacles = [], terrainProfile = null }) => {
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<Active | null>(null);
@@ -142,6 +145,10 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
     return `${d}${i > 0 && freezing[i - 1] ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`;
   }, '');
   const terrain = segments.map(s => s.segment.groundFt ?? 0);
+  // The real ground, stretched to the chart's length (the two measure the route a little differently).
+  const groundEnd = terrainProfile && terrainProfile.length > 1 ? terrainProfile[terrainProfile.length - 1].nm : 0;
+  const groundLine = terrainProfile && groundEnd > 0
+    ? terrainProfile.map(t => `L${x((t.nm / groundEnd) * totalNm).toFixed(1)},${y(t.ft).toFixed(1)}`).join('') : null;
   const boundaries = legs.map(l => l.segments[0]?.segment.startNm).filter((nm): nm is number => nm !== undefined);
   const codes = [...legs.map(l => l.leg.from), legs[legs.length - 1].leg.to];
   // Each leg's altitude (its middle), and whether it's a VFR cruising level for the leg's courses.
@@ -202,7 +209,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-t-full border-b-2 border-slate-700 bg-slate-500/80 dark:border-slate-100 dark:bg-slate-300/80"/> Cloud reported (METAR, line at its base)</span>
         )}
         <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed border-sky-600 dark:border-sky-400"/> 0 °C level</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> Terrain (model average)</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm bg-stone-400/60 dark:bg-stone-600/70"/> {groundLine ? 'Terrain along the route' : 'Terrain (model average)'}</span>
         {obstacles.length > 0 && (
           <span className="flex items-center gap-1"><svg width="8" height="12" aria-hidden="true"><path d="M4,0 L1,4 L7,4 Z M4,3 V12" className="fill-stone-700 stroke-stone-700 dark:fill-stone-200 dark:stroke-stone-200" strokeWidth={1.5}/></svg>
             Obstacle within 5 NM{obstacles.some(o => o.clearanceFt < OBSTACLE_MARGIN_FT) ? ` (red: under ${OBSTACLE_MARGIN_FT} ft below the path)` : ''}</span>
@@ -323,8 +330,8 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           </g>
 
           {/* Terrain */}
-          <path className="fill-stone-400/60 dark:fill-stone-600/70"
-            d={`M${x(0)},${y(0)}${segments.map((s, i) => `L${x(s.segment.startNm)},${y(terrain[i])}L${x(s.segment.startNm + s.segment.distanceNm)},${y(terrain[i])}`).join('')}L${x(totalNm)},${y(0)}Z`}/>
+          <path className="fill-stone-400/60 stroke-stone-500/70 dark:fill-stone-600/70 dark:stroke-stone-500" strokeWidth={groundLine ? 1 : 0} strokeLinejoin="round"
+            d={groundLine ? `M${x(0)},${y(0)}${groundLine}L${x(totalNm)},${y(0)}Z` : `M${x(0)},${y(0)}${segments.map((s, i) => `L${x(s.segment.startNm)},${y(terrain[i])}L${x(s.segment.startNm + s.segment.distanceNm)},${y(terrain[i])}`).join('')}L${x(totalNm)},${y(0)}Z`}/>
 
           {/* Obstacles, from their foot to their top, where they are abeam the route. */}
           <g aria-hidden="true">

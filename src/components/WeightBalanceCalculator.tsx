@@ -27,6 +27,7 @@ import {loadEmptyOverrides, saveEmptyOverrides, type EmptyOverrides} from '../li
 import {cn} from '../lib/utils';
 import RouteSection from './route/RouteSection';
 import ObstaclePanel, { useRouteObstacles } from './route/ObstaclePanel';
+import { terrainProfile, type TerrainPoint } from '../lib/terrainProfile';
 import type { ReportedCloud } from './route/RouteProfileChart';
 import { decodeMetar } from '../lib/metarTaf';
 import AirspacePanel from './route/AirspacePanel';
@@ -885,6 +886,15 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const obstaclePath = React.useMemo<PathPoint[]>(() => airspaceCheck?.path
     ?? [{ nm: 0, ft: altitudeFt }, { nm: trip?.distanceNm ?? 0, ft: altitudeFt }], [airspaceCheck, altitudeFt, trip]);
   const { list: routeObstacles } = useRouteObstacles(routePoints, obstaclePath);
+  // The ground along the route for the profile, from the elevation model (the forecast's own is averaged per segment).
+  const [routeTerrain, setRouteTerrain] = React.useState<TerrainPoint[] | null>(null);
+  React.useEffect(() => {
+    setRouteTerrain(null);
+    if (routePoints.length < 2) return undefined;
+    let live = true;
+    terrainProfile(routePoints).then(t => { if (live) setRouteTerrain(t.length > 1 ? t : null); }, () => undefined);
+    return () => { live = false; };
+  }, [routePoints]);
   const obstacleBasis = airspaceCheck ? 'the planned path' : `${altitudeFt.toLocaleString('en')} ft`;
   const avoid = React.useMemo<AvoidHandler | undefined>(() => {
     if (!trip || !airspaceCheck) return undefined;
@@ -1051,6 +1061,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
                 reported={reportedClouds}
                 arrivalFt={trip.arrival.elevationFt ?? null}
                 obstacles={routeObstacles}
+                terrainProfile={routeTerrain}
                 altitudeFt={altitudeFt}
                 onAltitudeChange={setAltitudeFt}
                 departure={departure}

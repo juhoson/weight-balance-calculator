@@ -64,10 +64,8 @@ export function terrainGridFor(points: At[], padNm: number, spacingNm = 1): Omit
   return { south, west, dLat, dLon, rows: Math.floor((north - south) / dLat) + 1, cols: Math.floor((east - west) / dLon) + 1 };
 }
 
-/** The grid's elevations from Open-Meteo (Copernicus DEM, 90 m), 100 points a call, a second apart. */
-export async function fetchTerrain(grid: Omit<TerrainGrid, 'ft'>, signal?: AbortSignal): Promise<TerrainGrid> {
-  const pts: At[] = [];
-  for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) pts.push({ lat: grid.south + r * grid.dLat, lon: grid.west + c * grid.dLon });
+/** Elevations from Open-Meteo (Copernicus DEM, 90 m), ft (NaN unknown), 100 points a call, a second apart. */
+export async function fetchElevations(pts: At[], signal?: AbortSignal): Promise<number[]> {
   const ft: number[] = [];
   for (let i = 0; i < pts.length; i += 100) {
     const part = pts.slice(i, i + 100);
@@ -84,7 +82,14 @@ export async function fetchTerrain(grid: Omit<TerrainGrid, 'ft'>, signal?: Abort
     const body = await res.json() as { elevation?: Array<number | null> };
     part.forEach((_, j) => { const m = body.elevation?.[j]; ft.push(typeof m === 'number' ? m * FT_PER_M : NaN); });
   }
-  return { ...grid, ft };
+  return ft;
+}
+
+/** The grid's elevations. */
+export async function fetchTerrain(grid: Omit<TerrainGrid, 'ft'>, signal?: AbortSignal): Promise<TerrainGrid> {
+  const pts: At[] = [];
+  for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) pts.push({ lat: grid.south + r * grid.dLat, lon: grid.west + c * grid.dLon });
+  return { ...grid, ft: await fetchElevations(pts, signal) };
 }
 
 /** The wind along a true direction (tail positive) and from its left (pushing right positive), kt. */

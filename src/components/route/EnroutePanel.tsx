@@ -10,6 +10,7 @@ import {
 import { type AltitudeHold, type RoutePlan, warningsOf, withStretchAltitude } from '../../lib/enroute';
 import AltitudeChanges from './AltitudeChanges';
 import type { RouteObstacle } from '../../lib/obstacles';
+import type { TerrainPoint } from '../../lib/terrainProfile';
 import RouteProfileChart, { type ReportedCloud } from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
 import type { AvoidHandler } from '../../lib/avoidAirspace';
@@ -23,6 +24,8 @@ interface EnroutePanelProps {
   arrivalFt?: number | null;
   /** The obstacles near the route, for the profile. */
   obstacles?: RouteObstacle[];
+  /** The ground along the route, for the profile. */
+  terrainProfile?: TerrainPoint[] | null;
   altitudeFt: number;
   onAltitudeChange: (ft: number) => void;
   /** datetime-local value; empty = now. */
@@ -64,7 +67,7 @@ export function localInputValue(d: Date): string {
 
 /** Cruise altitude and departure time; the route flown in the forecast as a profile and a nav log. */
 const EnroutePanel: React.FC<EnroutePanelProps> = ({
-  reported, arrivalFt, obstacles, altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
+  reported, arrivalFt, obstacles, terrainProfile, altitudeFt, onAltitudeChange, departure, onDepartureChange, blockedReason, forecast, plan, tasKt, vyKt, climbRates,
   onClimbRatesChange, airspaces, avoid, suggestions = null, suggestMaxFt, onSuggestMaxChange, holds = [], onHoldsChange,
 }) => {
   const now = new Date();
@@ -156,7 +159,7 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
           )}
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
           <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}
-            reported={reported} arrivalFt={arrivalFt} obstacles={obstacles}
+            reported={reported} arrivalFt={arrivalFt} obstacles={obstacles} terrainProfile={terrainProfile}
             onLegAltitude={onHoldsChange && ((i, to) => {
               const segs = plan.legs[i].segments;
               const last = segs[segs.length - 1].segment;
