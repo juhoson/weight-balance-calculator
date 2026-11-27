@@ -26,6 +26,8 @@ import { fullScreen, isNative, keepScreenOn, watchPosition } from '../../lib/nat
 import { cachedTileLayer } from '../../lib/tileCache';
 import { relativeAltText, TRAFFIC_ALERT_FT, TRAFFIC_RANGE_NM, trafficName, trafficNear } from '../../lib/traffic';
 import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../lib/departure';
+import Hud from './Hud';
+import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
@@ -77,6 +79,7 @@ const SHOW_NAVAID_KEY = 'nav.showNavaids';
 /** Radio navaids this far from the route are drawn: a VOR is used well off it. */
 const NAVAID_RANGE_NM = 40;
 const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
+const SHOW_HUD_KEY = 'nav.showHud';
 const SHOW_TRAFFIC_KEY = 'nav.showTraffic';
 /** The trend line's ticks: where the aircraft will be in this many minutes. */
 const TREND_MINUTES = [1, 2, 3];
@@ -503,6 +506,14 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   }, [routeObstacles, showObstacle, obstacleData]);
   // Other traffic (ADS-B, online only), asked every few seconds around the aircraft.
   const [showTraffic, toggleTraffic] = useShown(SHOW_TRAFFIC_KEY, true);
+  const [showHud, toggleHud] = useShown(SHOW_HUD_KEY, false);
+  // The turn rate from the track as the fixes come, for the HUD's bank.
+  const turn = React.useRef<TurnState | null>(null);
+  const turnDps = React.useMemo(() => {
+    if (!fix) return 0;
+    if (turn.current?.at !== fix.at) turn.current = nextTurn(turn.current, fix.trackDeg, fix.at, fix.speedKt);
+    return turn.current.dps;
+  }, [fix]);
   const [trafficList, setTrafficList] = React.useState<Traffic[] | null>(null);
   const [trafficFailed, setTrafficFailed] = React.useState(false);
   const fixRef = React.useRef<Fix | null>(null);
@@ -1007,6 +1018,10 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
 
       <div className="relative order-3 min-h-0 flex-1 lg:landscape:order-1">
         <div ref={container} className="route-map absolute inset-0" aria-label="Navigation map"/>
+        {showHud && started && fix && (
+          <Hud speedKt={fix.speedKt} altFt={fix.altFt} vsFpm={fix.vsFpm ?? null} trackDeg={fix.trackDeg}
+            bankDeg={bankFor(turnDps, fix.speedKt)} pathDeg={pathAngle(fix.vsFpm, fix.speedKt)} centred={follow}/>
+        )}
         <div className="pointer-events-none absolute left-2 top-2 z-[1000] flex flex-col gap-1 text-xs">
           <span className="rounded bg-slate-900/80 px-1.5 py-0.5 font-semibold text-slate-100">VFR navigation aid · beta</span>
           {offline && (
@@ -1047,6 +1062,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           <button type="button" aria-pressed={showTraffic} onClick={toggleTraffic} title="Traffic: aircraft sending ADS-B (online)"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showTraffic ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             TFC
+          </button>
+          <button type="button" aria-pressed={showHud} onClick={toggleHud}
+            title="HUD: speed and altitude tapes, bank and horizon round the aircraft (worked out from the GPS: no gyro)"
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showHud ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            HUD
           </button>
         </div>
         {!follow && fix && (
