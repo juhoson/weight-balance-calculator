@@ -35,7 +35,9 @@ import { nextBearing, TRACK_UP_AT, trackUpFrame } from '../../lib/trackUp';
 import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
 import { type AirportLayout, keepLoadingLayouts } from '../../lib/airportLayout';
 import { addLayoutPanes, drawAirportLayouts } from './airportLayer';
-import { useArrivalPlan } from '../../lib/useArrivalPlan';
+import { loadAerodrome, useArrivalPlan } from '../../lib/useArrivalPlan';
+import { type ApproachWatch, newApproachWatch, overRunway, runwayZoom, watchApproach } from '../../lib/airportPhase';
+import { type ArrivalPoint, circuitPattern, isControlledField, runwayAlong, STANDARD_CIRCUIT_AGL_FT } from '../../lib/arrival';
 import RouteProfileChart from '../route/RouteProfileChart';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
@@ -216,6 +218,20 @@ export function airspaceBorder(a: Pick<AirspaceView, 'type' | 'icaoClass' | 'act
   const color = ['R', 'D', 'P'].includes(a.type) ? '#dc2626'
     : a.icaoClass && a.icaoClass !== 'G' ? '#1d4ed8' : '#7c3aed';
   return { color, weight: 2, opacity: 0.8, dashArray: a.activation ? '8 6' : undefined };
+}
+
+/** The circuit shown after a go-around. */
+interface GoAroundCircuit {
+  code: string;
+  runway: string;
+  side: 'LEFT' | 'RIGHT';
+  /** The side is the field's own (openAIP); else the standard left. */
+  published: boolean;
+  /** In a control zone: ATC says how. */
+  controlled: boolean;
+  /** Standard height above the field (none is published in openAIP), as an altitude. */
+  circuitFt: number;
+  points: ArrivalPoint[];
 }
 
 function useShown(key: string, initial: boolean): [boolean, () => void] {
@@ -427,6 +443,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const trafficLayer = React.useRef(L.layerGroup());
   /** The last leg and the way in to the runway: drawn by itself, as it changes with the runway. */
   const arrivalLayer = React.useRef(L.layerGroup());
+  /** After a go-around: the circuit to fly round again. */
+  const circuitLayer = React.useRef(L.layerGroup());
   /** The fields' runways and taxiways (OpenStreetMap), drawn when zoomed in. */
   const layoutLayer = React.useRef(L.layerGroup());
   const [layouts, setLayouts] = React.useState<Record<string, AirportLayout>>({});
@@ -447,6 +465,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         return p && distanceNm(p[0], p[1], f.lat, f.lon) <= TAXI_ZOOM_NM;
       });
       return atField ? TAXI_ZOOM : 13;
+    }
+    // Taking off (until past the runway's end or 300 ft up) and low on the way in: the field's layout in view.
+    const fieldAt = Object.values(layoutsRef.current).find(l => {
+      const p = l.features.find(x => x.kind === 'runway')?.points[0];
+      return p && distanceNm(p[0], p[1], f.lat, f.lon) <= TAXI_ZOOM_NM;
+    });
+    const elevation = fieldAt ? [...route, ...airfields].find(a => a.code === fieldAt.code)?.elevationFt : null;
+    if (fieldAt && elevation != null && f.altFt != null) {
+      const z = runwayZoom({ aglFt: f.altFt - elevation, vsFpm: f.vsFpm, overRunway: overRunway([fieldAt], f) });
+      if (z != null) return z;
     }
     const fields = route.length ? [route[0], route[route.length - 1]] : [];
     const nearField = fields.find(a => distanceNm(a.lat, a.lon, f.lat, f.lon) <= AUTO_ZOOM_NEAR_NM);
@@ -526,6 +554,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     borders();
     map.on('zoomend', borders);
     arrivalLayer.current.addTo(map);
+    circuitLayer.current.addTo(map);
     addLayoutPanes(map);
     layoutLayer.current.addTo(map);
     map.on('zoomend', () => drawAirportLayouts(layoutLayer.current, Object.values(layoutsRef.current), map.getZoom()));
@@ -804,6 +833,44 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         : leg ? nextAirspace(routeCrossings, leg.alongNm, fix.altFt, insideIds) : null;
   const nearestStill = React.useMemo(() => (fix ? nearestAirfields(airfields, fix, fix.altFt, ratio, 8) : []), [fix, airfields, ratio]);
   const groundFt = nearestStill[0]?.airport.elevationFt ?? null;
+  // A go-around (or a touch and go) noticed from the GPS: the circuit to fly, its side and height.
+  const approachWatch = React.useRef<ApproachWatch>(newApproachWatch());
+  const [goAround, setGoAround] = React.useState<GoAroundCircuit | null>(null);
+  const nearFix = nearestStill[0];
+  React.useEffect(() => {
+    if (!fix) return;
+    const elev = nearFix?.airport.elevationFt;
+    const near = nearFix && elev != null && fix.altFt != null ? { code: nearFix.airport.code, aglFt: fix.altFt - elev, nm: nearFix.nm } : null;
+    const { watch, goAround: began } = watchApproach(approachWatch.current, fix, near);
+    approachWatch.current = watch;
+    if (began && nearFix) {
+      const field = nearFix.airport, end = runwayAlong(field, began.trackDeg);
+      if (!end) return;
+      const controlled = isControlledField(field, airspacesNow);
+      loadAerodrome(field.code).then(a => {
+        const published = a?.code === field.code ? a.circuits.find(c => c.runway === end.runway)?.direction ?? null : null;
+        const side = published ?? 'LEFT';
+        setGoAround({
+          code: field.code, runway: end.runway, side, published: published != null, controlled,
+          circuitFt: (field.elevationFt ?? 0) + STANDARD_CIRCUIT_AGL_FT,
+          points: circuitPattern(field, end, side, layoutsRef.current[field.code] ?? null),
+        });
+      }, () => undefined);
+    }
+    // Landed, or gone from the field: the circuit is put away.
+    if (goAround && ((fix.speedKt ?? 0) < 35 || !nearFix || nearFix.airport.code !== goAround.code || nearFix.nm > 5)) setGoAround(null);
+  }, [fix]);
+  React.useEffect(() => {
+    const group = circuitLayer.current;
+    group.clearLayers();
+    if (!goAround) return;
+    const line = goAround.points.map(p => L.latLng(p.lat, p.lon));
+    L.polyline(line, { color: '#ffffff', weight: 6, opacity: 0.7, interactive: false }).addTo(group);
+    L.polyline(line, { color: '#d97706', weight: 3, dashArray: '8 6', interactive: false }).addTo(group);
+    goAround.points.slice(1, -1).forEach(p => L.circleMarker([p.lat, p.lon], { radius: 3, color: '#ffffff', weight: 2, fillColor: '#d97706', fillOpacity: 1 })
+      .bindTooltip(upright(p.label), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label' }).addTo(group));
+  }, [goAround, mapGen]);
+
   // The layouts of the departure and arrival, and of any field the aircraft is at (landing elsewhere).
   const atFieldCode = nearestStill[0] && nearestStill[0].nm <= TAXI_ZOOM_NM ? nearestStill[0].airport.code : null;
   const layoutCodes = React.useMemo(() => {
@@ -1154,6 +1221,18 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           );
         })()}
+        {goAround && (
+          <div role="status" aria-label="Go-around" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-amber-700 px-3 py-1.5 text-sm text-white">
+            <strong>Go-around {goAround.code} RWY {goAround.runway}</strong>
+            <span>
+              {goAround.controlled ? 'Fly as ATC instructs. ' : ''}
+              {goAround.side === 'LEFT' ? 'Left' : 'Right'}-hand circuit{goAround.published ? '' : ' (standard; none published)'}
+              {' · '}circuit altitude ≈ {goAround.circuitFt.toLocaleString('en')} ft
+              <span className="text-amber-100"> ({STANDARD_CIRCUIT_AGL_FT.toLocaleString('en')} ft above the field; none published, check the AIP)</span>
+            </span>
+            <button type="button" className="ml-auto rounded bg-amber-900/60 px-2 py-0.5 text-xs font-semibold" onClick={() => setGoAround(null)}>Hide</button>
+          </div>
+        )}
         {/* Takes the rest of the panel in landscape when no page is open, keeping the buttons at the bottom. */}
         {!sheet && <div className="order-4 hidden lg:landscape:block lg:landscape:flex-1"/>}
         {sheet === 'freq' && (

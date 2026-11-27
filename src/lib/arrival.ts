@@ -141,3 +141,39 @@ export function arrivalPlan(arr: AirportInfo, landing: LandingRunway, opts: {
 /** "RWY 19 (into the wind)" */
 export const landingText = (l: LandingRunway) =>
   `RWY ${l.runway} (${l.by === 'wind' ? 'into the wind' : l.by === 'course' ? 'in line with the way in; no wind reported' : 'your choice'})`;
+
+/** The upwind leg goes on this far past the runway's end before the crosswind turn, NM. */
+const UPWIND_NM = 0.5;
+/** The standard circuit height above the field, ft, where none is published. */
+export const STANDARD_CIRCUIT_AGL_FT = 1000;
+
+/**
+ * The whole circuit for a runway end, from its threshold round to it again: upwind past the far end,
+ * crosswind, downwind, base and final, on `side`. For a go-around (or a touch and go).
+ */
+export function circuitPattern(arr: AirportInfo, end: RunwayEnd, side: CircuitSide, layout?: AirportLayout | null): ArrivalPoint[] {
+  const thr = thresholdOf(arr, end, layout);
+  const h = end.headingDeg, back = h + 180, out = h + (side === 'LEFT' ? -90 : 90);
+  const lengthNm = (end.lengthFt ?? 2600) / FT_PER_NM;
+  const upwindEnd = ahead(ahead(thr, h, lengthNm), h, UPWIND_NM);
+  const downwindStart = ahead(upwindEnd, out, CIRCUIT_WIDTH_NM);
+  const finalStart = ahead(thr, back, FINAL_NM);
+  const base = ahead(finalStart, out, CIRCUIT_WIDTH_NM);
+  const rwy = end.runway;
+  return [
+    { ...thr, label: `RWY ${rwy}` },
+    { ...upwindEnd, label: 'Crosswind' },
+    { ...downwindStart, label: 'Downwind' },
+    { ...base, label: 'Base' },
+    { ...finalStart, label: 'Final' },
+    { ...thr, label: `RWY ${rwy}` },
+  ];
+}
+
+/** The runway end most in line with a track (the one an approach was flown to). */
+export function runwayAlong(arr: AirportInfo, trackDeg: number | null, date = new Date()): RunwayEnd | null {
+  const options = landingOptions(arr, date);
+  if (options.length === 0) return null;
+  if (trackDeg == null) return options[0];
+  return [...options].sort((a, b) => angle(a.headingDeg, trackDeg) - angle(b.headingDeg, trackDeg))[0];
+}

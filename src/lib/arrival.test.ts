@@ -1,4 +1,4 @@
-import { ahead, arrivalPlan, circuitSide, isControlledField, landingOptions, landingRunway, thresholdOf } from './arrival';
+import { ahead, arrivalPlan, circuitPattern, circuitSide, isControlledField, landingOptions, landingRunway, runwayAlong, thresholdOf } from './arrival';
 import type { AirportInfo, AirspaceView, Metar } from '../types/route';
 import { distanceNm } from './openMeteo';
 
@@ -75,4 +75,18 @@ it('circuit side and control zone', () => {
   expect(isControlledField(esow, [box('TIZ')])).toBe(false);
   expect(isControlledField(esow, null)).toBe(false);
   expect(ahead({ lat: 59, lon: 16 }, 0, 60).lat).toBeCloseTo(60, 5);
+});
+
+test('the circuit after a go-around: upwind past the far end, round on the circuit side to the threshold', () => {
+  const field = { code: 'ESXX', name: 'X', lat: 59, lon: 16, elevationFt: 100, type: 'small_airport',
+    runways: [{ le: '01', he: '19', leHeadingTrue: 10, heHeadingTrue: 190, lengthFt: 3000 }] } as unknown as Parameters<typeof circuitPattern>[0];
+  const end = runwayAlong(field, 185);
+  if (!end) throw new Error('no runway');
+  expect(end.runway).toBe('19');
+  const pts = circuitPattern(field, end, 'LEFT');
+  expect(pts.map(p => p.label)).toEqual(['RWY 19', 'Crosswind', 'Downwind', 'Base', 'Final', 'RWY 19']);
+  // Landing south (190°), a left circuit lies to the east.
+  expect(pts[2].lon).toBeGreaterThan(pts[0].lon);
+  expect(pts[1].lat).toBeLessThan(pts[0].lat);
+  expect(circuitPattern(field, end, 'RIGHT')[2].lon).toBeLessThan(pts[0].lon);
 });
