@@ -11,6 +11,8 @@ interface HudProps {
   pathDeg: number;
   /** The aircraft is at the centre of the map (following it): draw the horizon around it. */
   centred: boolean;
+  /** Where the aircraft is, as a share of the height from the top (track-up puts it low). */
+  atY?: number;
 }
 
 const pad3 = (n: number) => String(Math.round(((n % 360) + 360) % 360)).padStart(3, '0');
@@ -74,16 +76,16 @@ const Tape: React.FC<{
  * around it, all see-through so the map stays readable. Everything comes from the GPS: ground speed,
  * GPS altitude, and a bank and flight path worked out from the turn and the climb (no gyro).
  */
-const Hud: React.FC<HudProps> = ({ speedKt, altFt, vsFpm, trackDeg, bankDeg, pathDeg, centred }) => {
+const Hud: React.FC<HudProps> = ({ speedKt, altFt, vsFpm, trackDeg, bankDeg, pathDeg, centred, atY = 0.5 }) => {
   const w = 2 * (TAPE_GAP + TAPE_W) + 4, h = TAPE_H + 60;
   const vs = vsFpm ?? 0;
   // The climb bar beside the altitude tape: ±1,000 ft/min to its ends.
   const vsPx = Math.max(-1, Math.min(1, vs / 1000)) * (TAPE_H / 2 - 10);
   const pitchPx = Math.max(-40, Math.min(40, pathDeg * DEG_PX));
   return (
-    <div className="pointer-events-none absolute inset-0 z-[900] flex items-center justify-center" aria-hidden="true" data-testid="hud">
-      <svg width={w} height={h} viewBox={`${-w / 2} ${-h / 2} ${w} ${h}`} className="overflow-visible"
-        style={{ filter: 'drop-shadow(0 0 1.5px rgba(2,6,23,.9))' }}>
+    <div className="pointer-events-none absolute inset-0 z-[900]" aria-hidden="true" data-testid="hud">
+      <svg width={w} height={h} viewBox={`${-w / 2} ${-h / 2} ${w} ${h}`} className="absolute left-1/2 overflow-visible"
+        style={{ top: `${atY * 100}%`, transform: 'translate(-50%, -50%)', filter: 'drop-shadow(0 0 1.5px rgba(2,6,23,.9))' }}>
         {centred && (
           <g>
             {/* Bank scale: fixed ticks along an arc, the pointer turning with the bank. */}

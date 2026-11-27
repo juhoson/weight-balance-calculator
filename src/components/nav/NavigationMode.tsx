@@ -27,6 +27,7 @@ import { cachedTileLayer } from '../../lib/tileCache';
 import { relativeAltText, TRAFFIC_ALERT_FT, TRAFFIC_RANGE_NM, trafficName, trafficNear } from '../../lib/traffic';
 import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../lib/departure';
 import Hud from './Hud';
+import { nextBearing, TRACK_UP_AT, trackUpFrame } from '../../lib/trackUp';
 import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
@@ -80,6 +81,7 @@ const SHOW_NAVAID_KEY = 'nav.showNavaids';
 const NAVAID_RANGE_NM = 40;
 const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
 const SHOW_HUD_KEY = 'nav.showHud';
+const TRACK_UP_KEY = 'nav.trackUp';
 const SHOW_TRAFFIC_KEY = 'nav.showTraffic';
 /** The trend line's ticks: where the aircraft will be in this many minutes. */
 const TREND_MINUTES = [1, 2, 3];
@@ -167,6 +169,9 @@ function useWakeLock(active: boolean): void {
     };
   }, [active]);
 }
+
+/** A label's text in its own box, which track-up turns back upright (the tooltip itself turns with the map). */
+const upright = (html: string) => `<span class="upright">${html}</span>`;
 
 /** A map layer shown or not, as the pilot last chose on this device. */
 function useShown(key: string, initial: boolean): [boolean, () => void] {
@@ -333,6 +338,20 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<L.Map | null>(null);
+  /** Holds the map's controls, outside the element that turns in track-up. */
+  const chrome = React.useRef<HTMLDivElement>(null);
+  /** The map's frame, to size the turning square. */
+  const frame = React.useRef<HTMLDivElement>(null);
+  const [frameSize, setFrameSize] = React.useState<{ w: number; h: number } | null>(null);
+  React.useLayoutEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => setFrameSize(s => (s && s.w === el.clientWidth && s.h === el.clientHeight ? s : { w: el.clientWidth, h: el.clientHeight }));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [started]);
   /** The reporting points, a layer of their own so they can be switched off; it outlives a redrawn map. */
   const vrpLayer = React.useRef(L.layerGroup());
   const fixLayer = React.useRef(L.layerGroup());
@@ -369,6 +388,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const map = L.map(container.current, { zoomSnap: 0.5, minZoom: 5, maxZoom: 13, attributionControl: false, zoomControl: false });
     L.control.attribution({ prefix: false, position: 'bottomleft' }).addTo(map);
     L.control.zoom({ position: 'topright' }).addTo(map);
+    // The zoom buttons and credits stay put when the map turns: their box moves out of the map's element.
+    const controls = (map as unknown as { _controlContainer?: HTMLElement })._controlContainer;
+    if (controls && chrome.current) chrome.current.appendChild(controls);
     let live = true;
     const airspace = () => {
       if (live && status?.airspace) {
@@ -406,7 +428,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false, className: 'nav-route-line' }).addTo(map);
     }
     flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
-      .bindTooltip(flownLabels[i], { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+      .bindTooltip(upright(flownLabels[i]), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
     obstacleLayer.current.addTo(map);
     trafficLayer.current.addTo(map);
     map.attributionControl?.addAttribution(TRAFFIC_CREDIT);
@@ -466,7 +488,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (!showFix) return;
     fixes.forEach(p => L.marker([p.lat, p.lon], {
       icon: L.divIcon({ className: 'fix-marker', iconSize: [9, 9] }), keyboard: false, interactive: false,
-    }).bindTooltip(p.name, { permanent: true, direction: 'right', offset: [4, 0], className: 'route-map-label fix-label' }).addTo(layer));
+    }).bindTooltip(upright(p.name), { permanent: true, direction: 'right', offset: [4, 0], className: 'route-map-label fix-label' }).addTo(layer));
   }, [fixes, showFix]);
   // The AIP's en-route radio navaids (VOR, DME) near the route, labelled with what to tune.
   const [showNavaid, toggleNavaid] = useShown(SHOW_NAVAID_KEY, true);
@@ -477,7 +499,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     if (!showNavaid) return;
     navaids.forEach(n => L.marker([n.lat, n.lon], {
       icon: L.divIcon({ className: 'navaid-marker', iconSize: [22, 22], html: navaidSvg(n) }), keyboard: false, title: navaidText(n),
-    }).bindTooltip(`${n.ident} ${n.frequency ?? n.channel ?? ''}`.trim(), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label navaid-label' })
+    }).bindTooltip(upright(`${n.ident} ${n.frequency ?? n.channel ?? ''}`.trim()), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label navaid-label' })
       .bindPopup(navaidPopup(n), { className: 'navaid-popup', closeButton: false, autoPan: false })
       .addTo(layer));
   }, [navaids, showNavaid]);
@@ -507,6 +529,28 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // Other traffic (ADS-B, online only), asked every few seconds around the aircraft.
   const [showTraffic, toggleTraffic] = useShown(SHOW_TRAFFIC_KEY, true);
   const [showHud, toggleHud] = useShown(SHOW_HUD_KEY, false);
+  const [trackUp, toggleTrackUp] = useShown(TRACK_UP_KEY, false);
+  // Turned while following the aircraft; looking round (a drag) shows north up until Centre.
+  const rotated = trackUp && follow && !!started && !!frameSize;
+  const bearingRef = React.useRef(0);
+  const bearing = React.useMemo(() => {
+    bearingRef.current = rotated ? nextBearing(bearingRef.current, fix?.trackDeg ?? null) : 0;
+    return bearingRef.current;
+  }, [rotated, fix?.trackDeg]);
+  const box = rotated && frameSize ? trackUpFrame(frameSize.w, frameSize.h) : null;
+  // Turned, Leaflet would read a drag the wrong way round: it doesn't drag, a drag shows north up instead,
+  // and pinches zoom about the aircraft.
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    container.current?.classList.toggle('nav-track-up', rotated);
+    const opts = map.options as L.MapOptions;
+    if (rotated) { map.dragging.disable(); map.doubleClickZoom.disable(); opts.touchZoom = 'center'; opts.scrollWheelZoom = 'center'; }
+    else { map.dragging.enable(); map.doubleClickZoom.enable(); opts.touchZoom = true; opts.scrollWheelZoom = true; }
+    map.invalidateSize({ pan: false });
+    if (fix) map.panTo([fix.lat, fix.lon], { animate: false });
+  }, [rotated, box?.size]);
+  const press = React.useRef<{ x: number; y: number; id: number } | null>(null);
   // The turn rate from the track as the fixes come, for the HUD's bank.
   const turn = React.useRef<TurnState | null>(null);
   const turnDps = React.useMemo(() => {
@@ -548,7 +592,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           html: `<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true" style="transform: rotate(${t.trackDeg ?? 0}deg)">`
             + '<path d="M13 3 L19 21 L13 17 L7 21 Z"/></svg>' }),
         keyboard: false, title: `${trafficName(t)} ${t.type ?? ''}`.trim(), zIndexOffset: 500,
-      }).bindTooltip(`${relativeAltText(t)} ${trafficName(t)}`.trim(), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label traffic-label' })
+      }).bindTooltip(upright(`${relativeAltText(t)} ${trafficName(t)}`.trim()), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label traffic-label' })
         .addTo(layer);
     });
   }, [traffic, showTraffic]);
@@ -567,7 +611,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     vrps.forEach(p => L.marker([p.lat, p.lon], {
       icon: L.divIcon({ className: p.compulsory ? 'vrp-marker vrp-marker--compulsory' : 'vrp-marker', iconSize: [12, 11] }),
       keyboard: false, interactive: false,
-    }).bindTooltip(p.name, { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label nav-vrp-label' }).addTo(layer));
+    }).bindTooltip(upright(p.name), { permanent: true, direction: 'top', offset: [0, -4], className: 'route-map-label vrp-label nav-vrp-label' }).addTo(layer));
   }, [vrps, showVrp]);
 
   // A GPS flight keeps what it shows on the device as it loads, for carrying on after a reload.
@@ -1016,11 +1060,27 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         </div>
       </aside>
 
-      <div className="relative order-3 min-h-0 flex-1 lg:landscape:order-1">
-        <div ref={container} className="route-map absolute inset-0" aria-label="Navigation map"/>
+      <div ref={frame} className="relative order-3 min-h-0 flex-1 overflow-hidden lg:landscape:order-1"
+        onPointerDownCapture={e => { press.current = rotated && e.isPrimary ? { x: e.clientX, y: e.clientY, id: e.pointerId } : null; }}
+        onPointerMoveCapture={e => {
+          const p = press.current;
+          if (!p || p.id !== e.pointerId) return;
+          if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) { press.current = null; setFollow(false); }
+        }}
+        onPointerUpCapture={() => { press.current = null; }}
+        // A second finger is a pinch, not a look round.
+        onTouchStartCapture={e => { if (e.touches.length > 1) press.current = null; }}>
+        <div ref={container} aria-label="Navigation map"
+          // The class list stays as written: Leaflet adds its own to it (track-up's is set below, not here).
+          className="route-map absolute"
+          style={box
+            ? { left: box.left, top: box.top, width: box.size, height: box.size, transform: `rotate(${-bearing}deg)`, transition: 'transform 0.6s linear',
+              ['--nav-bearing' as string]: `${bearing}deg` }
+            : { left: 0, top: 0, right: 0, bottom: 0 }}/>
+        <div ref={chrome} className="nav-map-chrome leaflet-touch pointer-events-none absolute inset-0 z-[950]"/>
         {showHud && started && fix && (
           <Hud speedKt={fix.speedKt} altFt={fix.altFt} vsFpm={fix.vsFpm ?? null} trackDeg={fix.trackDeg}
-            bankDeg={bankFor(turnDps, fix.speedKt)} pathDeg={pathAngle(fix.vsFpm, fix.speedKt)} centred={follow}/>
+            bankDeg={bankFor(turnDps, fix.speedKt)} pathDeg={pathAngle(fix.vsFpm, fix.speedKt)} centred={follow} atY={box ? TRACK_UP_AT : 0.5}/>
         )}
         <div className="pointer-events-none absolute left-2 top-2 z-[1000] flex flex-col gap-1 text-xs">
           <span className="rounded bg-slate-900/80 px-1.5 py-0.5 font-semibold text-slate-100">VFR navigation aid · beta</span>
@@ -1043,6 +1103,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           {fix?.accuracyM != null && fix.accuracyM > 50 && <span className="rounded bg-red-700 px-1.5 py-0.5 text-white">GPS ±{Math.round(fix.accuracyM)} m</span>}
         </div>
         <div className="absolute right-[10px] top-[84px] z-[1000] flex flex-col gap-1">
+          <button type="button" aria-pressed={trackUp} onClick={() => { if (!trackUp) recenter(); toggleTrackUp(); }}
+            title={trackUp ? 'Track up: the map turns with your track. Tap for north up.' : 'North up. Tap for track up: the map turns with your track.'}
+            className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${trackUp ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+            {trackUp ? 'TRK↑' : 'N↑'}
+          </button>
           <button type="button" aria-pressed={showVrp} onClick={toggleVrp} title="Visual reporting points"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showVrp ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             VRP

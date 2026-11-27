@@ -454,3 +454,48 @@ input::-webkit-inner-spin-button {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* Track-up (navigation mode): the map's element turns by the track (--nav-bearing); labels, symbols
+   and popups turn back so they read upright. */
+.nav-track-up .leaflet-tooltip.route-map-label {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.nav-track-up .leaflet-tooltip .upright {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #fff;
+  transform: rotate(var(--nav-bearing));
+  transform-origin: 0 50%;
+  transition: transform 0.6s linear;
+}
+.nav-track-up .leaflet-tooltip.nav-vrp-label .upright {
+  transform-origin: 50% 100%;
+}
+.nav-track-up .trend-tick span {
+  transform: rotate(var(--nav-bearing));
+  transform-origin: -8px 50%;
+}
+.nav-track-up .navaid-marker > svg,
+.nav-track-up .obstacle-marker > svg {
+  transform: rotate(var(--nav-bearing));
+}
+.nav-track-up .leaflet-popup-content-wrapper {
+  transform: rotate(var(--nav-bearing));
+  transform-origin: 50% calc(100% + 16px);
+}
+.nav-track-up .leaflet-popup-tip-container {
+  display: none;
+}
+/* The map's zoom buttons and credits, outside the turning element: only they take taps. */
+.nav-map-chrome .leaflet-control-attribution {
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 5px;
+  color: #333;
+}
+.nav-map-chrome .leaflet-control-attribution a {
+  color: #0078a8;
+}
