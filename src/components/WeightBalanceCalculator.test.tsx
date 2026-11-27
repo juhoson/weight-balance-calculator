@@ -590,3 +590,14 @@ it('fly now within the limits starts without asking', async () => {
   fireEvent.click(screen.getByRole('button', { name: /^Fly now/ }));
   expect(screen.queryByRole('dialog', { name: 'Outside weight and balance limits' })).toBeNull();
 });
+
+it('the map planner opens over the page with the route, and Done goes back', async () => {
+  localStorage.setItem('route.v1', JSON.stringify({ from: 'ESSX', to: 'ESGG', via: [], auto: false }));
+  render(<WeightBalanceCalculator />);
+  fireEvent.click(await screen.findByRole('button', { name: /Map planner/ }));
+  const planner = screen.getByRole('dialog', { name: 'Map planner' });
+  expect(planner).toHaveTextContent('ESSX → ESGG · 175 NM');
+  expect(await within(planner).findByTestId('route-map')).toHaveTextContent('ESSX ESGG');
+  fireEvent.click(within(planner).getByRole('button', { name: 'Done' }));
+  expect(screen.queryByRole('dialog', { name: 'Map planner' })).toBeNull();
+});

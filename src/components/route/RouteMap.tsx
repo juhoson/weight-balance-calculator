@@ -38,6 +38,13 @@ interface RouteMapProps {
   departureClimb?: DepartureClimb | null;
   /** The way in to the arrival's runway: the line ends at its threshold instead of the field. */
   arrival?: ArrivalPlan | null;
+  /** Makes an airport tapped on the map the departure, called with its code. */
+  onDepartureChange?: (code: string) => void;
+  /**
+   * The map planner: the map fills its box (the page around it is the planner), moves with one
+   * finger and zooms with the wheel.
+   */
+  planner?: boolean;
 }
 
 /** Reporting point names show from this zoom in; further out, on hover only. */
@@ -140,6 +147,7 @@ export function resetMapStatus(): void {
 /** The route on a map, with openAIP's airspace on top. */
 const RouteMap: React.FC<RouteMapProps> = ({
   airports, onWaypointsChange, maxWaypoints = 18, reportingPoints = [], onArrivalChange, departureClimb = null, arrival = null,
+  onDepartureChange, planner = false,
 }) => {
   const container = React.useRef<HTMLDivElement>(null);
   /** While plotting a course: what a click on the map does. */
@@ -153,6 +161,8 @@ const RouteMap: React.FC<RouteMapProps> = ({
   areaRef.current = area;
   /** What tapping an airport or reporting point does: set by the route's drawing. */
   const pickRef = React.useRef<((p: MapAirport, html: string, kind: 'airport' | 'vrp') => void) | null>(null);
+  /** What tapping the map elsewhere offers (adding a waypoint there): set by the route's drawing; null when nothing. */
+  const tapRef = React.useRef<((at: L.LatLng) => HTMLElement | null) | null>(null);
   const [status, setStatus] = React.useState<MapStatus | null | undefined>(undefined);
 
   React.useEffect(() => {
@@ -166,9 +176,9 @@ const RouteMap: React.FC<RouteMapProps> = ({
     if (status === undefined || !container.current) return;
     const touch = L.Browser.mobile;
     const map = L.map(container.current, {
-      // One finger scrolls the page on a phone; two move and zoom the map.
-      dragging: !touch,
-      scrollWheelZoom: false,
+      // One finger scrolls the page on a phone; two move and zoom the map. The planner is all map.
+      dragging: planner || !touch,
+      scrollWheelZoom: planner,
       zoomSnap: 0.5,
       minZoom: 4,
       maxZoom: 13,
@@ -279,15 +289,23 @@ const RouteMap: React.FC<RouteMapProps> = ({
         plotClick.current(e.latlng);
         return;
       }
-      if (!status?.airspace) return;
+      // The airspace and frequencies here on top, then what can be done here (add a waypoint).
+      const actions = tapRef.current?.(e.latlng) ?? null;
+      if (!actions && !status?.airspace) return;
+      const box = document.createElement('div');
+      const info = document.createElement('div');
+      info.innerHTML = status?.airspace ? '<div class="point-info">Loading airspace…</div>' : '';
+      box.appendChild(info);
+      if (actions) box.appendChild(actions);
       // As tall as the map allows (it scrolls inside); the map buttons hide while it's open.
       const popup = L.popup({
         maxWidth: 260, maxHeight: Math.max(120, map.getSize().y - 70), className: 'point-info-popup', autoPanPadding: [8, 8],
       })
-        .setLatLng(e.latlng).setContent('<div class="point-info">Loading airspace…</div>').openOn(map);
+        .setLatLng(e.latlng).setContent(box).openOn(map);
+      if (!status?.airspace) return;
       fetchPointInfo(e.latlng.lat, L.Util.wrapNum(e.latlng.lng, [-180, 180], true))
-        .then(info => { if (map.hasLayer(popup)) popup.setContent(pointInfoHtml(info)); })
-        .catch(() => { if (map.hasLayer(popup)) popup.setContent('<div class="point-info">Could not load the airspace here.</div>'); });
+        .then(i => { if (map.hasLayer(popup)) { info.innerHTML = pointInfoHtml(i); popup.update(); } })
+        .catch(() => { if (map.hasLayer(popup)) info.innerHTML = '<div class="point-info">Could not load the airspace here.</div>'; });
     });
     map.on('mouseout', () => map.scrollWheelZoom.disable());
     map.on('popupopen', () => container.current?.classList.add('route-map--popup'));
@@ -302,9 +320,11 @@ const RouteMap: React.FC<RouteMapProps> = ({
       routeLayer.current = null;
       areaLayer.current = null;
     };
-  }, [status]);
+  }, [status, planner]);
 
   const editRef = React.useRef(onWaypointsChange);
+  const departureRef = React.useRef(onDepartureChange);
+  departureRef.current = onDepartureChange;
   editRef.current = onWaypointsChange;
   const arrivalRef = React.useRef(onArrivalChange);
   arrivalRef.current = onArrivalChange;
@@ -337,6 +357,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
     if (!map || !group) return;
     group.clearLayers();
     plotClick.current = null;
+    tapRef.current = null;
     if (shown.length === 0) return;
     const points = shown.map(a => L.latLng(a.lat, a.lon));
     const off: Array<() => void> = [];
@@ -445,9 +466,28 @@ const RouteMap: React.FC<RouteMapProps> = ({
         });
       }
       if (kind === 'airport' && canMoveArrival) action('Fly here instead', () => moveArrival(p));
+      if (kind === 'airport' && departureRef.current && p.code !== shown[0]?.code) action('Depart from here', () => departureRef.current?.(p.code));
       L.popup({ offset: [0, -4] }).setLatLng([p.lat, p.lon]).setContent(box).openOn(map);
     };
     pickRef.current = pick;
+    // Tapping the map elsewhere: add a waypoint there, on the leg it lengthens least (snapped to an
+    // airport or reporting point under the finger).
+    tapRef.current = editable && !plotting && between.length < maxWaypoints ? (at: L.LatLng) => {
+      const here = { lat: at.lat, lon: L.Util.wrapNum(at.lng, [-180, 180], true) };
+      const i = bestInsert(shown, here);
+      const box = document.createElement('div');
+      box.className = 'route-map-tap';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'route-map-remove';
+      b.textContent = `Add waypoint here (between ${labels[i]} and ${labels[i + 1]})`;
+      b.addEventListener('click', () => {
+        map.closePopup();
+        dropped(at).then(p => commit([...between.slice(0, i), p, ...between.slice(i)]));
+      });
+      box.appendChild(b);
+      return box;
+    } : null;
 
     // Reporting points first, so the route draws over them.
     const onRoute = new Set(shown.map(a => a.code));
@@ -682,10 +722,11 @@ const RouteMap: React.FC<RouteMapProps> = ({
   const labels = routeLabels(shown.map(a => a.code));
 
   return (
-    <div className="space-y-1">
-      <div className="relative">
-        <div ref={container} role="region" aria-label="Route map"
-          className="route-map relative z-0 h-72 w-full overflow-hidden rounded-md border border-border sm:h-96"/>
+    <div className={planner ? 'flex h-full flex-col' : 'space-y-1'}>
+      <div className={planner ? 'relative min-h-0 flex-1' : 'relative'}>
+        <div ref={container} role="region" aria-label={planner ? 'Map planner' : 'Route map'}
+          className={planner ? 'route-map relative z-0 h-full w-full overflow-hidden'
+            : 'route-map relative z-0 h-72 w-full overflow-hidden rounded-md border border-border sm:h-96'}/>
         {plotting && (
           <div role="status" className="absolute inset-x-2 bottom-6 z-[1000] mx-auto flex max-w-md flex-wrap items-center gap-2 rounded-md border border-border bg-background/95 px-3 py-2 text-xs shadow-lg">
             <span className="flex-1">
@@ -698,9 +739,9 @@ const RouteMap: React.FC<RouteMapProps> = ({
           </div>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground">
+      {!planner && <p className="text-[11px] text-muted-foreground">
         {status?.airspace
-          ? 'Tap the map for the airspace and frequencies there. Airspace from openAIP, maintained by volunteers: check the AIP, the official charts and NOTAMs.'
+          ? `Tap the map for the airspace and frequencies there${editable ? ', or to add a waypoint' : ''}. Airspace from openAIP, maintained by volunteers: check the AIP, the official charts and NOTAMs.`
           : status === undefined ? '' : 'Airspace is not available right now; the map shows the route only.'}
         {!L.Browser.mobile && shown.length > 1 && ' Hover a leg for its length and course.'}
         {editable && ` ${L.Browser.mobile ? 'Tap' : 'Click'} ${labels[0]} to plot a new course from it, point by point.`}
@@ -708,7 +749,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
         {area.airports.length > 0 && ' Airports in view are green dots: tap one, or a reporting point, to route via it.'}
         {editable && ' Drag a waypoint to move it, or a white dot in the middle of a leg to add one; drop it on an airport or reporting point (blue triangle) to use it, or tap a reporting point to route via it.'}
         {L.Browser.mobile && ' Use two fingers to move the map.'}
-      </p>
+      </p>}
     </div>
   );
 };

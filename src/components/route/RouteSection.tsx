@@ -1,7 +1,7 @@
 import React from 'react';
 import { departureClimb } from '../../lib/departure';
 import type { ArrivalPlan, RunwayEnd } from '../../lib/arrival';
-import { ArrowDown, ArrowLeftRight, ArrowUp, Crosshair, Loader2, Plus, RefreshCw, X } from 'lucide-react';
+import { ArrowDown, ArrowLeftRight, ArrowUp, Crosshair, Loader2, Maximize2, Plus, RefreshCw, X } from 'lucide-react';
 import AirportField from './AirportField';
 import WeatherCard from './WeatherCard';
 import SavedRoutesButton from './SavedRoutesDialog';
@@ -91,6 +91,7 @@ const RouteSection: React.FC<RouteSectionProps> = ({
       : []
   ), [data, route.from, route.to, route.via.length, suggestFor, weather.reportingPoints]);
   const isLocal = data && data.distanceNm === 0;
+  const [planner, setPlanner] = React.useState(false);
   const legs = data?.legs ?? [];
 
   return (
@@ -194,14 +195,37 @@ const RouteSection: React.FC<RouteSectionProps> = ({
             </div>
           )
       )}
-      {data && (
-        <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
-          <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}
-            onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS} reportingPoints={weather.reportingPoints}
-            onArrivalChange={isLocal ? undefined : code => pick(route.from, code)} departureClimb={isLocal ? null : climbOut}
-            arrival={isLocal ? null : arrival}/>
-        </React.Suspense>
-      )}
+      {data && (() => {
+        const mapProps = {
+          airports: [data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])],
+          onWaypointsChange: isLocal ? undefined : setVia, maxWaypoints: MAX_WAYPOINTS, reportingPoints: weather.reportingPoints,
+          onArrivalChange: isLocal ? undefined : (code: string) => pick(route.from, code),
+          onDepartureChange: (code: string) => set({ from: code, to: isLocal ? code : route.to }),
+          departureClimb: isLocal ? null : climbOut, arrival: isLocal ? null : arrival,
+        };
+        return (
+          <>
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={() => setPlanner(true)}>
+                <Maximize2 className="mr-1 h-4 w-4"/> Map planner
+              </Button>
+            </div>
+            <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
+              <RouteMap {...mapProps}/>
+            </React.Suspense>
+            {planner && (
+              <MapPlanner onClose={() => setPlanner(false)}
+                summary={isLocal ? `Local flight from ${data.departure.code}`
+                  : `${routeChain([data.departure.code, ...(data.waypoints ?? []).map(w => w.code), data.arrival.code])} · ${Math.round(data.distanceNm)} NM`}
+                loading={weather.loading}>
+                <React.Suspense fallback={<div className="h-full w-full bg-muted"/>}>
+                  <RouteMap {...mapProps} planner/>
+                </React.Suspense>
+              </MapPlanner>
+            )}
+          </>
+        );
+      })()}
       {data && !isLocal && arrival && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="landing-runway">
           <label htmlFor="landing-runway" className="font-medium">Landing runway</label>
@@ -268,6 +292,39 @@ const RouteSection: React.FC<RouteSectionProps> = ({
           </div>
         );
       })()}
+    </div>
+  );
+};
+
+/**
+ * The map planner: the route on a map filling the screen, to plan on. Tapping the map adds a
+ * waypoint there or shows the airspace; airports and reporting points are routed via, flown to or
+ * departed from. The route summary stays along the top; Done (or Escape) goes back.
+ */
+const MapPlanner: React.FC<{ summary: string; loading: boolean; onClose: () => void; children: React.ReactNode }> = ({ summary, loading, onClose, children }) => {
+  React.useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.leaflet-popup')) onClose(); };
+    document.addEventListener('keydown', key);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', key); document.body.style.overflow = overflow; };
+  }, [onClose]);
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Map planner" className="safe-area fixed inset-0 z-[2000] flex flex-col bg-background">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Map planner</p>
+          <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+            {loading && <Loader2 className="h-3 w-3 shrink-0 animate-spin"/>}{summary}
+          </p>
+        </div>
+        <Button type="button" onClick={onClose}>Done</Button>
+      </div>
+      <div className="min-h-0 flex-1">{children}</div>
+      <p className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+        Tap the map for the airspace there and to add a waypoint; tap an airport or reporting point to route via it, fly to it or depart from it.
+        Drag a waypoint to move it.
+      </p>
     </div>
   );
 };

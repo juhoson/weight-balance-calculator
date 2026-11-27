@@ -274,3 +274,32 @@ describe('with the map laid out', () => {
     expect(localStorage.getItem('map.showNavaids')).toBe('no');
   });
 });
+
+test('a tap on the map: the airspace there on top, and a waypoint added there on the leg it lengthens least', async () => {
+  (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: true, minZoom: 4, maxZoom: 14 });
+  (fetchPointInfo as jest.Mock).mockReset().mockResolvedValue({
+    lat: 59.6, lon: 16.6, airports: [],
+    airspaces: [{ id: 'c', name: 'VÄSTERÅS CTR', type: 'CTR', icaoClass: 'C', activation: null, polygon: [],
+      lower: { ft: 0, datum: 'GND', label: 'GND' }, upper: { ft: 1500, datum: 'MSL', label: '1,500 ft MSL' },
+      frequencies: [{ value: '130.605', name: 'VÄSTERÅS TOWER', kind: 'TWR', primary: true, source: 'ESOW' }] }],
+  });
+  (nearestAirports as jest.Mock).mockReset().mockResolvedValue([]);
+  const onWaypointsChange = jest.fn();
+  const { container } = render(<RouteMap airports={route} onWaypointsChange={onWaypointsChange}/>);
+  await screen.findByText(/or to add a waypoint/);
+  fireEvent.click(container.querySelector('.route-map') as HTMLElement, { clientX: 50, clientY: 50 });
+  const add = await screen.findByRole('button', { name: 'Add waypoint here (between ESOW and ESSB)' });
+  const tower = await screen.findByText(/130\.605 VÄSTERÅS TOWER/);
+  // The airspace summary comes first.
+  expect(tower.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(add);
+  await waitFor(() => expect(onWaypointsChange).toHaveBeenCalledWith([expect.stringMatching(/^\d{4}N\d{5}E$/)]));
+});
+
+test('the planner: the map fills its box and moves with one finger', async () => {
+  (fetchMapStatus as jest.Mock).mockResolvedValue({ airspace: false, minZoom: 4, maxZoom: 14 });
+  render(<div style={{ height: 500 }}><RouteMap airports={route} onWaypointsChange={() => undefined} planner/></div>);
+  const map = await screen.findByRole('region', { name: 'Map planner' });
+  expect(map.className).toContain('h-full');
+  expect(screen.queryByText(/Tap the map for the airspace/)).toBeNull();
+});
