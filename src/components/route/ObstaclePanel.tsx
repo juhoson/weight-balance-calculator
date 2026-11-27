@@ -1,4 +1,5 @@
 import React from 'react';
+import Curtain from '../ui/Curtain';
 import { TriangleAlert } from 'lucide-react';
 import { altitudeAlongPoints } from '../../lib/airspace';
 import type { PathPoint } from '../../lib/enroute';
@@ -57,10 +58,10 @@ const ObstaclePanel: React.FC<{ route: At[]; path: PathPoint[]; basis: string }>
       {list.length === 0 ? (
         <p className="text-muted-foreground">None listed near the route.</p>
       ) : others.length > 0 && (
-        <>
-          <p className="text-xs text-muted-foreground">{warnings.length ? 'Others, highest first' : 'Highest'}, all at least {OBSTACLE_MARGIN_FT} ft below {basis}:</p>
+        <Curtain id="route.obstacles" title={warnings.length ? 'Others' : 'Highest'}
+          summary={`${others.length}, all at least ${OBSTACLE_MARGIN_FT} ft below ${basis}`}>
           <ul className="space-y-0.5">{others.map((o, i) => <Row key={i} o={o}/>)}</ul>
-        </>
+        </Curtain>
       )}
       <p className={stale ? 'text-xs font-semibold text-amber-700 dark:text-amber-400' : 'text-xs text-muted-foreground'}>
         AIP ENR 5.4, {obstaclesAiracText(data.dates)}{stale ? ', out of date: check the AIP' : ''}. Only obstacles of 100 m or more,

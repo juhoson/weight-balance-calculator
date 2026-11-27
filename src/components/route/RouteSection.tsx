@@ -7,10 +7,12 @@ import WeatherCard from './WeatherCard';
 import SavedRoutesButton from './SavedRoutesDialog';
 import ImportFlightPlanButton, { MAX_IMPORTED_WAYPOINTS } from './ImportFlightPlanDialog';
 import { Button } from '../ui/Button';
+import Curtain from '../ui/Curtain';
+import { stationOf, weatherAlong } from '../../lib/weatherAlong';
 import { lazyWithReload } from '../../lib/lazyWithReload';
 import type { RouteWeatherState } from '../../lib/useRouteWeather';
 import type { PlannedRoute, RouteAltitudes } from '../../lib/route';
-import type { AirportInfo } from '../../types/route';
+import type { AirportInfo, RoutePoint } from '../../types/route';
 import { positionText, routeChain, routeLabels } from '../../lib/routePoint';
 import { extraNm, suggestReportingPoints } from '../../lib/reportingRoute';
 
@@ -113,22 +115,24 @@ const RouteSection: React.FC<RouteSectionProps> = ({
         </div>
 
         {route.via.length > 0 && (
-          <ol className="space-y-2 border-l-2 border-dashed border-border pl-3">
-            {route.via.map((code, i) => (
-              <li key={`${code}-${i}`} className="flex items-end gap-1">
-                <div className="flex-1">
-                  <AirportField label={`Waypoint ${i + 1}`} value={code} valueName={nameOf(code)}
-                    onChange={c => setVia(route.via.map((v, j) => (j === i ? c : v)))}/>
-                </div>
-                <Button type="button" variant="ghost" size="icon" aria-label={`Move waypoint ${i + 1} up`}
-                  disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp className="h-4 w-4"/></Button>
-                <Button type="button" variant="ghost" size="icon" aria-label={`Move waypoint ${i + 1} down`}
-                  disabled={i === route.via.length - 1} onClick={() => move(i, 1)}><ArrowDown className="h-4 w-4"/></Button>
-                <Button type="button" variant="ghost" size="icon" aria-label={`Remove waypoint ${i + 1}`}
-                  onClick={() => setVia(route.via.filter((_, j) => j !== i))}><X className="h-4 w-4"/></Button>
-              </li>
-            ))}
-          </ol>
+          <Curtain id="route.waypoints" title={`Waypoints (${route.via.length})`} summary={viaLabels.join(' → ')}>
+            <ol className="space-y-2 border-l-2 border-dashed border-border pl-3">
+              {route.via.map((code, i) => (
+                <li key={`${code}-${i}`} className="flex items-end gap-1">
+                  <div className="flex-1">
+                    <AirportField label={`Waypoint ${i + 1}`} value={code} valueName={nameOf(code)}
+                      onChange={c => setVia(route.via.map((v, j) => (j === i ? c : v)))}/>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Move waypoint ${i + 1} up`}
+                    disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp className="h-4 w-4"/></Button>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Move waypoint ${i + 1} down`}
+                    disabled={i === route.via.length - 1} onClick={() => move(i, 1)}><ArrowDown className="h-4 w-4"/></Button>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Remove waypoint ${i + 1}`}
+                    onClick={() => setVia(route.via.filter((_, j) => j !== i))}><X className="h-4 w-4"/></Button>
+                </li>
+              ))}
+            </ol>
+          </Curtain>
         )}
 
         {suggestion.length > 0 && data && (
@@ -178,11 +182,13 @@ const RouteSection: React.FC<RouteSectionProps> = ({
               </p>
               {legs.length > 1
                 ? (
-                  <ul className="mt-1 grid gap-x-4 text-xs text-muted-foreground sm:grid-cols-2">
-                    {legs.map((l, i) => (
-                      <li key={i} className="tabular-nums">{l.from} → {l.to}: {Math.round(l.distanceNm)} NM, {pad3(l.trueCourseDeg)}° true</li>
-                    ))}
-                  </ul>
+                  <Curtain id="route.legs" title={`Legs (${legs.length})`} summary="distance and true course of each" className="mt-1">
+                    <ul className="grid gap-x-4 text-xs text-muted-foreground sm:grid-cols-2">
+                      {legs.map((l, i) => (
+                        <li key={i} className="tabular-nums">{l.from} → {l.to}: {Math.round(l.distanceNm)} NM, {pad3(l.trueCourseDeg)}° true</li>
+                      ))}
+                    </ul>
+                  </Curtain>
                 )
                 : <p className="text-xs text-muted-foreground">True course {pad3(data.trueCourseDeg)}°</p>}
             </div>
@@ -228,25 +234,40 @@ const RouteSection: React.FC<RouteSectionProps> = ({
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/> Loading weather…</p>
       )}
 
-      {data && data.weatherAvailable && (
-        <div className="space-y-2">
-          {data.points
-            .filter(p => !(p.role === 'ARRIVAL' && isLocal))
-            .map((p, i) => (
-              <WeatherCard
-                key={`${p.role}-${i}`}
-                point={p}
-                airport={p.airportCode ? known.get(p.airportCode)
-                  : p.role === 'DEPARTURE' ? data.departure : p.role === 'ARRIVAL' ? data.arrival : undefined}
-                maxCrosswindKt={maxCrosswindKt}
-                label={p.airportCode ? named.get(p.airportCode) : undefined}
-              />
-            ))}
-          <p className="text-[11px] text-muted-foreground">
+      {data && data.weatherAvailable && (() => {
+        const w = weatherAlong(data.points, !!isLocal);
+        const card = (p: RoutePoint, i: number) => (
+          <WeatherCard
+            key={`${p.role}-${i}`}
+            point={p}
+            airport={p.airportCode ? known.get(p.airportCode)
+              : p.role === 'DEPARTURE' ? data.departure : p.role === 'ARRIVAL' ? data.arrival : undefined}
+            maxCrosswindKt={maxCrosswindKt}
+            label={p.airportCode ? named.get(p.airportCode) : undefined}
+          />
+        );
+        const pointName = (p: RoutePoint) => (p.airportCode ? named.get(p.airportCode) ?? p.airportCode : `${Math.round(p.alongTrackNm)} NM`);
+        return (
+          <div className="space-y-2">
+            {w.departure && card(w.departure, 0)}
+            {w.along.length > 0 && (
+              <Curtain id="route.weatherAlong" title={`Weather along the route (${w.along.length})`}
+                summary={w.along.map(p => `${stationOf(p)} ${p.metar?.flightCategory ?? ''}`.trim()).join(' · ')}>
+                {w.along.map((p, i) => card(p, i + 1))}
+              </Curtain>
+            )}
+            {w.repeated.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+              Same METAR as shown: {w.repeated.map(r => `${pointName(r.point)} (${r.station})`).join(', ')}.
+              </p>
+            )}
+            {w.arrival && card(w.arrival, w.along.length + 1)}
+            <p className="text-[11px] text-muted-foreground">
             Weather from aviationweather.gov (NOAA). For planning only - get an official briefing before flight.
-          </p>
-        </div>
-      )}
+            </p>
+          </div>
+        );
+      })()}
     </div>
   );
 };

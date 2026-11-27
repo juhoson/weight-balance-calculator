@@ -15,6 +15,7 @@ import RouteProfileChart, { type ReportedCloud } from './RouteProfileChart';
 import type { AirspaceCheck } from '../../lib/airspace';
 import type { AvoidHandler } from '../../lib/avoidAirspace';
 import type { Suggestions } from '../../lib/suggestAltitude';
+import Curtain from '../ui/Curtain';
 import AltitudeSuggestions from './AltitudeSuggestions';
 
 interface EnroutePanelProps {
@@ -95,18 +96,24 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             {departure && <Button type="button" variant="outline" onClick={() => onDepartureChange('')}>Now</Button>}
           </div>
         </FormItem>
-        <FormItem>
-          <FormLabel htmlFor="climb-rate">Climb rate <span className="font-normal text-muted-foreground">· at Vy {vyKt} kt</span></FormLabel>
-          <NumberInput id="climb-rate" value={climbRates.climbFpm} step={50} unit="ft/min" onChange={v => onClimbRatesChange({ climbFpm: v })}/>
-        </FormItem>
-        <FormItem>
-          <FormLabel htmlFor="descent-rate">Descent rate <span className="font-normal text-muted-foreground">· at cruise speed</span></FormLabel>
-          <NumberInput id="descent-rate" value={climbRates.descentFpm} step={50} unit="ft/min" onChange={v => onClimbRatesChange({ descentFpm: v })}/>
-        </FormItem>
       </div>
-      {(!validRate(climbRates.climbFpm) || !validRate(climbRates.descentFpm))
-        ? <p className="text-xs text-red-600">Climb and descent rates between {MIN_RATE_FPM} and {ft(MAX_RATE_FPM)} ft/min; until then the plan has no climb or descent.</p>
-        : <p className="-mt-1 text-[11px] text-muted-foreground">Take the rates from your POH for today&apos;s weight; remembered for this aircraft.</p>}
+      <Curtain id="enroute.rates" title="Climb and descent rates"
+        summary={`${ft(climbRates.climbFpm)} ft/min up at Vy ${vyKt} kt · ${ft(climbRates.descentFpm)} ft/min down`}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormItem>
+            <FormLabel htmlFor="climb-rate">Climb rate <span className="font-normal text-muted-foreground">· at Vy {vyKt} kt</span></FormLabel>
+            <NumberInput id="climb-rate" value={climbRates.climbFpm} step={50} unit="ft/min" onChange={v => onClimbRatesChange({ climbFpm: v })}/>
+          </FormItem>
+          <FormItem>
+            <FormLabel htmlFor="descent-rate">Descent rate <span className="font-normal text-muted-foreground">· at cruise speed</span></FormLabel>
+            <NumberInput id="descent-rate" value={climbRates.descentFpm} step={50} unit="ft/min" onChange={v => onClimbRatesChange({ descentFpm: v })}/>
+          </FormItem>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Take the rates from your POH for today&apos;s weight; remembered for this aircraft.</p>
+      </Curtain>
+      {(!validRate(climbRates.climbFpm) || !validRate(climbRates.descentFpm)) && (
+        <p className="text-xs text-red-600">Climb and descent rates between {MIN_RATE_FPM} and {ft(MAX_RATE_FPM)} ft/min; until then the plan has no climb or descent.</p>
+      )}
 
       {blockedReason && (
         <p className="text-sm text-muted-foreground" role="status">{blockedReason}</p>
@@ -148,16 +155,23 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
             </ul>
           )}
 
-          {suggestMaxFt !== undefined && onSuggestMaxChange && (
-            <AltitudeSuggestions suggestions={suggestions} altitudeFt={altitudeFt} currentMinutes={plan.minutes}
-              maxFt={suggestMaxFt} onMaxChange={onSuggestMaxChange} onPick={ft => { onAltitudeChange(ft); onHoldsChange?.([]); }}
-              holds={holds} onPickStepped={onHoldsChange && ((ft, h) => { onAltitudeChange(ft); onHoldsChange(h); })}/>
-          )}
-          {onHoldsChange && (
-            <AltitudeChanges holds={holds} onChange={onHoldsChange} cruiseFt={altitudeFt} missed={plan.profile?.missed ?? []}
-              totalNm={plan.segments.reduce((sum, x) => Math.max(sum, x.segment.startNm + x.segment.distanceNm), 0)}/>
-          )}
           {plan.profile && <ProfileSummary profile={plan.profile} cruiseFt={altitudeFt} onAltitudeChange={onAltitudeChange}/>}
+          {((suggestMaxFt !== undefined && onSuggestMaxChange) || onHoldsChange) && (
+            <Curtain id="enroute.altitudes" title="Other altitudes"
+              summary={holds.length
+                ? `${holds.length} stretch${holds.length === 1 ? '' : 'es'} at another altitude`
+                : 'compare cruise altitudes, or fly part of the way at another'}>
+              {suggestMaxFt !== undefined && onSuggestMaxChange && (
+                <AltitudeSuggestions suggestions={suggestions} altitudeFt={altitudeFt} currentMinutes={plan.minutes}
+                  maxFt={suggestMaxFt} onMaxChange={onSuggestMaxChange} onPick={ft => { onAltitudeChange(ft); onHoldsChange?.([]); }}
+                  holds={holds} onPickStepped={onHoldsChange && ((ft, h) => { onAltitudeChange(ft); onHoldsChange(h); })}/>
+              )}
+              {onHoldsChange && (
+                <AltitudeChanges holds={holds} onChange={onHoldsChange} cruiseFt={altitudeFt} missed={plan.profile?.missed ?? []}
+                  totalNm={plan.segments.reduce((sum, x) => Math.max(sum, x.segment.startNm + x.segment.distanceNm), 0)}/>
+              )}
+            </Curtain>
+          )}
           <RouteProfileChart legs={plan.legs} altitudeFt={altitudeFt} profile={plan.profile} airspaces={airspaces} avoid={avoid}
             reported={reported} arrivalFt={arrivalFt} obstacles={obstacles} terrainProfile={terrainProfile}
             onLegAltitude={onHoldsChange && ((i, to) => {
@@ -166,16 +180,21 @@ const EnroutePanel: React.FC<EnroutePanelProps> = ({
               const from = Math.round(segs[0].segment.startNm * 10) / 10, end = Math.round((last.startNm + last.distanceNm) * 10) / 10;
               onHoldsChange(withStretchAltitude(holds, from, end, to, altitudeFt, `${plan.legs[i].leg.from} → ${plan.legs[i].leg.to}`));
             })}/>
-          <NavLog plan={plan}/>
+          <Curtain id="enroute.navlog" title="Nav log"
+            summary={`${plan.legs.length} leg${plan.legs.length === 1 ? '' : 's'} · ${fmtMinutes(plan.minutes)} · headings, groundspeed, ETA and wind`}>
+            <NavLog plan={plan}/>
+          </Curtain>
 
-          <p className="text-[11px] text-muted-foreground">
+          <Curtain id="enroute.about" title="About this forecast" summary="Open-Meteo model, not an official aviation forecast">
+            <p className="text-[11px] text-muted-foreground">
             Forecast at {ft(data?.altitudeFt ?? altitudeFt)} ft for when each segment is flown, at {tasKt} kt true airspeed;
             the climb and descent use the same wind. The true airspeed is estimated from the book cruise speed, taken at 3,000 ft:
             about 1.5% faster per 1,000 ft higher at the same power, up to where full throttle can&apos;t hold it, then slower. Fuel is counted at the cruise fuel flow throughout.
             Headings are magnetic (World Magnetic Model 2025). Cloud base is estimated from the model&apos;s humidity by height.
             Model forecast from <a className="underline" href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo.com</a> (CC BY 4.0),
             not an official aviation forecast - get an official briefing before flight.
-          </p>
+            </p>
+          </Curtain>
         </>
       )}
     </div>

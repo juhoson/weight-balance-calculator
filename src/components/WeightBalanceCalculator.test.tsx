@@ -39,6 +39,9 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
+/** Opens a curtain (details shown on a tap) by its title. */
+const openCurtain = (name: RegExp) => fireEvent.click(screen.getByRole('button', { name }));
+
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('disclaimerAccepted', 'true');
@@ -258,7 +261,9 @@ it('times a trip segment by segment in the forecast wind at the cruise altitude'
   // The cruise altitude, then every altitude up to FL100 for the suggestions (from the cache).
   expect(forecastCalls()[0]).toEqual([['ESSX', 'ESGG'], 3000, null]);
   await waitFor(() => expect(lastForecast()).toEqual([['ESSX', 'ESGG'], 10000, null]));
+  openCurtain(/^Other altitudes/);
   expect(screen.getByRole('region', { name: 'Suggested cruise altitudes' })).toBeInTheDocument();
+  openCurtain(/^Nav log/);
   const log = screen.getByRole('table', { name: 'Nav log' });
   expect(log).toHaveTextContent(/ESSX → ESGG · 175 NM · 2:02 · var \d°E/);
   expect(screen.getAllByText('231/20')).toHaveLength(7);
@@ -347,7 +352,10 @@ it('a route with a waypoint asks for weather via it and counts all legs', async 
   render(<WeightBalanceCalculator />);
   await waitFor(() => expect(mockedRoute).toHaveBeenCalledWith('ESSX', 'ESGG', ['ESCF']));
   expect(await screen.findByText(/From the route: 200 NM at 107 kt true airspeed, no wind, 2 legs/)).toBeInTheDocument();
+  openCurtain(/^Legs \(2\)/);
   expect(screen.getByText(/ESSX → ESCF: 80 NM, 200° true/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Waypoints \(1\)/ })).toHaveTextContent('ESCF');
+  openCurtain(/^Waypoints \(1\)/);
   expect(screen.getByLabelText('Waypoint 1')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Remove waypoint 1' }));
   await waitFor(() => expect(mockedRoute).toHaveBeenLastCalledWith('ESSX', 'ESGG', []));
@@ -495,6 +503,8 @@ it('flies a stretch at another altitude, in that altitude\'s wind', async () => 
     })),
   }));
   render(<WeightBalanceCalculator />);
+  fireEvent.click(await screen.findByRole('button', { name: /^Other altitudes/ }));
+  openCurtain(/^Nav log/);
   const changes = await screen.findByRole('region', { name: 'Altitude changes along the route' });
   expect(changes).toHaveTextContent('All of it at 3,000 ft.');
   expect(screen.getByRole('table', { name: 'Nav log' })).not.toHaveTextContent('Alt');
@@ -535,6 +545,7 @@ it('a shared route brings its cruise altitude and altitude changes', async () =>
   render(<WeightBalanceCalculator />);
   fireEvent.click(await screen.findByRole('button', { name: 'Use this route' }));
   await waitFor(() => expect(screen.getByLabelText('Cruise altitude')).toHaveValue(4500));
+  fireEvent.click(await screen.findByRole('button', { name: /^Other altitudes \d+ stretch/ }));
   const changes = await screen.findByRole('region', { name: 'Altitude changes along the route' });
   expect(within(changes).getByLabelText('Change 1 altitude')).toHaveValue(2000);
   expect(within(changes).getByText('Under STOCKHOLM TMA')).toBeInTheDocument();
