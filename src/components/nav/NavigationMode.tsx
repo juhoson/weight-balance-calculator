@@ -87,7 +87,11 @@ const ROUTE_COLOR = '#d946ef';
 /** The demo flight runs this many times faster than real time. */
 const DEMO_SPEEDUP = 4;
 const RATIO_KEY = 'nav.glideRatio';
-/** Base map tiles kept for offline from this zoom; airspace tiles up to AIRSPACE_MAX_ZOOM (shown enlarged beyond). */
+/**
+ * Base map tiles kept for offline from this zoom; openAIP's airspace picture up to AIRSPACE_MAX_ZOOM.
+ * Closer in it is not shown (enlarged, its navaid and airfield symbols would cover the field): the
+ * airspace borders are drawn from the airspace data instead.
+ */
 const OFFLINE_MIN_ZOOM = 6;
 const AIRSPACE_MAX_ZOOM = 10;
 /** Visual reporting points this far either side of the route are drawn, whichever airport they belong to. */
@@ -113,8 +117,6 @@ const AUTO_ZOOM_LOW_FT = 1500;
 /** Slow within this of a field with its layout drawn: zoomed in to taxi. */
 const TAXI_ZOOM_NM = 2;
 const TAXI_ZOOM = 16;
-/** From this zoom in, the airspace overlay is hidden (blown up from zoom 10, it blurs the field). */
-const FIELD_ZOOM = 14;
 /** "Join left downwind 19" → "join DW": short enough for the Next box ("ESSB join DW"). */
 const shortArrivalLabel = (label: string) => label
   .replace(/^Join (left|right) downwind .*/, 'join DW').replace(/^Downwind .*/, 'DW').replace(/^Base .*/, 'base')
@@ -206,6 +208,16 @@ function useWakeLock(active: boolean): void {
 const upright = (html: string) => `<span class="upright">${html}</span>`;
 
 /** A map layer shown or not, as the pilot last chose on this device. */
+/**
+ * An airspace's border, in openAIP's colours: blue for controlled airspace, red for restricted, danger
+ * and prohibited areas, purple for the rest (TMZ, RMZ, ...); dashed when it is only active at times.
+ */
+export function airspaceBorder(a: Pick<AirspaceView, 'type' | 'icaoClass' | 'activation'>): L.PathOptions {
+  const color = ['R', 'D', 'P'].includes(a.type) ? '#dc2626'
+    : a.icaoClass && a.icaoClass !== 'G' ? '#1d4ed8' : '#7c3aed';
+  return { color, weight: 2, opacity: 0.8, dashArray: a.activation ? '8 6' : undefined };
+}
+
 function useShown(key: string, initial: boolean): [boolean, () => void] {
   const [shown, setShown] = React.useState(() => {
     try { const v = localStorage.getItem(key); return v == null ? initial : v === 'yes'; } catch { return initial; }
@@ -409,6 +421,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const vrpLayer = React.useRef(L.layerGroup());
   const fixLayer = React.useRef(L.layerGroup());
   const navaidLayer = React.useRef(L.layerGroup());
+  /** The airspace borders, drawn closer in than openAIP's picture goes. */
+  const borderLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
   const trafficLayer = React.useRef(L.layerGroup());
   /** The last leg and the way in to the runway: drawn by itself, as it changes with the runway. */
@@ -467,7 +481,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const airspace = () => {
       if (live && status?.airspace) {
         cachedTileLayer(AIRSPACE_TILE_URL, {
-          minZoom: status.minZoom, maxNativeZoom: Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM), maxZoom: 19, attribution: OPENAIP_CREDIT,
+          minZoom: status.minZoom, maxZoom: Math.min(status.maxZoom, AIRSPACE_MAX_ZOOM), attribution: OPENAIP_CREDIT,
           className: 'airspace-tiles',
         }).addTo(map);
       }
@@ -505,15 +519,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     }
     flownBase.slice(0, -1).forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(upright(baseLabels[i]), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    // Closer in than openAIP's picture: the airspace borders, under the route.
+    const borders = () => {
+      if (map.getZoom() > AIRSPACE_MAX_ZOOM) borderLayer.current.addTo(map); else borderLayer.current.remove();
+    };
+    borders();
+    map.on('zoomend', borders);
     arrivalLayer.current.addTo(map);
     addLayoutPanes(map);
     layoutLayer.current.addTo(map);
-    const el = container.current;
-    map.on('zoomend', () => {
-      drawAirportLayouts(layoutLayer.current, Object.values(layoutsRef.current), map.getZoom());
-      // The airspace picture is drawn for zoom 10: this close in it is only blur over the field.
-      el.classList.toggle('nav-map--field', map.getZoom() >= FIELD_ZOOM);
-    });
+    map.on('zoomend', () => drawAirportLayouts(layoutLayer.current, Object.values(layoutsRef.current), map.getZoom()));
     obstacleLayer.current.addTo(map);
     trafficLayer.current.addTo(map);
     map.attributionControl?.addAttribution(TRAFFIC_CREDIT);
@@ -595,6 +610,15 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       icon: L.divIcon({ className: 'fix-marker', iconSize: [9, 9] }), keyboard: false, interactive: false,
     }).bindTooltip(upright(p.name), { permanent: true, direction: 'right', offset: [4, 0], className: 'route-map-label fix-label' }).addTo(layer));
   }, [fixes, showFix]);
+  React.useEffect(() => {
+    const layer = borderLayer.current;
+    layer.clearLayers();
+    (airspacesNow ?? []).forEach(a => {
+      if (a.polygon.length < 3) return;
+      L.polygon(a.polygon.map(([lon, lat]) => [lat, lon] as [number, number]), { ...airspaceBorder(a), fill: false, interactive: false })
+        .addTo(layer);
+    });
+  }, [airspacesNow]);
   // The AIP's en-route radio navaids (VOR, DME) near the route, labelled with what to tune.
   const [showNavaid, toggleNavaid] = useShown(SHOW_NAVAID_KEY, true);
   const navaids = React.useMemo(() => navaidsNear(area, NAVAID_RANGE_NM), [area]);

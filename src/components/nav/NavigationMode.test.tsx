@@ -7,7 +7,7 @@ import type { AirportInfo, AirspaceView, RouteWeather } from '../../types/route'
 // Leaflet draws lines in SVG only where the browser has createSVGRect, which jsdom lacks.
 (window.SVGSVGElement.prototype as unknown as { createSVGRect: () => object }).createSVGRect = () => ({});
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { default: NavigationMode } = require('./NavigationMode') as typeof import('./NavigationMode');
+const { default: NavigationMode, airspaceBorder } = require('./NavigationMode') as typeof import('./NavigationMode');
 
 jest.mock('../../api/backend', () => ({
   fetchMapStatus: jest.fn(),
@@ -410,4 +410,10 @@ test('on the way in, the planned landing runway is asked about, and another can 
   fireEvent.click(within(card).getByRole('button', { name: 'Change to 01' }));
   expect(within(screen.getByRole('status', { name: 'Landing runway' })).getByRole('button', { name: 'RWY 01 ✓' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByText('Landing RWY 01')).toBeInTheDocument();
+});
+
+test('airspace borders: blue when controlled, red when restricted, dashed when only active at times', () => {
+  expect(airspaceBorder({ type: 'CTR', icaoClass: 'D', activation: null })).toMatchObject({ color: '#1d4ed8', dashArray: undefined });
+  expect(airspaceBorder({ type: 'R', icaoClass: null, activation: 'NOTAM' })).toMatchObject({ color: '#dc2626', dashArray: '8 6' });
+  expect(airspaceBorder({ type: 'TMZ', icaoClass: 'G', activation: null })).toMatchObject({ color: '#7c3aed' });
 });

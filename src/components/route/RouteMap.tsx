@@ -185,8 +185,8 @@ const RouteMap: React.FC<RouteMapProps> = ({
     if (status?.airspace) {
       overlays.Airspace = L.tileLayer(AIRSPACE_TILE_URL, {
         minZoom: status.minZoom,
-        maxNativeZoom: status.maxZoom,
-        maxZoom: 19,
+        // Not enlarged past its last zoom: its navaid and airfield symbols would cover the field.
+        maxZoom: status.maxZoom,
         attribution: OPENAIP_CREDIT,
         opacity: 1,
       }).addTo(map);
