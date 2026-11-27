@@ -36,6 +36,7 @@ import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
 import { type AirportLayout, keepLoadingLayouts } from '../../lib/airportLayout';
 import { addLayoutPanes, drawAirportLayouts } from './airportLayer';
 import { loadAerodrome, useArrivalPlan } from '../../lib/useArrivalPlan';
+import { type FiledPlan, loadFiledPlan, storeFiledPlan } from '../../lib/icaoFlightPlan';
 import { type ApproachWatch, newApproachWatch, overRunway, runwayZoom, watchApproach } from '../../lib/airportPhase';
 import { type ArrivalPoint, circuitPattern, isControlledField, runwayAlong, STANDARD_CIRCUIT_AGL_FT } from '../../lib/arrival';
 import RouteProfileChart from '../route/RouteProfileChart';
@@ -835,6 +836,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const groundFt = nearestStill[0]?.airport.elevationFt ?? null;
   // A go-around (or a touch and go) noticed from the GPS: the circuit to fly, its side and height.
   const approachWatch = React.useRef<ApproachWatch>(newApproachWatch());
+  /** A flight plan marked as filed in the planner: reminded of after landing. */
+  const [filedPlan, setFiledPlan] = React.useState<FiledPlan | null>(() => loadFiledPlan());
   const [goAround, setGoAround] = React.useState<GoAroundCircuit | null>(null);
   const nearFix = nearestStill[0];
   React.useEffect(() => {
@@ -1221,6 +1224,26 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             </div>
           );
         })()}
+        {/* Landed with a flight plan filed: close it (at a field without ATC it isn't closed for you). */}
+        {filedPlan && (blockLog.phase === 'taxi-in' || blockLog.phase === 'on-block') && (() => {
+          const here = nearFix && nearFix.nm <= 3 ? nearFix.airport.code : null;
+          return (
+            <div role="alert" aria-label="Close your flight plan" className="order-2 flex flex-wrap items-center gap-x-2 gap-y-1 bg-sky-700 px-3 py-1.5 text-sm text-white">
+              <strong>Close your flight plan</strong>
+              <span className="text-sky-100">
+                {here && here !== filedPlan.destination ? `Landed at ${here}, not ${filedPlan.destination}: tell ATS. ` : ''}
+                {filedPlan.closePhone ? '' : 'Call the ATS reporting office, or as the AIP says for the field.'}
+              </span>
+              {filedPlan.closePhone && (
+                <a href={`tel:${filedPlan.closePhone.replace(/[^+\d]/g, '')}`} className="rounded bg-white px-2 py-0.5 text-xs font-semibold text-sky-800">
+                  Call {filedPlan.closePhone}
+                </a>
+              )}
+              <button type="button" className="ml-auto rounded bg-sky-900/60 px-2 py-0.5 text-xs font-semibold"
+                onClick={() => { storeFiledPlan(null); setFiledPlan(null); }}>Closed</button>
+            </div>
+          );
+        })()}
         {goAround && (
           <div role="status" aria-label="Go-around" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-amber-700 px-3 py-1.5 text-sm text-white">
             <strong>Go-around {goAround.code} RWY {goAround.runway}</strong>
@@ -1461,11 +1484,15 @@ const EndFlight: React.FC<{
   const stats = trackStats(points);
   // Worked out once when the page opens: on block is when it stopped (or now).
   const [times] = React.useState(() => blockTimesOf(log));
-  const save = () => {
+  /** Saves the flight to My flights; true when it was. */
+  const save = (): Promise<boolean> => {
     setState('saving');
-    saveTrack(name.trim() || defaultName, points, times).then(
-      t => { clearTrack(); clearBlockLog(); clearNavSession(); setState({ id: t.id }); },
-      e => setState({ error: e instanceof Error && e.message ? `${e.message} The flight stays on this device: try again when you have a connection.` : 'Could not save the flight.' }),
+    return saveTrack(name.trim() || defaultName, points, times).then(
+      t => { clearTrack(); clearBlockLog(); clearNavSession(); setState({ id: t.id }); return true; },
+      e => {
+        setState({ error: e instanceof Error && e.message ? `${e.message} The flight stays on this device: try again when you have a connection.` : 'Could not save the flight.' });
+        return false;
+      },
     );
   };
   const kml = () => {
@@ -1474,6 +1501,11 @@ const EndFlight: React.FC<{
   };
   const btn = 'rounded-md px-4 py-2 font-semibold';
   const saved = typeof state === 'object' && 'id' in state ? state.id : null;
+  /** Out of the flight from the debriefing pack: saved first when it can be; a failed save stays on this page to retry. */
+  const exitFlight = () => {
+    if (!signedIn || saved != null) { onDone(); return; }
+    void save().then(ok => { if (ok) onDone(); else setDebrief(false); });
+  };
   return (
     <div className="space-y-3 text-sm">
       {demo && <p className="rounded bg-sky-900 px-2 py-1 text-xs">Demo flight: its times run 4× fast, and it isn&apos;t saved.</p>}
@@ -1513,7 +1545,13 @@ const EndFlight: React.FC<{
           </div>
         </>
       )}
-      {debrief && <DebriefPack name={name.trim() || defaultName} points={points} times={times} planned={planned} demo={demo} onClose={() => setDebrief(false)}/>}
+      {debrief && (
+        <DebriefPack name={name.trim() || defaultName} points={points} times={times} planned={planned} demo={demo} onClose={() => setDebrief(false)}
+          onExit={exitFlight}
+          exitNote={signedIn && saved == null ? 'Saves the flight to My flights and closes navigation mode.'
+            : saved != null ? 'Closes navigation mode.' : demo ? 'Closes navigation mode (a demo flight isn\'t saved).'
+              : 'Closes navigation mode. Sign in to keep your flights.'}/>
+      )}
     </div>
   );
 };

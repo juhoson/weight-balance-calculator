@@ -417,3 +417,27 @@ test('airspace borders: blue when controlled, red when restricted, dashed when o
   expect(airspaceBorder({ type: 'R', icaoClass: null, activation: 'NOTAM' })).toMatchObject({ color: '#dc2626', dashArray: '8 6' });
   expect(airspaceBorder({ type: 'TMZ', icaoClass: 'G', activation: null })).toMatchObject({ color: '#7c3aed' });
 });
+
+test('exit flight from the debriefing pack saves the flight and leaves navigation mode', async () => {
+  localStorage.clear();
+  let tick: PositionCallback = () => undefined;
+  const watchPosition = jest.fn((ok: PositionCallback) => { tick = ok; return 1; });
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
+  (saveTrack as jest.Mock).mockReset().mockResolvedValue({ id: 8, name: 'x', startedAt: '', endedAt: '', distanceNm: 1, pointCount: 2 });
+  const onClose = jest.fn();
+  await settled(<NavigationMode trip={trip} airspaces={[]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
+    cruiseKt={110} cruiseAltFt={3500} signedIn onClose={onClose}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
+  const at = (lat: number, t: number) => act(() => tick({ timestamp: t, coords: { latitude: lat, longitude: 16.7, altitude: 600, speed: 50, heading: 0, accuracy: 8 } } as GeolocationPosition));
+  await waitFor(() => expect(watchPosition).toHaveBeenCalled());
+  at(59.59, 1_000_000);
+  at(59.60, 1_060_000);
+  fireEvent.click(screen.getByRole('button', { name: 'Close navigation mode' }));
+  const end = screen.getByRole('region', { name: 'End flight' });
+  fireEvent.click(within(end).getByRole('button', { name: 'Debriefing pack' }));
+  const pack = await screen.findByRole('dialog', { name: 'Debriefing pack' });
+  expect(within(pack).getByText(/Saves the flight to My flights/)).toBeInTheDocument();
+  fireEvent.click(within(pack).getByRole('button', { name: 'Exit flight' }));
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  expect(saveTrack).toHaveBeenCalledTimes(1);
+});

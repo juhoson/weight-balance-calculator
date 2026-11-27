@@ -189,7 +189,9 @@ const QUESTIONS = [
  */
 const DebriefPack: React.FC<{
   name: string; points: TrackPoint[]; times: BlockTimes; planned: PlannedPoint[]; demo?: boolean; onClose: () => void;
-}> = ({ name, points, times, planned, demo, onClose }) => {
+  /** Ends the flight from here (out of navigation mode), with what that does, e.g. "saves it to My flights". */
+  onExit?: () => void; exitNote?: string | null;
+}> = ({ name, points, times, planned, demo, onClose, onExit, exitNote }) => {
   const facts = React.useMemo(() => flightFacts(points, times, planned), [points, times, planned]);
   React.useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
@@ -219,7 +221,7 @@ const DebriefPack: React.FC<{
   const date = new Date(points[0]?.at ?? Date.now()).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   return createPortal(
     <div className="debrief-pack fixed inset-0 z-[3000] overflow-y-auto bg-white text-neutral-900" role="dialog" aria-modal="true" aria-label="Debriefing pack">
-      <div className="no-print sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white/95 px-4 py-2">
+      <div className="no-print safe-top sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white/95 px-4 py-2">
         <strong className="mr-auto">Debriefing pack</strong>
         {shareError && <span className="text-sm text-red-600" role="alert">{shareError}</span>}
         {isNative() ? (
@@ -234,7 +236,9 @@ const DebriefPack: React.FC<{
         <button type="button" className="flex items-center gap-1 rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-semibold" onClick={kml}>
           <Download className="h-4 w-4"/> KML
         </button>
-        <button type="button" aria-label="Close debriefing pack" className="rounded p-1.5 hover:bg-neutral-100" onClick={onClose}><X className="h-5 w-5"/></button>
+        <button type="button" aria-label="Close debriefing pack" className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-neutral-100" onClick={onClose}>
+          <X className="h-5 w-5"/> Back
+        </button>
       </div>
       <article ref={article} className="mx-auto max-w-[186mm] space-y-5 p-4 print:p-0">
         <header>
@@ -278,6 +282,15 @@ const DebriefPack: React.FC<{
           </ol>
         </section>
       </article>
+      {onExit && (
+        <div className="no-print safe-bottom sticky bottom-0 border-t border-neutral-200 bg-white/95 px-4 py-3">
+          <button type="button" onClick={onExit}
+            className="mx-auto block w-full max-w-md rounded-lg bg-red-600 px-4 py-3 text-lg font-bold uppercase tracking-wide text-white hover:bg-red-700">
+            Exit flight
+          </button>
+          {exitNote && <p className="mt-1 text-center text-xs text-neutral-600">{exitNote}</p>}
+        </div>
+      )}
     </div>,
     document.body,
   );
