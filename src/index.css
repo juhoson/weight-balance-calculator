@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* iOS zooms the page in when a field with text under 16px is tapped, and stays zoomed: the page is
+   then wider than the screen and has to be scrolled sideways. 16px on iOS (iPhone, iPad, the app)
+   keeps it at its size; elsewhere the fields keep their own size. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
 
 @layer base {
   :root {
