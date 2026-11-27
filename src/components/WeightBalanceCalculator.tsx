@@ -50,6 +50,7 @@ import type {BriefingData} from './briefing/BriefingPack';
 import {currentPosition, loadRoute, locationAlreadyAllowed, type PlannedRoute, type RouteAltitudes, saveRoute} from '../lib/route';
 import {airspacesFetchedAt, nearestAirports} from '../api/backend';
 import AuthDialog from './auth/AuthDialog';
+import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from './ui/Dialog';
 import { loadNavSession } from '../lib/navSession';
 import {flightMinutes, MPH_TO_KT} from '../lib/wind';
 import {track} from '../lib/analytics';
@@ -645,9 +646,15 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   };
   /** Hidden below lg unless it's the step on screen. */
   const onStep = (i: number) => (i === step ? undefined : 'max-lg:hidden');
-  const startNavigation = () => {
+  const enterNavigation = () => {
     if (userId === null) setSignInForNav(true);
     else { setNavigating(true); track('navigation-mode'); }
+  };
+  // Outside the weight and balance limits: asked first, with what's wrong.
+  const [confirmLimits, setConfirmLimits] = React.useState(false);
+  const startNavigation = () => {
+    if (verdict === 'limits') setConfirmLimits(true);
+    else enterNavigation();
   };
   // Signed in from the navigation button: straight on into navigation mode.
   React.useEffect(() => {
@@ -952,6 +959,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
   const selectedMeta = catalog.meta[selectedAircraft];
   if (!aircraft) return null; // only for the render before the list effect picks another aircraft
   const verdict = results ? verdictOf(results) : null;
+  const limitProblems = results ? [...(results.takeoff.problems ?? []), ...(results.landing.problems ?? [])] : [];
   const maxFuel = getMaxFuel(aircraft);
   const toLiters = (amount: number, perLiter: number) => (inputs.fuelUnit === 'liters' ? amount : amount / perLiter);
   const perfData = aircraft.performance;
@@ -1269,6 +1277,24 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
         </React.Suspense>
       )}
 
+      <Dialog open={confirmLimits} onOpenChange={setConfirmLimits}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Outside weight and balance limits</DialogTitle>
+            <DialogDescription>{VERDICT_TEXT.limits.detail} Start navigation anyway?</DialogDescription>
+          </DialogHeader>
+          {limitProblems.length > 0 && (
+            <ul className="list-disc space-y-1 pl-5 text-sm">
+              {limitProblems.map(p => <li key={p}>{p}</li>)}
+            </ul>
+          )}
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => { setConfirmLimits(false); goToStep(1); }}>Check the loading</Button>
+            <Button type="button" variant="destructive" onClick={() => { setConfirmLimits(false); enterNavigation(); }}>Fly anyway</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Phones and portrait tablets: back and next, with the verdict in view while editing. */}
       <div className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur lg:hidden print:hidden">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-3 py-2">
@@ -1292,6 +1318,12 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               </span>
             </button>
           ) : <span className="flex-1"/>}
+          {step < PLANNING_STEPS.length - 1 && (
+            <Button type="button" variant="outline" className="h-12 px-3" onClick={startNavigation}
+              aria-label={hasRoute ? 'Fly now: start navigation' : 'Fly now: navigate without a route'}>
+              <Navigation className="h-5 w-5 sm:mr-1"/><span className="max-sm:sr-only">Fly</span>
+            </Button>
+          )}
           {step < PLANNING_STEPS.length - 1 && (
             <Button type="button" className="h-12 px-4" onClick={() => goToStep(step + 1)} aria-label={`Next: ${PLANNING_STEPS[step + 1]}`}>
               {PLANNING_STEPS[step + 1]} <ChevronRight className="ml-1 h-5 w-5"/>

@@ -569,3 +569,24 @@ it('on a narrow screen, plans one step at a time: next, back, and a tap on a ste
   expect(current()).toBe('Check');
   expect(screen.getByRole('region', { name: 'Results' }).closest('aside')).not.toHaveClass('max-lg:hidden');
 });
+
+it('fly now is on every step; outside the limits it asks first', async () => {
+  const generic = genericFromBuiltin('PA28-161 (SE-KMI)');
+  generic.spec.maxZeroFuelWeight = 750;
+  mockedGenerics.mockResolvedValue([generic]);
+  render(<WeightBalanceCalculator />);
+  expect(await screen.findByText('Zero-fuel weight 767.4 kg is over the 750 kg limit.')).toBeInTheDocument();
+  // On the first step (Aircraft), not only the last.
+  fireEvent.click(screen.getByRole('button', { name: /^Fly now/ }));
+  const dialog = await screen.findByRole('dialog', { name: 'Outside weight and balance limits' });
+  expect(dialog).toHaveTextContent('Zero-fuel weight 767.4 kg is over the 750 kg limit.');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Check the loading' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Outside weight and balance limits' })).toBeNull());
+});
+
+it('fly now within the limits starts without asking', async () => {
+  render(<WeightBalanceCalculator />);
+  expect((await screen.findAllByText('Within limits', { selector: 'span' })).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: /^Fly now/ }));
+  expect(screen.queryByRole('dialog', { name: 'Outside weight and balance limits' })).toBeNull();
+});
