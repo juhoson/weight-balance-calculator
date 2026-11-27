@@ -21,6 +21,7 @@ import type { AerodromeInfo, AirportInfo, AirspaceView, MapArea, NearbyAirport, 
 import type { RouteAltitudes } from '../lib/route';
 import type { ClubName, MyClub } from '../types/profile';
 import type { ChangeView, ClubAircraft, EditPreviewResponse } from '../types/clubAircraft';
+import type { AirportLayout } from '../lib/airportLayout';
 
 // The backend's address: set at build time for production, from .env.development for npm start.
 // Empty = same origin.
@@ -140,6 +141,11 @@ export async function fetchAirspacesAlong(points: Array<{ lat: number; lon: numb
 /** An aerodrome's circuits and visual reporting points. Public. */
 export function fetchAerodrome(code: string): Promise<AerodromeInfo> {
   return request<AerodromeInfo>(`/api/map/aerodrome/${encodeURIComponent(code)}`);
+}
+
+/** An aerodrome's runways, taxiways, aprons and holding positions (OpenStreetMap). Public. */
+export function fetchAirportLayout(code: string): Promise<AirportLayout> {
+  return request<AirportLayout>(`/api/airports/${encodeURIComponent(code)}/layout`);
 }
 
 /** The signed-in user accepts the navigation mode's terms; the account (and this device) keeps it. */

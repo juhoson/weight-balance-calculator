@@ -1246,6 +1246,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             climb={vyKt > 0 && validRate(climbRates.climbFpm) ? { fpm: climbRates.climbFpm, kt: vyKt } : null}
             approachKt={perf?.approachSpeedNormal ? Math.round(perf.speedUnit === 'MPH' ? perf.approachSpeedNormal * MPH_TO_KT : perf.approachSpeedNormal) : null}
             signedIn={userId !== null}
+            profile={hasRoute && trip && windPlan?.ok ? {
+              legs: windPlan.legs, altitudeFt, profile: windPlan.profile, airspaces: airspaceCheck?.checks, reported: reportedClouds,
+              arrivalFt: trip.arrival.elevationFt ?? null, obstacles: routeObstacles, terrainProfile: routeTerrain,
+            } : null}
             onClose={() => setNavigating(false)}
           />
         </React.Suspense>

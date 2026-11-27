@@ -31,6 +31,10 @@ interface RouteProfileChartProps {
   obstacles?: RouteObstacle[];
   /** The ground along the route (elevation model, every ~½ NM); without it, the forecast model's average per segment. */
   terrainProfile?: TerrainPoint[] | null;
+  /** Where the aircraft is (navigation mode): NM along the route and its altitude. */
+  aircraft?: { nm: number; ft: number | null } | null;
+  /** A strip without the legend or anything to tap, this tall (navigation mode). */
+  compact?: { height: number };
 }
 
 /** A METAR's cloud at its place along the route. */
@@ -54,7 +58,7 @@ const REPORTED_STYLE: Record<CloudLayer['cover'], { opacity: number; depthFt: nu
 const LEG_MAX_FT = 18000;
 const LEG_MIN_FT = 500;
 
-const HEIGHT = 240;
+const FULL_HEIGHT = 240;
 const M = { top: 30, right: 10, bottom: 34, left: 40 };
 const pad3 = (n: number) => String(Math.round(n) % 360).padStart(3, '0');
 const utc = (d: Date) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}Z`;
@@ -107,7 +111,8 @@ type Active = { kind: 'segment'; i: number; hover?: boolean } | { kind: 'airspac
  * segment, or hover the wind strip along the top, for its weather; tap an airspace box for its
  * limits and frequency. The nav log below has the same numbers as a table.
  */
-const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null, obstacles = [], terrainProfile = null }) => {
+const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt, profile, airspaces = [], avoid, onLegAltitude, reported = [], arrivalFt = null, obstacles = [], terrainProfile = null, aircraft = null, compact }) => {
+  const HEIGHT = compact?.height ?? FULL_HEIGHT;
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
   const [ref, width] = useWidth<HTMLDivElement>(600);
   const [active, setActive] = React.useState<Active | null>(null);
@@ -127,7 +132,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
   if (segments.length === 0) return null;
 
   const totalNm = segments.reduce((sum, s) => Math.max(sum, s.segment.startNm + s.segment.distanceNm), 0);
-  const highest = Math.max(profile ? profile.topFt : altitudeFt, dragging?.ft ?? 0);
+  const highest = Math.max(profile ? profile.topFt : altitudeFt, dragging?.ft ?? 0, aircraft?.ft ?? 0);
   const topFt = Math.min(20000, Math.max(6000, Math.ceil((highest + 3000) / 2000) * 2000));
   const plotW = Math.max(100, width - M.left - M.right);
   const plotH = HEIGHT - M.top - M.bottom;
@@ -198,7 +203,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
 
   return (
     <figure className="min-w-0 space-y-2">
-      <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+      {!compact && <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-4 bg-primary"/>
           {profile
             ? profile.path.length > 4 ? `Flight path, cruise ${altitudeFt.toLocaleString('en')} ft with altitude changes`
@@ -218,7 +223,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
         {shownAirspaces.length > 0 && (
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-4 rounded-sm border border-blue-600 bg-blue-500/15 dark:border-blue-400"/> Airspace (tap for limits and frequency)</span>
         )}
-      </figcaption>
+      </figcaption>}
       <div ref={ref} className="relative w-full min-w-0 select-none" onPointerLeave={e => { if (e.pointerType === 'mouse') setActive(null); }}>
         <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} className="block" role="img"
           aria-label={`Route profile, ${Math.round(totalNm)} NM at ${altitudeFt} ft: cloud, freezing level, terrain and wind. Details in the nav log.`}>
@@ -416,7 +421,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
 
           {/* Tap targets, a full column per segment; hovering opens the details only over the wind strip
               along the top, so they don't cover the flight path while the pointer is on it. */}
-          {segments.map((s, i) => {
+          {!compact && segments.map((s, i) => {
             const x0 = x(s.segment.startNm), w = Math.max(1, x(s.segment.startNm + s.segment.distanceNm) - x0);
             const toggle = () => setActive(a => (a?.kind === 'segment' && a.i === i && !a.hover ? null : { kind: 'segment', i }));
             return (
@@ -434,7 +439,7 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           })}
 
           {/* Airspace boxes on top of the columns, narrowest last so it wins the tap. */}
-          {boxes.map(({ c, x0, x1, top, bottom }, i) => (
+          {!compact && boxes.map(({ c, x0, x1, top, bottom }, i) => (
             <rect key={`hit-${i}`} x={x0} width={x1 - x0} y={top} height={Math.max(4, bottom - top)} fill="transparent"
               className="cursor-pointer" role="button" tabIndex={0} aria-label={`Airspace ${c.airspace.name}`}
               onPointerUp={e => tapAirspace(e, i)}
@@ -446,7 +451,22 @@ const RouteProfileChart: React.FC<RouteProfileChartProps> = ({ legs, altitudeFt,
           ))}
 
           {/* Each leg's altitude: drag it up or down, or step it with the arrow keys. */}
-          {onLegAltitude && legLevels.map(lv => {
+          {/* The aircraft: a line down to the ground where it is, and a mark at its altitude. */}
+          {aircraft && aircraft.nm >= 0 && aircraft.nm <= totalNm * 1.02 && (() => {
+            const ax = x(Math.min(aircraft.nm, totalNm));
+            return (
+              <g data-testid="profile-aircraft">
+                <line x1={ax} x2={ax} y1={M.top} y2={M.top + plotH} className="stroke-fuchsia-500 dark:stroke-fuchsia-400" strokeWidth={1.5} strokeDasharray="3 2"/>
+                {aircraft.ft != null && (
+                  <g transform={`translate(${ax},${y(aircraft.ft)})`}>
+                    <path d="M-9,0 L5,-1.5 L9,0 L5,1.5 Z M-1,-1 L-4,-6 L-1,-6 L3,-1 Z M-8,-1 L-9,-4 L-7,-4 L-5,-1 Z" className="fill-fuchsia-500 stroke-white dark:fill-fuchsia-400 dark:stroke-slate-950" strokeWidth={0.8} strokeLinejoin="round"/>
+                  </g>
+                )}
+              </g>
+            );
+          })()}
+
+          {!compact && onLegAltitude && legLevels.map(lv => {
             if (!lv) return null;
             const cx = (lv.x0 + lv.x1) / 2, cy = y(lv.ft);
             const label = lv.ft.toLocaleString('en');

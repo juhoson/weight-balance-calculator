@@ -29,6 +29,9 @@ import { departureClimb, departureClimbLabel, DEPARTURE_TURN_FT } from '../../li
 import Hud from './Hud';
 import { nextBearing, TRACK_UP_AT, trackUpFrame } from '../../lib/trackUp';
 import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
+import { type AirportLayout, loadAirportLayout } from '../../lib/airportLayout';
+import { addLayoutPanes, drawAirportLayouts } from './airportLayer';
+import RouteProfileChart from '../route/RouteProfileChart';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
@@ -59,8 +62,16 @@ export interface NavigationModeProps {
   signedIn?: boolean;
   /** A GPS flight in progress before the page reloaded: offered to carry on, with what it had loaded. */
   resumed?: Pick<NavSession, 'airfields' | 'nearVrps'>;
+  /** The route from the side (terrain, cloud, the planned path), shown along the bottom on a tablet. */
+  profile?: NavProfile | null;
   onClose: () => void;
 }
+
+/** What the planning page's route profile draws, for the strip along the bottom of the map. */
+export type NavProfile = Omit<React.ComponentProps<typeof RouteProfileChart>, 'aircraft' | 'compact' | 'avoid' | 'onLegAltitude'>;
+
+/** The profile strip shows when the map is at least this big (a tablet), this tall. */
+const PROFILE_MIN_W = 700, PROFILE_MIN_H = 560, PROFILE_H = 150;
 
 const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
@@ -81,6 +92,7 @@ const SHOW_NAVAID_KEY = 'nav.showNavaids';
 const NAVAID_RANGE_NM = 40;
 const SHOW_OBSTACLE_KEY = 'nav.showObstacles';
 const SHOW_HUD_KEY = 'nav.showHud';
+const SHOW_PROFILE_KEY = 'nav.showProfile';
 const TRACK_UP_KEY = 'nav.trackUp';
 const SHOW_TRAFFIC_KEY = 'nav.showTraffic';
 /** The trend line's ticks: where the aircraft will be in this many minutes. */
@@ -91,6 +103,13 @@ const TREND_MIN_KT = 20;
 const AUTO_ZOOM_SLOW_KT = 50;
 const AUTO_ZOOM_NEAR_NM = 3;
 const AUTO_ZOOM_LOW_FT = 1500;
+/** Slow within this of a field with its layout drawn: zoomed in to taxi. */
+const TAXI_ZOOM_NM = 2;
+const TAXI_ZOOM = 16;
+/** From this zoom in, the airspace overlay is hidden (blown up from zoom 10, it blurs the field). */
+const FIELD_ZOOM = 14;
+/** Over our own base map, OpenStreetMap's tiles from this zoom in (online). */
+const CLOSE_TILES_ZOOM = 13;
 /** Traffic asked this often while flying, ms. */
 const TRAFFIC_POLL_MS = 5000;
 const TRAFFIC_CREDIT = 'traffic &copy; <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL)';
@@ -203,7 +222,7 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, approachKt = null, signedIn = false, resumed, onClose,
+  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, approachKt = null, signedIn = false, resumed, profile = null, onClose,
 }) => {
   const { user } = useAuth();
   const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
@@ -358,13 +377,27 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const navaidLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
   const trafficLayer = React.useRef(L.layerGroup());
+  /** The fields' runways and taxiways (OpenStreetMap), drawn when zoomed in. */
+  const layoutLayer = React.useRef(L.layerGroup());
+  const [layouts, setLayouts] = React.useState<Record<string, AirportLayout>>({});
+  const layoutsRef = React.useRef(layouts);
+  /** Counts the maps made, so what's set on the map is set again on a new one. */
+  const [mapGen, setMapGen] = React.useState(0);
+  layoutsRef.current = layouts;
   /** The map zooms itself by the phase of flight until the pilot zooms. */
   const autoZoom = React.useRef(true);
   /** Set while the map zooms itself, so its own zoom isn't taken for the pilot's. */
   const zooming = React.useRef(false);
   /** Close in when slow (on the ground), closer when low near the departure or arrival; 10 en route. */
   const zoomFor = (f: Fix): number => {
-    if ((f.speedKt ?? 0) < AUTO_ZOOM_SLOW_KT) return 13;
+    if ((f.speedKt ?? 0) < AUTO_ZOOM_SLOW_KT) {
+      // Taxiing, rolling or landing at a field whose layout is drawn: close enough to read the taxiways.
+      const atField = Object.values(layoutsRef.current).some(l => {
+        const p = l.features.find(x => x.kind === 'runway')?.points[0];
+        return p && distanceNm(p[0], p[1], f.lat, f.lon) <= TAXI_ZOOM_NM;
+      });
+      return atField ? TAXI_ZOOM : 13;
+    }
     const fields = route.length ? [route[0], route[route.length - 1]] : [];
     const nearField = fields.find(a => distanceNm(a.lat, a.lon, f.lat, f.lon) <= AUTO_ZOOM_NEAR_NM);
     if (nearField && f.altFt != null && f.altFt - (nearField.elevationFt ?? 0) < AUTO_ZOOM_LOW_FT) return 12;
@@ -385,7 +418,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const ownBasemap = basemapCovers(status, route);
   React.useEffect(() => {
     if (!started || !container.current || status === undefined) return;
-    const map = L.map(container.current, { zoomSnap: 0.5, minZoom: 5, maxZoom: 13, attributionControl: false, zoomControl: false });
+    const map = L.map(container.current, { zoomSnap: 0.5, minZoom: 5, maxZoom: 18, attributionControl: false, zoomControl: false });
     L.control.attribution({ prefix: false, position: 'bottomleft' }).addTo(map);
     L.control.zoom({ position: 'topright' }).addTo(map);
     // The zoom buttons and credits stay put when the map turns: their box moves out of the map's element.
@@ -413,6 +446,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             url: BASEMAP_TILE_URL, maxDataZoom: maxZoom, maxZoom: 19, lang: 'en', attribution: PROTOMAPS_CREDIT,
             flavor: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
           }) as unknown as L.Layer).addTo(map);
+          // Its data goes to zoom 11: closer in (at a field), OpenStreetMap's own tiles over it when online (credited above).
+          L.tileLayer(OSM_URL, { minZoom: CLOSE_TILES_ZOOM, maxZoom: 19, className: 'basemap-tiles' }).addTo(map);
         }, osm)
         .then(airspace);
     } else {
@@ -429,6 +464,14 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     }
     flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
       .bindTooltip(upright(flownLabels[i]), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    addLayoutPanes(map);
+    layoutLayer.current.addTo(map);
+    const el = container.current;
+    map.on('zoomend', () => {
+      drawAirportLayouts(layoutLayer.current, Object.values(layoutsRef.current), map.getZoom());
+      // The airspace picture is drawn for zoom 10: this close in it is only blur over the field.
+      el.classList.toggle('nav-map--field', map.getZoom() >= FIELD_ZOOM);
+    });
     obstacleLayer.current.addTo(map);
     trafficLayer.current.addTo(map);
     map.attributionControl?.addAttribution(TRAFFIC_CREDIT);
@@ -452,11 +495,13 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     own.current = { marker, glide, direct, trail, trend, ticks };
     if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 10 });
     else map.setView(startAt, fix ? 10 : 6);
+    drawAirportLayouts(layoutLayer.current, Object.values(layoutsRef.current), map.getZoom());
     map.on('dragstart', () => setFollow(false));
     // A zoom the pilot made (not ours) stops the automatic one until Centre.
     map.on('zoomstart', () => { if (!zooming.current) autoZoom.current = false; });
     map.on('zoomend', () => { zooming.current = false; });
     mapRef.current = map;
+    setMapGen(g => g + 1);
     // The map's box changes when a page opens below it or the tablet turns: Leaflet must measure again.
     const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => map.invalidateSize());
     resized?.observe(container.current);
@@ -530,6 +575,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const [showTraffic, toggleTraffic] = useShown(SHOW_TRAFFIC_KEY, true);
   const [showHud, toggleHud] = useShown(SHOW_HUD_KEY, false);
   const [trackUp, toggleTrackUp] = useShown(TRACK_UP_KEY, false);
+  const [showProfile, toggleProfile] = useShown(SHOW_PROFILE_KEY, true);
+  const profileFits = !!profile && profile.legs.length > 0 && !!frameSize && frameSize.w >= PROFILE_MIN_W && frameSize.h >= PROFILE_MIN_H;
+  const strip = profileFits && showProfile && !!started ? PROFILE_H + 12 : 0;
   // Turned while following the aircraft; looking round (a drag) shows north up until Centre.
   const rotated = trackUp && follow && !!started && !!frameSize;
   const bearingRef = React.useRef(0);
@@ -537,7 +585,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     bearingRef.current = rotated ? nextBearing(bearingRef.current, fix?.trackDeg ?? null) : 0;
     return bearingRef.current;
   }, [rotated, fix?.trackDeg]);
-  const box = rotated && frameSize ? trackUpFrame(frameSize.w, frameSize.h) : null;
+  // With the profile along the bottom, the aircraft sits low in what is left of the view above it.
+  const trackUpAt = frameSize && strip ? (TRACK_UP_AT * (frameSize.h - strip)) / frameSize.h : TRACK_UP_AT;
+  const box = rotated && frameSize ? trackUpFrame(frameSize.w, frameSize.h, trackUpAt) : null;
   // Turned, Leaflet would read a drag the wrong way round: it doesn't drag, a drag shows north up instead,
   // and pinches zoom about the aircraft.
   React.useEffect(() => {
@@ -549,7 +599,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     else { map.dragging.enable(); map.doubleClickZoom.enable(); opts.touchZoom = true; opts.scrollWheelZoom = true; }
     map.invalidateSize({ pan: false });
     if (fix) map.panTo([fix.lat, fix.lon], { animate: false });
-  }, [rotated, box?.size]);
+  }, [rotated, box?.size, mapGen]);
   const press = React.useRef<{ x: number; y: number; id: number } | null>(null);
   // The turn rate from the track as the fixes come, for the HUD's bank.
   const turn = React.useRef<TurnState | null>(null);
@@ -645,6 +695,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
 
   // Where everything is now.
   const leg = fix && flown.length > 1 ? activeLeg(flown, fix) : null;
+  // On the profile: how far along the planned route (measured as the chart does) and how high.
+  const routeNm = React.useMemo(() => routeLengthNm(route), [route]);
+  const chartNm = React.useMemo(() => (profile ? profile.legs.flatMap(l => l.segments)
+    .reduce((m, sg) => Math.max(m, sg.segment.startNm + sg.segment.distanceNm), 0) : 0), [profile]);
+  const onPlan = strip && fix && route.length > 1 ? activeLeg(route, fix) : null;
+  const profileAt = onPlan && routeNm > 0 ? { nm: (onPlan.alongNm / routeNm) * chartNm, ft: fix?.altFt ?? null } : null;
   const target = directTo ?? (flown.length === 0 ? null : leg ? flown[leg.index + 1] : flown[flown.length - 1]);
   const targetLabel = directTo ? directTo.code : flown.length === 0 ? 'none' : leg ? flownLabels[leg.index + 1] : flownLabels[flownLabels.length - 1];
   const toTarget = fix && target ? bearingDistance(fix, target) : null;
@@ -662,6 +718,24 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
         : leg ? nextAirspace(routeCrossings, leg.alongNm, fix.altFt, insideIds) : null;
   const nearestStill = React.useMemo(() => (fix ? nearestAirfields(airfields, fix, fix.altFt, ratio, 8) : []), [fix, airfields, ratio]);
   const groundFt = nearestStill[0]?.airport.elevationFt ?? null;
+  // The layouts of the departure and arrival, and of any field the aircraft is at (landing elsewhere).
+  const atFieldCode = nearestStill[0] && nearestStill[0].nm <= TAXI_ZOOM_NM ? nearestStill[0].airport.code : null;
+  const layoutCodes = React.useMemo(() => {
+    const ends = route.length ? [route[0], route[route.length - 1]].filter(a => a.type !== 'point').map(a => a.code) : [];
+    return Array.from(new Set([...ends, ...(atFieldCode ? [atFieldCode] : [])])).filter(Boolean).join(',');
+  }, [route, atFieldCode]);
+  React.useEffect(() => {
+    if (!started || !layoutCodes) return;
+    let live = true;
+    layoutCodes.split(',').filter(c => !layoutsRef.current[c]).forEach(code => {
+      loadAirportLayout(code).then(l => { if (live && l && l.features.length) setLayouts(all => ({ ...all, [code]: l })); }, () => undefined);
+    });
+    return () => { live = false; };
+  }, [started, layoutCodes]);
+  React.useEffect(() => {
+    const map = mapRef.current;
+    if (map) drawAirportLayouts(layoutLayer.current, Object.values(layouts), map.getZoom());
+  }, [layouts]);
   // The glide in the wind at this altitude and over the terrain, where they're known.
   const glideIn = React.useMemo<GlideInput | null>(() => (fix?.altFt != null ? {
     at: fix, altFt: fix.altFt, ratio, tasKt: bestGlideKt && bestGlideKt > 30 ? bestGlideKt : 70, wind, terrain, groundFt: groundFt ?? 0,
@@ -1077,10 +1151,16 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             ? { left: box.left, top: box.top, width: box.size, height: box.size, transform: `rotate(${-bearing}deg)`, transition: 'transform 0.6s linear',
               ['--nav-bearing' as string]: `${bearing}deg` }
             : { left: 0, top: 0, right: 0, bottom: 0 }}/>
-        <div ref={chrome} className="nav-map-chrome leaflet-touch pointer-events-none absolute inset-0 z-[950]"/>
+        <div ref={chrome} className="nav-map-chrome leaflet-touch pointer-events-none absolute inset-x-0 top-0 z-[950]" style={{ bottom: strip }}/>
+        {strip > 0 && profile && (
+          <div className="dark pointer-events-none absolute inset-x-2 bottom-2 z-[960] rounded-lg bg-slate-950/70 px-1 pt-1 text-foreground shadow-lg backdrop-blur-[1px]"
+            data-testid="nav-profile">
+            <RouteProfileChart {...profile} compact={{ height: PROFILE_H - 4 }} aircraft={profileAt}/>
+          </div>
+        )}
         {showHud && started && fix && (
           <Hud speedKt={fix.speedKt} altFt={fix.altFt} vsFpm={fix.vsFpm ?? null} trackDeg={fix.trackDeg}
-            bankDeg={bankFor(turnDps, fix.speedKt)} pathDeg={pathAngle(fix.vsFpm, fix.speedKt)} centred={follow} atY={box ? TRACK_UP_AT : 0.5}/>
+            bankDeg={bankFor(turnDps, fix.speedKt)} pathDeg={pathAngle(fix.vsFpm, fix.speedKt)} centred={follow} atY={box ? trackUpAt : 0.5}/>
         )}
         <div className="pointer-events-none absolute left-2 top-2 z-[1000] flex flex-col gap-1 text-xs">
           <span className="rounded bg-slate-900/80 px-1.5 py-0.5 font-semibold text-slate-100">VFR navigation aid · beta</span>
@@ -1128,6 +1208,12 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showTraffic ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
             TFC
           </button>
+          {profileFits && (
+            <button type="button" aria-pressed={showProfile} onClick={toggleProfile} title="The route from the side along the bottom: terrain, cloud, the planned path and where you are"
+              className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showProfile ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
+              PRF
+            </button>
+          )}
           <button type="button" aria-pressed={showHud} onClick={toggleHud}
             title="HUD: speed and altitude tapes, bank and horizon round the aircraft (worked out from the GPS: no gyro)"
             className={`rounded-md px-2 py-1.5 text-xs font-semibold shadow-lg ${showHud ? 'bg-sky-700 text-white' : 'bg-slate-900/85 text-slate-300'}`}>
@@ -1135,7 +1221,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           </button>
         </div>
         {!follow && fix && (
-          <button type="button" onClick={recenter} className="absolute bottom-3 right-3 z-[1000] flex items-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm shadow-lg">
+          <button type="button" onClick={recenter} style={{ bottom: strip + 12 }} className="absolute right-3 z-[1000] flex items-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm shadow-lg">
             <Crosshair className="h-4 w-4"/> Centre
           </button>
         )}
