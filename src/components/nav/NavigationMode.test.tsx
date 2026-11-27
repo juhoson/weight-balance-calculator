@@ -140,7 +140,7 @@ test('emergency lists the nearest airfields within glide; Direct to steers to on
   Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
   await open();
   fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
-  await screen.findByText('Next ESSB');
+  await screen.findByText(/^Next ESSB/);
   expect(screen.getByText('3,000')).toBeInTheDocument();
   expect(screen.getByText('100')).toBeInTheDocument();
   await waitFor(() => expect(fetchAirportsAlong).toHaveBeenCalled());
@@ -156,7 +156,7 @@ test('emergency lists the nearest airfields within glide; Direct to steers to on
   expect(within(screen.getByRole('status', { name: 'Direct to' })).getByText(/^TURN (LEFT|RIGHT) HEADING \d{3}$/)).toBeInTheDocument();
   expect(screen.getByText(/no wind known/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Back to route' }));
-  expect(screen.getByText('Next ESSB')).toBeInTheDocument();
+  expect(screen.getByText(/^Next ESSB/)).toBeInTheDocument();
 });
 
 test('with the server\'s own base map: drawn from it, and the route\'s tiles are saved for offline', async () => {
@@ -201,7 +201,7 @@ test('a GPS flight ends on its own page: saved to the account, then its KML', as
   const at = (lat: number, t: number) => act(() => tick({ timestamp: t, coords: { latitude: lat, longitude: 16.7, altitude: 600, speed: 50, heading: 0, accuracy: 8 } } as GeolocationPosition));
   await waitFor(() => expect(watchPosition).toHaveBeenCalled());
   at(59.59, 1_000_000);
-  await screen.findByText('Next ESSB');
+  await screen.findByText(/^Next ESSB/);
   at(59.60, 1_060_000);
   at(59.61, 1_120_000);
   // Kept on the device for a reload in the air, with the airfields once loaded.
@@ -247,7 +247,7 @@ test('resumed after a reload with no connection: says so, and the emergency list
     resumed={{ airfields: [esow, essb, essx], nearVrps: [{ name: 'KOLBÄCK', lat: 59.57, lon: 16.25, compulsory: false }] }}/>);
   expect(screen.getByText(/ESOW → ESSB was still going when the page closed/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Resume with GPS' }));
-  await screen.findByText('Next ESSB');
+  await screen.findByText(/^Next ESSB/);
   await waitFor(() => expect(fetchAirportsAlong).toHaveBeenCalled());
   fireEvent.click(screen.getByRole('button', { name: /EMERGENCY/ }));
   const sheet = screen.getByRole('region', { name: 'Emergency' });
@@ -386,4 +386,28 @@ test('traffic near the aircraft is on the map with its height, and one heading f
   fireEvent.click(screen.getByRole('button', { name: 'TFC' }));
   await waitFor(() => expect(screen.queryByText('+02 SE-ABC')).toBeNull());
   expect(screen.getByRole('alert', { name: 'Traffic' })).toBeInTheDocument();
+});
+
+test('on the way in, the planned landing runway is asked about, and another can be chosen', async () => {
+  localStorage.clear();
+  let tick: PositionCallback = () => undefined;
+  const watchPosition = jest.fn((ok: PositionCallback) => { tick = ok; return 1; });
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { watchPosition, clearWatch: jest.fn() } });
+  await settled(<NavigationMode trip={trip} airspaces={[]} reportingPoints={[]} swedenControl={[]} bestGlideKt={73}
+    cruiseKt={110} cruiseAltFt={3500} signedIn onClose={jest.fn()}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Start with GPS' }));
+  await waitFor(() => expect(watchPosition).toHaveBeenCalled());
+  const at = (lat: number, lon: number, t: number) => act(() => tick({ timestamp: t, coords: { latitude: lat, longitude: lon, altitude: 600, speed: 50, heading: 100, accuracy: 8 } } as GeolocationPosition));
+  // Far out: not asked yet.
+  at(59.5, 17.2, 1_000_000);
+  expect(screen.queryByRole('status', { name: 'Landing runway' })).toBeNull();
+  // 7 NM out: no wind reported, so the runway most in line with the way in (east-south-east: 19), joined by the circuit.
+  at(59.38, 17.72, 1_060_000);
+  const card = await screen.findByRole('status', { name: 'Landing runway' });
+  expect(within(card).getByText('Landing RWY 19')).toBeInTheDocument();
+  expect(within(card).getByText(/left circuit, join 45° onto the downwind/)).toBeInTheDocument();
+  expect(screen.getByText(/^Next ESSB join DW$/)).toBeInTheDocument();
+  fireEvent.click(within(card).getByRole('button', { name: 'Change to 01' }));
+  expect(within(screen.getByRole('status', { name: 'Landing runway' })).getByRole('button', { name: 'RWY 01 ✓' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('Landing RWY 01')).toBeInTheDocument();
 });

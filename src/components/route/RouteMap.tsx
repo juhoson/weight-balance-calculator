@@ -10,6 +10,7 @@ import { fixesAiracText, fixesIn, fixesOutOfDate, type SignificantPoint } from '
 import { type Navaid, navaidPopup, navaidsIn, navaidSvg, navaidText } from '../../lib/swedenNavaids';
 import { labelsByZoom } from '../../lib/mapLabels';
 import { type DepartureClimb, departureClimbLabel } from '../../lib/departure';
+import type { ArrivalPlan } from '../../lib/arrival';
 import { loadObstacles, obstaclePopup, obstaclesIn, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import { courseDeg, distanceNm } from '../../lib/openMeteo';
 
@@ -35,6 +36,8 @@ interface RouteMapProps {
   onArrivalChange?: (code: string) => void;
   /** The climb-out on the runway heading: the line goes through it after the departure. */
   departureClimb?: DepartureClimb | null;
+  /** The way in to the arrival's runway: the line ends at its threshold instead of the field. */
+  arrival?: ArrivalPlan | null;
 }
 
 /** Reporting point names show from this zoom in; further out, on hover only. */
@@ -136,7 +139,7 @@ export function resetMapStatus(): void {
 
 /** The route on a map, with openAIP's airspace on top. */
 const RouteMap: React.FC<RouteMapProps> = ({
-  airports, onWaypointsChange, maxWaypoints = 18, reportingPoints = [], onArrivalChange, departureClimb = null,
+  airports, onWaypointsChange, maxWaypoints = 18, reportingPoints = [], onArrivalChange, departureClimb = null, arrival = null,
 }) => {
   const container = React.useRef<HTMLDivElement>(null);
   /** While plotting a course: what a click on the map does. */
@@ -339,7 +342,12 @@ const RouteMap: React.FC<RouteMapProps> = ({
     const off: Array<() => void> = [];
     // The line goes out on the runway heading first; the waypoints and their handles stay as they are.
     const climbAt = departureClimb ? L.latLng(departureClimb.lat, departureClimb.lon) : null;
-    const flown = (pts: L.LatLng[]) => (climbAt && pts.length > 1 ? [pts[0], climbAt, ...pts.slice(1)] : pts);
+    // …and ends on the way in to the runway's threshold instead of at the field.
+    const inbound = arrival && points.length > 1 ? arrival.points.map(p => L.latLng(p.lat, p.lon)) : null;
+    const flown = (pts: L.LatLng[]) => {
+      const out = climbAt && pts.length > 1 ? [pts[0], climbAt, ...pts.slice(1)] : pts;
+      return inbound ? [...out.slice(0, -1), ...inbound] : out;
+    };
     const lines = points.length > 1 ? [
       L.polyline(flown(points), { color: '#ffffff', weight: 6, opacity: 0.8, interactive: false }).addTo(group),
       L.polyline(flown(points), { color: ROUTE_COLOR, weight: 3, opacity: 1, interactive: false }).addTo(group),
@@ -348,6 +356,15 @@ const RouteMap: React.FC<RouteMapProps> = ({
       L.circleMarker(climbAt, { radius: 4, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1, interactive: false })
         .bindTooltip(departureClimbLabel(departureClimb), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label climb-label' })
         .addTo(group);
+    }
+    if (arrival && inbound) {
+      // The join and the threshold named; the turns between are dots.
+      arrival.points.forEach((p, i) => {
+        const named = i === 0 || i === arrival.points.length - 1;
+        const m = L.circleMarker([p.lat, p.lon], { radius: named ? 4 : 3, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1, interactive: false });
+        if (named) m.bindTooltip(escapeHtml(p.label), { permanent: true, direction: 'right', offset: [6, 0], className: 'route-map-label climb-label' });
+        m.addTo(group);
+      });
     }
     const redraw = (pts: L.LatLng[]) => lines.forEach(l => l.setLatLngs(flown(pts)));
     const between = shown.slice(1, -1);
@@ -593,7 +610,7 @@ const RouteMap: React.FC<RouteMapProps> = ({
     };
     fit();
     return () => off.forEach(f => f());
-  }, [shownKey, vrpKey, status, editable, canMoveArrival, maxWaypoints, plotting, departureClimb, laidOut]);
+  }, [shownKey, vrpKey, status, editable, canMoveArrival, maxWaypoints, plotting, departureClimb, arrival, laidOut]);
 
   // The airports in view and their reporting points, except those the route already shows.
   React.useEffect(() => {

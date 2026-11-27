@@ -1,15 +1,15 @@
 import React from 'react';
-import { Button } from './ui/Button';
-import { FormItem, FormLabel } from './ui/Form';
-import { Input } from './ui/Input';
-import { Minus, Plus } from 'lucide-react';
+import {Button} from './ui/Button';
+import {FormItem, FormLabel} from './ui/Form';
+import {Input} from './ui/Input';
+import {Minus, Plus} from 'lucide-react';
 
 interface FlightTimeInputProps {
     value: number;
     onChange: (minutes: number) => void;
 }
 
-const FlightTimeInput: React.FC<FlightTimeInputProps> = ({ value, onChange }) => {
+const FlightTimeInput: React.FC<FlightTimeInputProps> = ({value, onChange}) => {
   // Function to format time as HH:mm
   const formatTime = (minutes: number): string => {
     const hours = Math.floor(minutes / 60);

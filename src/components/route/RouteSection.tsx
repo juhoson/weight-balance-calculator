@@ -1,5 +1,6 @@
 import React from 'react';
 import { departureClimb } from '../../lib/departure';
+import type { ArrivalPlan, RunwayEnd } from '../../lib/arrival';
 import { ArrowDown, ArrowLeftRight, ArrowUp, Crosshair, Loader2, Plus, RefreshCw, X } from 'lucide-react';
 import AirportField from './AirportField';
 import WeatherCard from './WeatherCard';
@@ -35,6 +36,10 @@ interface RouteSectionProps {
   /** Where the departure default came from, e.g. "Västerås Flygklubb's home airfield". */
   defaultNote: string | null;
   signedIn: boolean;
+  /** The way in to the arrival's runway, drawn on the map; with the runways to choose from. */
+  arrival?: ArrivalPlan | null;
+  landingOptions?: RunwayEnd[];
+  onLandingChange?: (runway: string | null) => void;
 }
 
 const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
@@ -42,6 +47,7 @@ const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 /** Departure, waypoints and arrival, and the weather at each and along the way. */
 const RouteSection: React.FC<RouteSectionProps> = ({
   route, onChange, altitudes, onLoad, weather, maxCrosswindKt, onUseLocation, locating, locationError, defaultNote, signedIn, climb,
+  arrival = null, landingOptions = [], onLandingChange,
 }) => {
   const { data } = weather;
   // Out on the runway heading to 700 ft before turning on course (the runway into the wind).
@@ -186,8 +192,31 @@ const RouteSection: React.FC<RouteSectionProps> = ({
         <React.Suspense fallback={<div className="h-72 w-full rounded-md border border-border bg-muted sm:h-96"/>}>
           <RouteMap airports={[data.departure, ...(data.waypoints ?? []), ...(isLocal ? [] : [data.arrival])]}
             onWaypointsChange={isLocal ? undefined : setVia} maxWaypoints={MAX_WAYPOINTS} reportingPoints={weather.reportingPoints}
-            onArrivalChange={isLocal ? undefined : code => pick(route.from, code)} departureClimb={isLocal ? null : climbOut}/>
+            onArrivalChange={isLocal ? undefined : code => pick(route.from, code)} departureClimb={isLocal ? null : climbOut}
+            arrival={isLocal ? null : arrival}/>
         </React.Suspense>
+      )}
+      {data && !isLocal && arrival && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="landing-runway">
+          <label htmlFor="landing-runway" className="font-medium">Landing runway</label>
+          <select id="landing-runway" value={arrival.landing.runway}
+            onChange={e => onLandingChange?.(e.target.value)}
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm">
+            {landingOptions.map(o => <option key={o.runway} value={o.runway}>{o.runway}</option>)}
+          </select>
+          <span className="text-muted-foreground">
+            {arrival.landing.by === 'wind' ? 'into the wind (METAR)' : arrival.landing.by === 'course' ? 'in line with the way in (no wind reported)' : 'your choice'}
+            {arrival.landing.by === 'chosen' && onLandingChange && (
+              <> · <button type="button" className="underline" onClick={() => onLandingChange(null)}>by the wind</button></>
+            )}
+          </span>
+          <p className="w-full text-xs text-muted-foreground">
+            {arrival.kind === 'circuit'
+              ? `No control zone: the route ends with the standard join, 45° onto the ${arrival.side === 'LEFT' ? 'left' : 'right'}-hand downwind, then base and final to the threshold${arrival.side === 'LEFT' ? ' (left: the standard; openAIP gives no other)' : ''}. Join as the field's procedures say.`
+              : 'In a control zone: planned as a 3 NM final to the threshold; join as ATC clears you.'}
+            {' '}The route's distance and fuel are counted to the field.
+          </p>
+        </div>
       )}
       {weather.error && <p className="text-sm text-red-600" role="alert">{weather.error}</p>}
       {data && !data.weatherAvailable && (

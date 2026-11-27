@@ -559,3 +559,8 @@ input::-webkit-inner-spin-button {
     print-color-adjust: exact;
   }
 }
+/* The turns of the way in (downwind, base, final): their names only when zoomed in. */
+.route-map--far .leaflet-tooltip.nav-arrival-turn,
+.route-map:not(.route-map--close) .leaflet-tooltip.nav-arrival-turn {
+  display: none;
+}

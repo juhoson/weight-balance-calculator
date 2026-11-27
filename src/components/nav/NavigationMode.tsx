@@ -35,6 +35,7 @@ import { nextBearing, TRACK_UP_AT, trackUpFrame } from '../../lib/trackUp';
 import { bankFor, nextTurn, pathAngle, type TurnState } from '../../lib/hud';
 import { type AirportLayout, keepLoadingLayouts } from '../../lib/airportLayout';
 import { addLayoutPanes, drawAirportLayouts } from './airportLayer';
+import { useArrivalPlan } from '../../lib/useArrivalPlan';
 import RouteProfileChart from '../route/RouteProfileChart';
 import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, obstacleKind, obstaclePopup, obstaclesAlong, obstacleSvg, obstacleText } from '../../lib/obstacles';
 import {
@@ -68,6 +69,8 @@ export interface NavigationModeProps {
   resumed?: Pick<NavSession, 'airfields' | 'nearVrps'>;
   /** The route from the side (terrain, cloud, the planned path), shown along the bottom on a tablet. */
   profile?: NavProfile | null;
+  /** The landing runway the pilot picked while planning; null: into the wind. */
+  landingRunway?: string | null;
   onClose: () => void;
 }
 
@@ -112,6 +115,12 @@ const TAXI_ZOOM_NM = 2;
 const TAXI_ZOOM = 16;
 /** From this zoom in, the airspace overlay is hidden (blown up from zoom 10, it blurs the field). */
 const FIELD_ZOOM = 14;
+/** "Join left downwind 19" → "join DW": short enough for the Next box ("ESSB join DW"). */
+const shortArrivalLabel = (label: string) => label
+  .replace(/^Join (left|right) downwind .*/, 'join DW').replace(/^Downwind .*/, 'DW').replace(/^Base .*/, 'base')
+  .replace(/^Final .*/, 'final');
+/** From this close to the threshold, the landing runway is asked about. */
+const LANDING_ASK_NM = 10;
 /** Over our own base map, OpenStreetMap's tiles from this zoom in (online). */
 const CLOSE_TILES_ZOOM = 13;
 /** Traffic asked this often while flying, ms. */
@@ -226,7 +235,7 @@ function useGlideRatio(): [number, (n: number) => void] {
  * nearest airfields. Situational awareness only.
  */
 const NavigationMode: React.FC<NavigationModeProps> = ({
-  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, approachKt = null, signedIn = false, resumed, profile = null, onClose,
+  trip, airspaces, airspacesFetchedAt = null, reportingPoints, swedenControl, bestGlideKt, cruiseKt, cruiseAltFt, climb = null, approachKt = null, signedIn = false, resumed, profile = null, landingRunway = null, onClose,
 }) => {
   const { user } = useAuth();
   const termsAccepted = !!user && ((user.navTermsVersion ?? 0) >= NAV_TERMS_VERSION || acceptedHere(user.id));
@@ -236,10 +245,24 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   // The route as flown: out on the runway heading to 700 ft first, then on course.
   const climbOut = React.useMemo(() => (trip ? departureClimb(trip.departure,
     trip.points?.find(p => p.role === 'DEPARTURE')?.metar ?? null, route[1] ?? trip.arrival, climb) : null), [trip, route, climb]);
-  const flown = React.useMemo(() => (climbOut
+  const flownBase = React.useMemo(() => (climbOut
     ? [route[0], { ...route[0], code: departureClimbLabel(climbOut), name: departureClimbLabel(climbOut), lat: climbOut.lat, lon: climbOut.lon, type: 'point' }, ...route.slice(1)]
     : route), [route, climbOut]);
-  const flownLabels = React.useMemo(() => (climbOut ? [labels[0], `RWY ${climbOut.runway} · ${DEPARTURE_TURN_FT} ft`, ...labels.slice(1)] : labels), [labels, climbOut]);
+  const baseLabels = React.useMemo(() => (climbOut ? [labels[0], `RWY ${climbOut.runway} · ${DEPARTURE_TURN_FT} ft`, ...labels.slice(1)] : labels), [labels, climbOut]);
+  // …and in at the end: the way in to the landing runway's threshold (asked again on the way in).
+  const [landingPick, setLandingPick] = React.useState<string | null>(landingRunway);
+  const [landingConfirmed, setLandingConfirmed] = React.useState(false);
+  const { plan: arrival, options: landingChoices } = useArrivalPlan(trip, airspaces, landingPick);
+  const flown = React.useMemo(() => (arrival && flownBase.length > 1
+    ? [...flownBase.slice(0, -1), ...arrival.points.map((p, i, all) => (i === all.length - 1
+      ? { ...flownBase[flownBase.length - 1], lat: p.lat, lon: p.lon }
+      : { ...flownBase[flownBase.length - 1], code: p.label, name: p.label, lat: p.lat, lon: p.lon, type: 'point' }))]
+    : flownBase), [flownBase, arrival]);
+  const flownLabels = React.useMemo(() => (arrival && flownBase.length > 1
+    ? [...baseLabels.slice(0, -1), ...arrival.points.map(p => `${baseLabels[baseLabels.length - 1]} ${shortArrivalLabel(p.label)}`)]
+    : baseLabels), [baseLabels, flownBase, arrival]);
+  const flownRef = React.useRef(flown);
+  flownRef.current = flown;
   const [started, setStarted] = React.useState<null | 'gps' | 'demo'>(null);
   const [fix, setFix] = React.useState<Fix | null>(null);
   const [gpsError, setGpsError] = React.useState<string | null>(null);
@@ -337,7 +360,9 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   React.useEffect(() => {
     if (started !== 'demo' || !trip) return;
     const cruise = cruiseKt > 40 ? cruiseKt : 100;
-    const path = roundedRoute(flown, turnRadiusNm(cruise));
+    // The path is made again when the way in changes (another runway): the flight carries on along it.
+    let pathOf = flownRef.current;
+    let path = roundedRoute(pathOf, turnRadiusNm(cruise));
     const plan = {
       totalNm: routeLengthNm(path), depFt: trip.departure.elevationFt ?? 0, arrFt: trip.arrival.elevationFt ?? 0,
       cruiseFt: cruiseAltFt, cruiseKt: cruise,
@@ -347,6 +372,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     let st = demoStart(plan);
     let last = Date.now();
     const tick = () => {
+      if (pathOf !== flownRef.current) {
+        pathOf = flownRef.current;
+        path = roundedRoute(pathOf, turnRadiusNm(cruise));
+        plan.totalNm = routeLengthNm(path);
+      }
       const now = Date.now();
       st = demoStep(st, ((now - last) / 1000) * DEMO_SPEEDUP, plan);
       last = now;
@@ -356,7 +386,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [started, flown, cruiseKt, cruiseAltFt, trip, climb, approachKt]);
+  }, [started, cruiseKt, cruiseAltFt, trip, climb, approachKt]);
 
   // The map.
   const container = React.useRef<HTMLDivElement>(null);
@@ -381,6 +411,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const navaidLayer = React.useRef(L.layerGroup());
   const obstacleLayer = React.useRef(L.layerGroup());
   const trafficLayer = React.useRef(L.layerGroup());
+  /** The last leg and the way in to the runway: drawn by itself, as it changes with the runway. */
+  const arrivalLayer = React.useRef(L.layerGroup());
   /** The fields' runways and taxiways (OpenStreetMap), drawn when zoomed in. */
   const layoutLayer = React.useRef(L.layerGroup());
   const [layouts, setLayouts] = React.useState<Record<string, AirportLayout>>({});
@@ -462,15 +494,18 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       airspace();
     }
     labelsByZoom(map, container.current);
-    const pts = flown.map(a => L.latLng(a.lat, a.lon));
+    const pts = flownBase.map(a => L.latLng(a.lat, a.lon));
     // Without a route the map starts over Sweden, and follows the aircraft once the GPS has it.
     const startAt = pts[0] ?? L.latLng(fix?.lat ?? 62, fix?.lon ?? 16);
-    if (pts.length > 1) {
-      L.polyline(pts, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false, className: 'nav-route-casing' }).addTo(map);
-      L.polyline(pts, { color: ROUTE_COLOR, weight: 4, interactive: false, className: 'nav-route-line' }).addTo(map);
+    // Up to the last point before the arrival: the way in is drawn by itself (it changes with the runway).
+    const body = pts.slice(0, -1);
+    if (body.length > 1) {
+      L.polyline(body, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false, className: 'nav-route-casing' }).addTo(map);
+      L.polyline(body, { color: ROUTE_COLOR, weight: 4, interactive: false, className: 'nav-route-line' }).addTo(map);
     }
-    flown.forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
-      .bindTooltip(upright(flownLabels[i]), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    flownBase.slice(0, -1).forEach((a, i) => L.circleMarker([a.lat, a.lon], { radius: a.type === 'point' && i === 1 && climbOut ? 4 : 6, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
+      .bindTooltip(upright(baseLabels[i]), { permanent: true, direction: 'right', offset: [8, 0], className: 'route-map-label' }).addTo(map));
+    arrivalLayer.current.addTo(map);
     addLayoutPanes(map);
     layoutLayer.current.addTo(map);
     const el = container.current;
@@ -513,7 +548,25 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
     const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => map.invalidateSize());
     resized?.observe(container.current);
     return () => { live = false; resized?.disconnect(); map.remove(); mapRef.current = null; own.current = null; };
-  }, [started, status, ownBasemap, route, flown, flownLabels, climbOut]);
+  }, [started, status, ownBasemap, route, flownBase, baseLabels, climbOut]);
+
+  // The last leg and the way in to the runway, redrawn when the runway changes.
+  React.useEffect(() => {
+    const group = arrivalLayer.current;
+    group.clearLayers();
+    if (!mapRef.current || flownBase.length < 2) return;
+    const from = flownBase.length - 2;
+    const tail = flown.slice(from), names = flownLabels.slice(from);
+    const line = tail.map(a => L.latLng(a.lat, a.lon));
+    L.polyline(line, { color: '#ffffff', weight: 7, opacity: 0.8, interactive: false, className: 'nav-route-casing' }).addTo(group);
+    L.polyline(line, { color: ROUTE_COLOR, weight: 4, interactive: false, className: 'nav-route-line' }).addTo(group);
+    tail.slice(1).forEach((a, j) => {
+      const i = j + 1, end = i === tail.length - 1, join = i === 1 && tail.length > 2;
+      L.circleMarker([a.lat, a.lon], { radius: end ? 6 : join ? 4 : 3, color: '#ffffff', weight: 2, fillColor: ROUTE_COLOR, fillOpacity: 1 })
+        .bindTooltip(upright(names[i]), { permanent: true, direction: 'right', offset: [8, 0], className: `route-map-label${end || join ? '' : ' nav-arrival-turn'}` })
+        .addTo(group);
+    });
+  }, [flown, flownLabels, flownBase, mapGen]);
 
   // Visual reporting points: the route's airports' (given), and every other one near the route. Shown or not, as the pilot likes.
   const [nearVrps, setNearVrps] = React.useState<Vrp[]>(() => resumed?.nearVrps ?? []);
@@ -1045,6 +1098,38 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           </div>
         )}
 
+        {/* On the way in: is the planned runway still the one? (The ATIS, the wind, the tower may say another.) */}
+        {arrival && fix && trip && !directTo && (() => {
+          const thr = arrival.points[arrival.points.length - 1];
+          const nm = bearingDistance(fix, thr).nm;
+          if (nm > LANDING_ASK_NM) return null;
+          const m = trip.points?.find(p => p.role === 'ARRIVAL')?.metar;
+          const wind = m?.windKt != null ? (m.windDirTrue == null ? `wind VRB/${m.windKt}` : `wind ${pad3(m.windDirTrue)}°/${m.windKt} kt`) : null;
+          return (
+            <div className={`order-2 px-3 py-2 text-sm ${landingConfirmed ? 'bg-slate-900' : 'bg-amber-900/70'}`} role="status" aria-label="Landing runway">
+              <p>
+                <strong>Landing RWY {arrival.landing.runway}</strong>
+                {arrival.kind === 'circuit' ? ` · ${arrival.side === 'LEFT' ? 'left' : 'right'} circuit, join 45° onto the downwind` : ' · final as cleared'}
+                {!landingConfirmed && <span className="block text-xs text-amber-100">
+                  {arrival.landing.by === 'wind' ? `Planned into the wind${wind ? ` (${m?.station ?? 'METAR'} ${wind})` : ''}` : arrival.landing.by === 'course' ? 'Planned in line with the way in (no wind reported)' : 'Your choice'}.
+                  {' '}Still the one? Check the ATIS or the wind sock.
+                </span>}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {landingChoices.map(o => {
+                  const current = o.runway === arrival.landing.runway;
+                  return (
+                    <button key={o.runway} type="button" aria-pressed={current}
+                      className={`rounded px-2.5 py-1 text-xs font-semibold ${current ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-slate-700 hover:bg-slate-600'}`}
+                      onClick={() => { setLandingPick(o.runway); setLandingConfirmed(true); }}>
+                      {current ? (landingConfirmed ? `RWY ${o.runway} ✓` : `Keep ${o.runway}`) : `Change to ${o.runway}`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         {/* Takes the rest of the panel in landscape when no page is open, keeping the buttons at the bottom. */}
         {!sheet && <div className="order-4 hidden lg:landscape:block lg:landscape:flex-1"/>}
         {sheet === 'freq' && (

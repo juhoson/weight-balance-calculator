@@ -29,6 +29,7 @@ import RouteSection from './route/RouteSection';
 import ObstaclePanel, { useRouteObstacles } from './route/ObstaclePanel';
 import { terrainProfile, type TerrainPoint } from '../lib/terrainProfile';
 import { keepLoadingLayouts } from '../lib/airportLayout';
+import { useArrivalPlan } from '../lib/useArrivalPlan';
 import type { ReportedCloud } from './route/RouteProfileChart';
 import { decodeMetar } from '../lib/metarTaf';
 import AirspacePanel from './route/AirspacePanel';
@@ -828,6 +829,10 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
 
   // Airspace along the route, checked against the planned climb, cruise and descent.
   const airspaces = useAirspaces(trip);
+  // The runway to land on (into the wind unless the pilot picks one) and the way in to its threshold.
+  const [landingChoice, setLandingChoice] = React.useState<{ code: string; runway: string } | null>(null);
+  const chosenRunway = trip && landingChoice?.code === trip.arrival.code ? landingChoice.runway : null;
+  const { plan: arrivalPlan, options: landingOptions } = useArrivalPlan(trip, airspaces.data, chosenRunway);
   const crossings = React.useMemo(
     () => (trip && airspaces.data ? crossingsAlong([trip.departure, ...(trip.waypoints ?? []), trip.arrival], airspaces.data) : null),
     [trip, airspaces.data]);
@@ -1057,6 +1062,9 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
               locating={locating}
               locationError={locationError}
               signedIn={userId !== null}
+              arrival={arrivalPlan}
+              landingOptions={landingOptions}
+              onLandingChange={runway => setLandingChoice(trip && runway ? { code: trip.arrival.code, runway } : null)}
               defaultNote={route.from && route.from === homeAirport && metaNow?.kind === 'airframe'
                 ? (metaNow.homeAirportOwn || !homeClub ? `${metaNow.registration}'s home airfield` : `${homeClub}'s home airfield`)
                 : route.from && route.from === locatedCode ? 'Nearest airport to your location' : null}
@@ -1251,6 +1259,7 @@ const WeightBalanceCalculator: React.FC<WeightBalanceCalculatorProps> = ({prefer
             climb={vyKt > 0 && validRate(climbRates.climbFpm) ? { fpm: climbRates.climbFpm, kt: vyKt } : null}
             approachKt={perf?.approachSpeedNormal ? Math.round(perf.speedUnit === 'MPH' ? perf.approachSpeedNormal * MPH_TO_KT : perf.approachSpeedNormal) : null}
             signedIn={userId !== null}
+            landingRunway={chosenRunway}
             profile={hasRoute && trip && windPlan?.ok ? {
               legs: windPlan.legs, altitudeFt, profile: windPlan.profile, airspaces: airspaceCheck?.checks, reported: reportedClouds,
               arrivalFt: trip.arrival.elevationFt ?? null, obstacles: routeObstacles, terrainProfile: routeTerrain,
