@@ -405,6 +405,20 @@ input::-webkit-inner-spin-button {
   color: #0f172a;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
 }
+/* On the dark map: the trend line, its dots and times light, so they stand out ahead of the aircraft. */
+.dark .nav-trend {
+  stroke: #f8fafc;
+  stroke-opacity: 0.95;
+  stroke-width: 3px;
+}
+.dark .trend-tick::before {
+  background: #f8fafc;
+  border-color: #0f172a;
+}
+.dark .trend-tick span {
+  color: #f8fafc;
+  text-shadow: 0 0 3px #020617, 0 0 3px #020617, 0 0 3px #020617;
+}
 /* Close in on an airfield: the runways show through the route and the airspace (enlarged from a lower zoom). */
 .route-map--close .nav-route-casing {
   display: none;

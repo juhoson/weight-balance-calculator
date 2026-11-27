@@ -574,7 +574,7 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
       keyboard: false, interactive: false, zIndexOffset: 1000,
     }).addTo(map);
     // Where the aircraft will be on this track at this ground speed: a line to 3 minutes, ticks at each minute.
-    const trend = L.polyline([], { color: '#0f172a', weight: 2.5, opacity: 0.8, dashArray: '6 6', interactive: false }).addTo(map);
+    const trend = L.polyline([], { color: '#0f172a', weight: 2.5, opacity: 0.8, dashArray: '6 6', interactive: false, className: 'nav-trend' }).addTo(map);
     const ticks = TREND_MINUTES.map(() => L.marker(startAt, {
       icon: L.divIcon({ className: 'trend-tick', iconSize: [12, 12], html: '<span></span>' }),
       keyboard: false, interactive: false, opacity: 0,
