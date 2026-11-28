@@ -44,7 +44,7 @@ import { loadObstacles, OBSTACLE_AHEAD_NM, OBSTACLE_MARGIN_FT, obstacleAhead, ob
 import {
   activeLeg, airspacesHere, ARRIVAL_MARGIN_FT, bearingDistance, DEFAULT_GLIDE_RATIO, eteText, type Fix, fixFrom,
   areaAround, demoStart, demoStep, glideRangeNm, isControlled, nearestAirfields, NEXT_AIRSPACE_NM, nextAirspace, pad3, pointAhead, positionAlong,
-  roundedRoute, routeLengthNm, turnRadiusNm,
+  airspaceSummary, restrictedAhead, roundedRoute, routeLengthNm, turnRadiusNm,
 } from '../../lib/navigation';
 import { distanceNm, type Forecast, forecastAt, fromOf, speedOf, type Wind, windNow } from '../../lib/openMeteo';
 import { fetchTerrain, glideArea, type GlideInput, headingFor, reachesField, terrainAlert, type TerrainGrid, terrainGridFor, turnTo } from '../../lib/glide';
@@ -828,6 +828,11 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const ahead10 = fix && flown.length === 0 && fix.trackDeg != null
     ? [{ code: 'here', lat: fix.lat, lon: fix.lon }, { code: 'ahead', ...pointAhead(fix, fix.trackDeg, NEXT_AIRSPACE_NM) }] : null;
   const insideIds = new Set((here?.inside ?? []).map(a => a.id));
+  // A prohibited, restricted or danger area ahead on the track within 3 minutes: get permission (or turn away).
+  const restricted = fix && airspacesNow ? restrictedAhead(fix, airspacesNow, insideIds) : null;
+  // Once no longer ahead (entered, or turned away), its permission is forgotten: the next time warns again.
+  const restrictedId = restricted?.airspace.id ?? null;
+  React.useEffect(() => { if (!restrictedId) setPermittedId(null); }, [restrictedId]);
   const next = !fix || !airspacesNow ? null
     : directTo ? nextAirspace(crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, directTo], airspacesNow), 0, fix.altFt, insideIds)
       : ahead10 ? nextAirspace(crossingsAlong(ahead10, airspacesNow), 0, fix.altFt, insideIds)
@@ -836,6 +841,8 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
   const groundFt = nearestStill[0]?.airport.elevationFt ?? null;
   // A go-around (or a touch and go) noticed from the GPS: the circuit to fly, its side and height.
   const approachWatch = React.useRef<ApproachWatch>(newApproachWatch());
+  /** The restricted area the pilot has permission for: not warned of again while it stays ahead. */
+  const [permittedId, setPermittedId] = React.useState<string | null>(null);
   /** A flight plan marked as filed in the planner: reminded of after landing. */
   const [filedPlan, setFiledPlan] = React.useState<FiledPlan | null>(() => loadFiledPlan());
   const [goAround, setGoAround] = React.useState<GoAroundCircuit | null>(null);
@@ -1092,45 +1099,69 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
           </button>
         </div>
 
-        {/* The airspace here. */}
-        <div className="order-2 space-y-px text-sm" role="status" aria-label="Airspace here">
+        {/* The airspace here: one bar, in the colour of what matters most; the rest small on it. */}
+        <div className="order-2 text-sm" role="status" aria-label="Airspace here">
           {!fix ? (
             <div className="bg-slate-800 px-3 py-1.5">{gpsError ?? (started === 'demo' ? 'Starting the demo…' : 'Waiting for GPS…')}</div>
           ) : airspacesNow == null ? (
             <div className="bg-slate-800 px-3 py-1.5">Airspace not loaded.</div>
-          ) : (
-            <>
-              {inside.map(a => <AirspaceRow key={a.id} airspace={a} className={severityClass(a)}/>)}
-              {/* Not in controlled airspace: class G, and in Sweden whom to call there. */}
-              {!inside.some(isControlled) && (
-                <div className="flex flex-wrap items-baseline gap-x-2 bg-emerald-800 px-3 py-1.5">
-                  <strong>{inside.length ? 'Class G around' : 'Uncontrolled (class G)'}</strong>
-                  {sweden && <span className="ml-auto font-semibold tabular-nums">{swedenControlText(sweden.sector)}</span>}
-                  {sweden && (sweden.sector.alternative || sweden.nearby.length > 0) && (
-                    <span className="w-full text-right text-xs tabular-nums text-emerald-100">
-                      or {[...(sweden.sector.alternative ? [sweden.sector.alternative] : []), ...sweden.nearby].map(swedenControlText).join(' / ')} (sector boundary)
-                    </span>
-                  )}
+          ) : (() => {
+            const { main, others, minor } = airspaceSummary(inside);
+            const classG = !inside.some(isControlled);
+            const f = main ? contactFrequencies(main.frequencies)[0] : null;
+            const extra = main ? atisAndGround(main.frequencies) : [];
+            const below = here?.below[0];
+            const above = here?.above[0];
+            const nextFreq = next ? contactFrequencies(next.airspace.frequencies)[0] : null;
+            const stale = airspacesAt != null && dataAgeDays(airspacesAt) > AIRAC_DAYS;
+            return (
+              <>
+                <div className={`${main ? severityClass(main) : 'bg-emerald-800'} px-3 py-1.5`}>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    {main ? (
+                      <>
+                        <strong>{main.name}</strong>
+                        <span>{main.icaoClass ? `class ${main.icaoClass}` : main.type} · {main.lower.label}–{main.upper.label}</span>
+                        {f && <span className="ml-auto font-semibold tabular-nums">{frequencyText(f)}</span>}
+                      </>
+                    ) : (
+                      <>
+                        <strong>Uncontrolled (class G)</strong>
+                        {sweden && <span className="ml-auto font-semibold tabular-nums">{swedenControlText(sweden.sector)}</span>}
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs leading-snug opacity-90">
+                    {extra.length > 0 && <span className="tabular-nums">{extra.map(x => `${x.kind} ${x.value}`).join(' · ')}</span>}
+                    {others.map(a => {
+                      const of = contactFrequencies(a.frequencies)[0];
+                      return <span key={a.id}>Also in {a.name}{of ? <span className="tabular-nums"> {frequencyText(of)}</span> : ''}</span>;
+                    })}
+                    {main && classG && sweden && <span>Class G around · <span className="tabular-nums">{swedenControlText(sweden.sector)}</span></span>}
+                    {classG && sweden && (sweden.sector.alternative || sweden.nearby.length > 0) && (
+                      <span className="tabular-nums">or {[...(sweden.sector.alternative ? [sweden.sector.alternative] : []), ...sweden.nearby].map(swedenControlText).join(' / ')} (sector boundary)</span>
+                    )}
+                    {minor.map(a => (
+                      <span key={a.id} className="rounded bg-black/25 px-1" title={adviceFor(a).hint}>{minorMark(a)} {a.name}</span>
+                    ))}
+                    {below && <span>Below: {below.name} to {below.upper.label}</span>}
+                    {above && <span>Above: {above.name} from {above.lower.label}</span>}
+                    {next && (
+                      <span>Next in {nmText(next.inNm)} NM: {next.airspace.name}{nextFreq ? <span className="tabular-nums"> {frequencyText(nextFreq)}</span> : ''}</span>
+                    )}
+                    {!stale && airspacesAt != null && (
+                      <span className="opacity-70">openAIP, {new Date(airspacesAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · no NOTAMs: check them</span>
+                    )}
+                  </div>
                 </div>
-              )}
-              {next && (
-                <AirspaceRow airspace={next.airspace} className="bg-sky-900" label={`Next in ${nmText(next.inNm)} NM`}/>
-              )}
-            </>
-          )}
-          {fix && here && here.above.length > 0 && (
-            <div className="bg-slate-800 px-3 py-1 text-xs text-slate-300">
-            Above: {here.above.slice(0, 2).map(a => `${a.name} from ${a.lower.label}`).join(' · ')}
-            </div>
-          )}
-          {airspacesNow != null && airspacesAt != null && (
-            <div className={`px-3 py-0.5 text-[11px] ${dataAgeDays(airspacesAt) > AIRAC_DAYS ? 'bg-amber-600 font-semibold text-white' : 'bg-slate-900 text-slate-400'}`}>
-              {dataAgeDays(airspacesAt) > AIRAC_DAYS
-                ? `Airspace data is ${dataAgeDays(airspacesAt)} days old: update it with a connection. `
-                : 'Airspace: openAIP (volunteers), '}
-            downloaded {new Date(airspacesAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}. No NOTAMs: check them.
-            </div>
-          )}
+                {stale && airspacesAt != null && (
+                  <div className="bg-amber-600 px-3 py-0.5 text-[11px] font-semibold text-white">
+                    Airspace data is {dataAgeDays(airspacesAt)} days old: update it with a connection. No NOTAMs: check them.
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {directTo && toTarget && fix && (() => {
@@ -1157,6 +1188,30 @@ const NavigationMode: React.FC<NavigationModeProps> = ({
             <span className="ml-auto font-normal">{trafficName(conflict)}{conflict.type ? ` ${conflict.type}` : ''}</span>
           </div>
         )}
+        {restricted && restricted.airspace.id !== permittedId && (() => {
+          const a = restricted.airspace;
+          const f = contactFrequencies(a.frequencies)[0];
+          const mins = Math.max(1, Math.round(restricted.minutes));
+          return (
+            <div role="alert" aria-label="Restricted area ahead" className="order-2 flex flex-wrap items-center gap-x-2 gap-y-1 bg-red-700 px-3 py-1.5 text-white">
+              <TriangleAlert className="h-4 w-4"/>
+              <span className="font-bold uppercase">{adviceFor(a).label} {a.name}</span>
+              <span className="font-semibold tabular-nums">in {mins} min · {nmText(restricted.nm)} NM</span>
+              <span className="w-full text-sm">
+                {restricted.prohibited
+                  ? 'No flight inside: turn away now.'
+                  : <>Get permission before entering{f ? <>: call <strong className="tabular-nums">{frequencyText(f)}</strong></> : ''}.
+                    {a.activation === 'NOTAM' ? ' Active by NOTAM: check whether it is active now.' : a.activation ? ` Active on ${a.activation}.` : ''}
+                    {' '}{a.lower.label}–{a.upper.label}.</>}
+              </span>
+              {!restricted.prohibited && (
+                <button type="button" className="rounded bg-white px-2 py-0.5 text-xs font-semibold text-red-800" onClick={() => setPermittedId(a.id)}>
+                  Permission obtained
+                </button>
+              )}
+            </div>
+          );
+        })()}
         {terrainNow && (
           <div role="alert" aria-label="Terrain" className="order-2 flex flex-wrap items-baseline gap-x-2 bg-red-700 px-3 py-1.5 font-semibold text-white">
             <TriangleAlert className="h-4 w-4 self-center"/>
@@ -1561,23 +1616,10 @@ const POINTS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-wes
 const compass = (deg: number) => POINTS[Math.round(deg / 45) % 8];
 
 /** An airspace in the strip: its name, class and limits, whom to call, and for a tower's zone its ATIS and ground. */
-const AirspaceRow: React.FC<{ airspace: AirspaceView; className: string; label?: string }> = ({ airspace: a, className, label }) => {
-  const f = contactFrequencies(a.frequencies)[0];
-  const extra = atisAndGround(a.frequencies);
-  return (
-    <div className={`${className} flex flex-wrap items-baseline gap-x-2 px-3 py-1.5`}>
-      {label && <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">{label}</span>}
-      <strong>{a.name}</strong>
-      <span>{a.icaoClass ? `class ${a.icaoClass}` : a.type} · {a.lower.label}–{a.upper.label}</span>
-      {f && <span className="ml-auto font-semibold tabular-nums">{frequencyText(f)}</span>}
-      {extra.length > 0 && (
-        <span className="w-full text-right text-xs tabular-nums opacity-90">
-          {extra.map(x => `${x.kind} ${x.value}`).join(' · ')}
-        </span>
-      )}
-    </div>
-  );
-};
+/** A small mark for a minor airspace (gliding sector, sport area…) instead of a bar of its own. */
+function minorMark(a: AirspaceView): string {
+  return a.type === 'GLIDING' ? '⌇ Gliding' : a.type === 'SPORT' ? '◇ Sport' : `◇ ${adviceFor(a).label}`;
+}
 
 const Sheet: React.FC<{ title: string; tone?: 'red'; onClose: () => void; children: React.ReactNode }> = ({ title, tone, onClose, children }) => (
   <div className={`order-4 max-h-[55%] shrink-0 overflow-y-auto border-t-4 bg-slate-900 p-3 lg:landscape:max-h-none lg:landscape:min-h-0 lg:landscape:flex-1 lg:landscape:shrink ${tone === 'red' ? 'border-red-600' : 'border-slate-500'}`}

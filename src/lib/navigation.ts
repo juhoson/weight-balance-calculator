@@ -4,7 +4,7 @@
  */
 import type { AirportInfo, AirspaceView } from '../types/route';
 import { containsAltitude, contactFrequencies } from './frequencies';
-import { adviceFor, type Crossing } from './airspace';
+import { adviceFor, type Crossing, crossingsAlong } from './airspace';
 import { courseDeg, distanceNm, intermediate } from './openMeteo';
 
 export const MS_TO_KT = 1.943844;
@@ -81,14 +81,30 @@ export function insidePolygon(lat: number, lon: number, ring: Array<[number, num
  * The airspaces at a position: those the aircraft is in (all above the point when the altitude is
  * unknown), lowest first, and those overhead, lowest floor first.
  */
-export function airspacesHere(list: AirspaceView[], at: At, altFt: number | null): { inside: AirspaceView[]; above: AirspaceView[] } {
+export function airspacesHere(list: AirspaceView[], at: At, altFt: number | null):
+  { inside: AirspaceView[]; above: AirspaceView[]; below: AirspaceView[] } {
   const over = list.filter(a => a.polygon.length > 2 && insidePolygon(at.lat, at.lon, a.polygon));
   const byFloor = (a: AirspaceView, b: AirspaceView) => a.lower.ft - b.lower.ft;
-  if (altFt == null) return { inside: over.sort(byFloor), above: [] };
+  if (altFt == null) return { inside: over.sort(byFloor), above: [], below: [] };
   return {
     inside: over.filter(a => containsAltitude(a, altFt)).sort(byFloor),
     above: over.filter(a => a.lower.ft > altFt).sort(byFloor),
+    // Nearest under the aircraft first.
+    below: over.filter(a => a.upper.ft < altFt && !containsAltitude(a, altFt)).sort((a, b) => b.upper.ft - a.upper.ft),
   };
+}
+
+const SEVERITY_RANK = { prohibited: 0, restricted: 1, clearance: 2, contact: 3, info: 4 } as const;
+
+/**
+ * The airspaces the aircraft is in, for one bar: the one that matters most (prohibited, then
+ * restricted, then needing a clearance, then a call), the others with something to call or heed,
+ * and the minor ones (gliding sectors, sport areas: shown as a mark, not a bar).
+ */
+export function airspaceSummary(inside: AirspaceView[]): { main: AirspaceView | null; others: AirspaceView[]; minor: AirspaceView[] } {
+  const ranked = [...inside].sort((a, b) => SEVERITY_RANK[adviceFor(a).severity] - SEVERITY_RANK[adviceFor(b).severity]);
+  const major = ranked.filter(a => adviceFor(a).severity !== 'info');
+  return { main: major[0] ?? null, others: major.slice(1), minor: ranked.filter(a => adviceFor(a).severity === 'info') };
 }
 
 export const bearingDistance = (from: At, to: At) => ({
@@ -364,4 +380,42 @@ export function nextAirspace(crossings: Crossing[], alongNm: number, altFt: numb
       && (altFt == null || containsAltitude(c.airspace, altFt)))
     .sort((a, b) => a.fromNm - b.fromNm)[0];
   return next ? { airspace: next.airspace, inNm: next.fromNm - alongNm } : null;
+}
+
+/** Warned this many minutes before the track enters a prohibited, restricted or danger area. */
+export const RESTRICTED_WARN_MIN = 3;
+/** Slower than this the trend says little (taxiing, standing): no warning. */
+const RESTRICTED_WARN_MIN_KT = 30;
+
+export interface RestrictedAhead {
+  airspace: AirspaceView;
+  /** Along the track to where it enters. */
+  nm: number;
+  minutes: number;
+  /** No flight inside at all; else entry needs permission (and the area may be inactive). */
+  prohibited: boolean;
+}
+
+/**
+ * The prohibited, restricted or danger area (also TRA, TSA, MTA) the aircraft enters within
+ * RESTRICTED_WARN_MIN minutes on its present track and groundspeed, at its altitude (any when
+ * unknown); the nearest when more than one. Not one it is already in.
+ */
+export function restrictedAhead(fix: { lat: number; lon: number; trackDeg: number | null; speedKt: number | null; altFt: number | null },
+  airspaces: AirspaceView[], insideIds: Set<string> = new Set()): RestrictedAhead | null {
+  if (fix.trackDeg == null || fix.speedKt == null || fix.speedKt < RESTRICTED_WARN_MIN_KT) return null;
+  const reachNm = (fix.speedKt * RESTRICTED_WARN_MIN) / 60;
+  const end = pointAhead(fix, fix.trackDeg, reachNm);
+  const hit = crossingsAlong([{ code: 'here', lat: fix.lat, lon: fix.lon }, { code: 'ahead', ...end }], airspaces)
+    .filter(c => {
+      const severity = adviceFor(c.airspace).severity;
+      return (severity === 'prohibited' || severity === 'restricted') && !insideIds.has(c.airspace.id)
+        && c.fromNm > 0 && c.fromNm <= reachNm && (fix.altFt == null || containsAltitude(c.airspace, fix.altFt));
+    })
+    .sort((a, b) => a.fromNm - b.fromNm)[0];
+  if (!hit) return null;
+  return {
+    airspace: hit.airspace, nm: hit.fromNm, minutes: (hit.fromNm / fix.speedKt) * 60,
+    prohibited: adviceFor(hit.airspace).severity === 'prohibited',
+  };
 }

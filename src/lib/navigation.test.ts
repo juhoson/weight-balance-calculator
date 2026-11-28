@@ -1,5 +1,5 @@
 import {
-  activeLeg, airspacesHere, areaAround, demoStart, demoStep, roundedRoute, turnRadiusNm, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong,
+  activeLeg, airspacesHere, areaAround, demoStart, demoStep, roundedRoute, turnRadiusNm, eteText, fixFrom, glideRangeNm, insidePolygon, nearestAirfields, nextAirspace, pad3, positionAlong, restrictedAhead, airspaceSummary,
 } from './navigation';
 import type { AirportInfo, AirspaceView } from '../types/route';
 
@@ -175,4 +175,58 @@ it('a leg of no length keeps the direction flown (no 180° flick in a turn)', ()
   expect([0, 90]).toContain(Math.round(atB.trackDeg) % 360);
   expect(Math.round(positionAlong(route, 1).trackDeg)).toBe(0);
   expect(Math.round(positionAlong(route, 4).trackDeg)).toBe(90);
+});
+
+describe('restrictedAhead', () => {
+  // A box 0.2° (12 NM) wide, its south edge 2 NM north of the aircraft at 59.5 N.
+  const box = (id: string, type: string, lowerFt = 0, upperFt = 5000) => ({
+    id, name: `ES ${id}`, type, icaoClass: null, activation: 'NOTAM' as const, frequencies: [],
+    lower: { ft: lowerFt, datum: 'MSL' as const, label: `${lowerFt} ft` }, upper: { ft: upperFt, datum: 'MSL' as const, label: `${upperFt} ft` },
+    polygon: [[16.4, 59.5333], [16.8, 59.5333], [16.8, 59.7], [16.4, 59.7], [16.4, 59.5333]] as Array<[number, number]>,
+  });
+  const fix = { lat: 59.5, lon: 16.6, trackDeg: 0, speedKt: 100, altFt: 2000 };
+
+  test('a restricted or danger area the track enters within 3 minutes, at this altitude', () => {
+    const r = restrictedAhead(fix, [box('R1', 'R')]);
+    expect(r?.airspace.id).toBe('R1');
+    expect(r?.nm).toBeCloseTo(2, 0);
+    expect(r?.minutes).toBeCloseTo(1.2, 0);
+    expect(r?.prohibited).toBe(false);
+    expect(restrictedAhead(fix, [box('D1', 'D')])?.airspace.id).toBe('D1');
+    expect(restrictedAhead(fix, [box('P1', 'P')])?.prohibited).toBe(true);
+  });
+
+  test('no warning above or below it, beyond 3 minutes, for controlled airspace, or taxiing', () => {
+    expect(restrictedAhead(fix, [box('R1', 'R', 3000, 5000)])).toBeNull();
+    expect(restrictedAhead({ ...fix, speedKt: 35 }, [box('R1', 'R')])).toBeNull(); // 2 NM takes 3.4 min
+    expect(restrictedAhead(fix, [box('C1', 'CTR')])).toBeNull();
+    expect(restrictedAhead({ ...fix, speedKt: 10 }, [box('R1', 'R')])).toBeNull();
+    expect(restrictedAhead({ ...fix, trackDeg: 180 }, [box('R1', 'R')])).toBeNull();
+    // Already inside: the airspace bar says so; not "ahead".
+    expect(restrictedAhead(fix, [box('R1', 'R')], new Set(['R1']))).toBeNull();
+  });
+});
+
+describe('the airspace bar', () => {
+  const sq = [[16, 59], [17, 59], [17, 60], [16, 60], [16, 59]] as Array<[number, number]>;
+  const a = (id: string, type: string, icaoClass: string | null, lowerFt: number, upperFt: number): AirspaceView => ({
+    id, name: id, type, icaoClass, activation: null, frequencies: [], polygon: sq,
+    lower: { ft: lowerFt, datum: 'MSL', label: `${lowerFt} ft` }, upper: { ft: upperFt, datum: 'MSL', label: `${upperFt} ft` },
+  });
+
+  test('the one that matters most leads; gliding and sport areas are minor', () => {
+    const s = airspaceSummary([a('GLIDE', 'GLIDING', null, 0, 4500), a('ATZ', 'ATZ', 'G', 0, 1000), a('CTR', 'CTR', 'C', 0, 1500)]);
+    expect(s.main?.id).toBe('CTR');
+    expect(s.others.map(x => x.id)).toEqual(['ATZ']);
+    expect(s.minor.map(x => x.id)).toEqual(['GLIDE']);
+    expect(airspaceSummary([a('R1', 'R', null, 0, 3000), a('CTR', 'CTR', 'C', 0, 1500)]).main?.id).toBe('R1');
+    expect(airspaceSummary([a('GLIDE', 'GLIDING', null, 0, 4500)]).main).toBeNull();
+  });
+
+  test('below: what is under the aircraft, nearest first', () => {
+    const here = airspacesHere([a('CTR', 'CTR', 'C', 0, 1500), a('LOW', 'ATZ', 'G', 0, 1000), a('TMA', 'TMA', 'C', 4500, 9500)], { lat: 59.5, lon: 16.5 }, 2500);
+    expect(here.inside).toEqual([]);
+    expect(here.below.map(x => x.id)).toEqual(['CTR', 'LOW']);
+    expect(here.above.map(x => x.id)).toEqual(['TMA']);
+  });
 });

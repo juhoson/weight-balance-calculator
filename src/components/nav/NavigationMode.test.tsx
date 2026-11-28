@@ -105,7 +105,7 @@ test('shows when the airspace was downloaded, and warns once it is older than an
   const { unmount } = await settled(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - day} reportingPoints={[]}
     swedenControl={[]} bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
-  expect(screen.getByText(/Airspace: openAIP \(volunteers\), downloaded .*No NOTAMs/)).toBeInTheDocument();
+  expect(screen.getByText(/^openAIP, \d+ \w+ · no NOTAMs: check them$/)).toBeInTheDocument();
   unmount();
   await settled(<NavigationMode trip={trip} airspaces={[ctr]} airspacesFetchedAt={Date.now() - 31 * day} reportingPoints={[]}
     swedenControl={[]} bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
@@ -297,8 +297,11 @@ test('a tower zone shows its ATIS and ground too; class G around a non-controlle
   await settled(<NavigationMode trip={trip} airspaces={[tia]} reportingPoints={[]} swedenControl={[]}
     bestGlideKt={73} cruiseKt={110} cruiseAltFt={3500} onClose={jest.fn()}/>);
   fireEvent.click(screen.getByRole('button', { name: 'Demo flight' }));
-  expect(await screen.findByText('Class G around')).toBeInTheDocument();
-  expect(within(screen.getByRole('status', { name: 'Airspace here' })).getByText(/SWEDEN CONTROL|Sweden Control/)).toBeInTheDocument();
+  // A minor area is a mark on the bar, not a bar of its own: the bar is class G, with Sweden Control.
+  const bar = screen.getByRole('status', { name: 'Airspace here' });
+  expect(await within(bar).findByText('Uncontrolled (class G)')).toBeInTheDocument();
+  expect(within(bar).getByText(/GLIDING AREA/)).toBeInTheDocument();
+  expect(within(bar).getByText(/SWEDEN CONTROL|Sweden Control/)).toBeInTheDocument();
 });
 
 test('the IFR/GNSS fixes from the AIP near the route: shown at first, switched off and on', async () => {
