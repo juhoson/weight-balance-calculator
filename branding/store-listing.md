@@ -11,6 +11,7 @@ before submitting.
 | iPhone 6.9" screenshots (1320×2868), in order | `screenshots/ios/iphone-6.9/01…10` | App Store |
 | iPhone 6.5" screenshots (1284×2778), the same, for the 6.5" slot | `screenshots/ios/iphone-6.5/01…10` | App Store |
 | iPhone 6.1"/6.3" screenshots (1206×2622), the same, for that slot | `screenshots/ios/iphone-6.3/01…10` | App Store |
+| Header and search results: one image for both (5244×2950), or the header alone (3840×1646) | `app-store/universal-5244x2950.png`, `app-store/product-page-header-3840x1646.png` | App Store |
 | iPad 13" screenshots (2064×2752), in order | `screenshots/ios/ipad-13/01…10` | App Store |
 | Phone screenshots (1080×1920) | `screenshots/android/phone/` | Google Play |
 | 10" tablet screenshots (1600×2560) | `screenshots/android/tablet-10/` | Google Play |
